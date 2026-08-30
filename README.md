@@ -1,53 +1,68 @@
 # Trade Assistant
 
-Lokalna strona w przeglądarce + baza SQLite na dysku. Bez aplikacji natywnych, bez chmury.
+Lokalna strona + baza SQLite. Wszystko siedzi w **~/Documents/Trading/**.
 
-## Szybki start (Mac)
+Bez GitHuba. Bez chmury. Bez aplikacji natywnej.
+
+---
+
+## Gdzie to leży
+
+```
+~/Documents/Trading/
+├── Start Trade Assistant.command   ← kliknij, żeby odpalić
+├── package.json
+├── src/                            ← strona
+├── server/                         ← API + baza
+├── data/trade-assistant.db         ← TWOJE trady (tworzy się sam)
+└── Trading Graphs/                 ← Twój istniejący folder (zostaje)
+```
+
+---
+
+## Pierwsze uruchomienie (raz)
+
+### 1. Node.js
+
+https://nodejs.org → LTS → instaluj.
+
+### 2. Skopiuj pliki projektu do `~/Documents/Trading/`
+
+W Cursorze: **Codebase → Download ZIP** → rozpakuj zawartość do folderu `Trading` w Dokumentach.
+
+Albo skopiuj pliki z tego agenta ręcznie — ważne, żeby `package.json` był w `~/Documents/Trading/`.
+
+### 3. Terminal
 
 ```bash
-cd ~/Documents/Trading/trading-journal
+cd ~/Documents/Trading
 npm install
+```
+
+---
+
+## Każde kolejne uruchomienie
+
+**Opcja A — Dock:**  
+Kliknij dwukrotnie `Start Trade Assistant.command` (przeciągnij go do Docka).
+
+**Opcja B — Terminal:**
+
+```bash
+cd ~/Documents/Trading
 npm start
 ```
 
-Otwórz: **http://localhost:3847**
+Potem otwórz: **http://localhost:3847**
 
-## Dodaj do Docka
+---
 
-1. Uruchom `npm install` raz
-2. Kliknij dwukrotnie **`Start Trade Assistant.command`**
-3. Przeciągnij ten plik do Docka
+## Backup tradów
 
-Przy każdym kliknięciu: start serwera + otwarcie strony w przeglądarce.
-
-## Gdzie są dane?
+Skopiuj plik:
 
 ```
-data/trade-assistant.db
+~/Documents/Trading/data/trade-assistant.db
 ```
 
-Plik SQLite w folderze projektu. Możesz go backupować kopiując ten plik.
-
-## Co potrzebujesz
-
-- Node.js 20+ → https://nodejs.org
-
-To wszystko. Bez Rusta, bez Xcode, bez Tauri.
-
-## Pobranie projektu (jednorazowo)
-
-```bash
-curl -fsSL https://downloads.cursor.com/origin/install.sh | sh
-origin auth login
-mkdir -p ~/Documents/Trading && cd ~/Documents/Trading
-origin repo clone gusta1919/trading-journal
-```
-
-Jeśli `origin` nie działa:
-
-```bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-**Repozytorium:** https://cursor.com/codebase/gusta1919/trading-journal
+To wszystko. Jeden plik = cała historia.

@@ -1,0 +1,18 @@
+TRADE ASSISTANT — JAK URUCHOMIĆ
+================================
+
+Folder: ~/Documents/Trading/
+
+PIERWSZY RAZ:
+  1. Zainstaluj Node.js → nodejs.org (LTS)
+  2. Terminal:
+       cd ~/Documents/Trading
+       npm install
+
+KAŻDY RAZ:
+  Kliknij dwukrotnie → Start Trade Assistant.command
+  (albo: cd ~/Documents/Trading && npm start)
+
+Strona: http://localhost:3847
+
+Twoje trady: ~/Documents/Trading/data/trade-assistant.db
