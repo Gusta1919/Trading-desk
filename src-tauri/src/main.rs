@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    toidora_lib::run()
+    trade_assistant_lib::run()
 }

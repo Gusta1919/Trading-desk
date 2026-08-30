@@ -1,12 +1,12 @@
 [package]
-name = "toidora"
+name = "trade-assistant"
 version = "0.1.0"
-description = "Toidora — lokalny dziennik tradingowy"
+description = "Trade Assistant — lokalny dziennik tradingowy"
 authors = ["Gustaw"]
 edition = "2021"
 
 [lib]
-name = "toidora_lib"
+name = "trade_assistant_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

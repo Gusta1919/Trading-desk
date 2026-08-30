@@ -30,10 +30,10 @@ export function Sidebar({ activeView, onNavigate, onNewTrade }: SidebarProps) {
     <aside className="flex h-full w-[220px] shrink-0 flex-col border-r border-border bg-sidebar px-4 py-6">
       <div className="mb-8 px-2">
         <p className="font-serif text-2xl tracking-tight text-foreground">
-          Toidora
+          Trade Assistant
         </p>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          Dziennik tradingowy
+          Twój dziennik tradingowy
         </p>
       </div>
 

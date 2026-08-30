@@ -1,8 +1,8 @@
 {
-  "name": "toidora",
+  "name": "trade-assistant",
   "private": true,
   "version": "0.1.0",
-  "description": "Toidora — lokalny dziennik tradingowy dla day traderów",
+  "description": "Trade Assistant — lokalny dziennik tradingowy dla day traderów",
   "type": "module",
   "scripts": {
     "dev": "vite",

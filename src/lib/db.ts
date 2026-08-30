@@ -2,7 +2,7 @@ import type { JournalEntry, JournalInput, Trade, TradeInput } from "@/types";
 import { computePnl, computeRMultiple } from "./stats";
 import { generateId } from "./utils";
 
-const STORAGE_KEY = "toidora_data_v1";
+const STORAGE_KEY = "trade_assistant_data_v1";
 
 interface StoredData {
   trades: Trade[];
@@ -29,7 +29,7 @@ async function getDb() {
   if (!isTauri()) return null;
   if (!db) {
     const Database = (await import("@tauri-apps/plugin-sql")).default;
-    db = await Database.load("sqlite:toidora.db");
+    db = await Database.load("sqlite:trade_assistant.db");
     await migrate(db);
   }
   return db;
