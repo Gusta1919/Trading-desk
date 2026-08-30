@@ -1,37 +1,53 @@
 # Trade Assistant
 
-**Lokalny dziennik tradingowy** na MacBooka — trady, statystyki, notatki i wnioski. Wszystko na Twoim komputerze.
+Lokalna strona w przeglądarce + baza SQLite na dysku. Bez aplikacji natywnych, bez chmury.
 
-## Uruchomienie na Macu
+## Szybki start (Mac)
 
 ```bash
 cd ~/Documents/Trading/trading-journal
 npm install
-npm run tauri:dev
+npm start
 ```
 
-Build `.app` do docka:
+Otwórz: **http://localhost:3847**
+
+## Dodaj do Docka
+
+1. Uruchom `npm install` raz
+2. Kliknij dwukrotnie **`Start Trade Assistant.command`**
+3. Przeciągnij ten plik do Docka
+
+Przy każdym kliknięciu: start serwera + otwarcie strony w przeglądarce.
+
+## Gdzie są dane?
+
+```
+data/trade-assistant.db
+```
+
+Plik SQLite w folderze projektu. Możesz go backupować kopiując ten plik.
+
+## Co potrzebujesz
+
+- Node.js 20+ → https://nodejs.org
+
+To wszystko. Bez Rusta, bez Xcode, bez Tauri.
+
+## Pobranie projektu (jednorazowo)
 
 ```bash
-npm run tauri:build
+curl -fsSL https://downloads.cursor.com/origin/install.sh | sh
+origin auth login
+mkdir -p ~/Documents/Trading && cd ~/Documents/Trading
+origin repo clone gusta1919/trading-journal
 ```
 
-Gotowa aplikacja: `src-tauri/target/release/bundle/macos/`
+Jeśli `origin` nie działa:
 
-## Wymagania
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
 
-- Node.js 20+
-- Rust ([rustup.rs](https://rustup.rs))
-- Xcode Command Line Tools: `xcode-select --install`
-
-## Funkcje (v0.1)
-
-- Pulpit z KPI i krzywą equity
-- Dziennik tradów z tagami, oceną wykonania, psychologią
-- Notatki i refleksje
-- Statystyki per strategia i setup
-- Automatyczne wnioski z analizy wzorców
-
-## Dane
-
-SQLite lokalnie — nic nie opuszcza Twojego Maca.
+**Repozytorium:** https://cursor.com/codebase/gusta1919/trading-journal

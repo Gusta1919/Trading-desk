@@ -65,11 +65,8 @@ export function Sidebar({ activeView, onNavigate, onNewTrade }: SidebarProps) {
       </nav>
 
       <div className="mt-auto border-t border-border pt-4 px-2">
-        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60">
-          Lokalnie · SQLite
-        </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Twoje dane nigdy nie opuszczają Maca
+          Lokalnie · data/trade-assistant.db
         </p>
       </div>
     </aside>
