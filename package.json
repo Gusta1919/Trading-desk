@@ -13,6 +13,7 @@
     "open": "open http://localhost:3847",
     "test": "node --import tsx --test tests/*.test.ts",
     "demo:add": "node --import tsx scripts/demo-data.ts add",
+    "demo:fill": "node --import tsx scripts/demo-data.ts fill",
     "demo:remove": "node --import tsx scripts/demo-data.ts remove"
   },
   "dependencies": {
