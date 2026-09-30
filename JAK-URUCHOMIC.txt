@@ -1,18 +1,61 @@
-TRADE ASSISTANT — JAK URUCHOMIĆ
-================================
+GUCCI TRADE JOURNAL — JAK URUCHOMIĆ
+===================================
 
-Folder: ~/Documents/Trading/
+Folder: ~/Documents/Trading/trade-assistant/
 
 PIERWSZY RAZ:
   1. Zainstaluj Node.js → nodejs.org (LTS)
   2. Terminal:
-       cd ~/Documents/Trading
+       cd ~/Documents/Trading/trade-assistant
        npm install
 
-KAŻDY RAZ:
-  Kliknij dwukrotnie → Start Trade Assistant.command
-  (albo: cd ~/Documents/Trading && npm start)
+KAŻDY RAZ — wybierz jedną opcję:
 
-Strona: http://localhost:3847
+  A) APLIKACJA W DOCKU
+     Kliknij dwukrotnie → Trade Assistant.app
+     Po ~10 s otwiera się przeglądarka z dziennikiem.
 
-Twoje trady: ~/Documents/Trading/data/trade-assistant.db
+  B) TERMINAL (najpewniejsze, widać co się dzieje)
+     Kliknij dwukrotnie → Start Trade Assistant.command
+     Zostaw okno otwarte — zamknięcie = wyłączenie serwera.
+
+  C) PRZEGLĄDARKA JAK APLIKACJA (po uruchomieniu serwera)
+     Chrome: ⋮ → Zapisz i udostępnij → Zainstaluj stronę jako aplikację…
+     Safari: Plik → Dodaj do Docka…
+
+  D) TERMINAL ręcznie
+     cd ~/Documents/Trading/trade-assistant && npm start
+     Potem: http://localhost:3847
+
+GDZIE SĄ MOJE DANE:
+  data/trade-assistant.db  — jeden plik SQLite: wszystkie transakcje i check-iny.
+  Zapisuje się natychmiast po kliknięciu „Add trade" / „Enter journal".
+  Zamknięcie przeglądarki, serwera albo Maca niczego nie kasuje.
+
+  KOPIA ZAPASOWA — dwa sposoby:
+   1. Przycisk „Backup" w aplikacji → plik .json z wszystkim (do Downloads).
+   2. Skopiuj cały folder data/ (np. do iCloud / na dysk zewnętrzny).
+      Najpierw zamknij serwer, żeby plik był kompletny.
+
+JAK TO DZIAŁA (w skrócie):
+  Serwer (port 3848) czyta i zapisuje bazę, strona (port 3847) ją pokazuje.
+  Wszystko działa lokalnie na tym Macu — nic nie wychodzi do internetu.
+
+GDY NIC SIĘ NIE DZIEJE:
+  1. Użyj opcji B (Start Trade Assistant.command) — zawsze pokazuje okno
+  2. Pierwszy raz macOS może zapytać o zgodę — kliknij „Otwórz"
+  3. Logi: data/launcher.log
+
+SKRÓT KLAWISZOWY (np. ⌘⇧T) — Shortcuts / Skróty:
+  1. Dodaj „Uruchom skrypt powłoki" (Run Shell Script)
+  2. Wklej:
+       export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+       bash "$HOME/Documents/Trading/trade-assistant/scripts/launch.sh"
+  3. Ustaw powłokę: /bin/bash
+  4. ⓘ → Skrót klawiaturowy → np. ⌘⇧T
+
+W APLIKACJI:
+  N        — nowa transakcja
+  ⌘↵       — zapisz transakcję
+  1–5      — odpowiedzi w porannym check-inie
+  Backup   — pobierz kopię wszystkich danych

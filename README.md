@@ -1,68 +1,44 @@
-# Trade Assistant
+# Gucci Trade Journal
 
-Lokalna strona + baza SQLite. Wszystko siedzi w **~/Documents/Trading/**.
+A local, percentage-based trading journal with a daily psychological check-in and a
+coach that turns your own history into a pre-session briefing.
 
-Bez GitHuba. Bez chmury. Bez aplikacji natywnej.
+Everything runs on your machine: an Express API (port 3848) over a SQLite file, and a
+React page (port 3847). No account, no cloud, no network calls.
 
----
-
-## Gdzie to leży
-
-```
-~/Documents/Trading/
-├── Start Trade Assistant.command   ← kliknij, żeby odpalić
-├── package.json
-├── src/                            ← strona
-├── server/                         ← API + baza
-├── data/trade-assistant.db         ← TWOJE trady (tworzy się sam)
-└── Trading Graphs/                 ← Twój istniejący folder (zostaje)
-```
-
----
-
-## Pierwsze uruchomienie (raz)
-
-### 1. Node.js
-
-https://nodejs.org → LTS → instaluj.
-
-### 2. Skopiuj pliki projektu do `~/Documents/Trading/`
-
-W Cursorze: **Codebase → Download ZIP** → rozpakuj zawartość do folderu `Trading` w Dokumentach.
-
-Albo skopiuj pliki z tego agenta ręcznie — ważne, żeby `package.json` był w `~/Documents/Trading/`.
-
-### 3. Terminal
+## Run
 
 ```bash
-cd ~/Documents/Trading
 npm install
+npm start          # starts API + web
+open http://localhost:3847
 ```
 
----
+## The screen
 
-## Każde kolejne uruchomienie
+- **KPI strip** — net return, win rate, expectancy, profit factor, drawdown, streak.
+- **Journal** — every trade in R and % of account; click a row to edit.
+- **Coach** — today's briefing: streak maths, drawdown simulation, your leaks and edges,
+  if-then plans, a principle and a reflection question.
+- **Calendar** — daily and weekly results; a day with more than one trade is flagged.
+- **Below the board** — full stats, what drives your results, habits, a Monte Carlo
+  simulation of the next 20–250 trades, and your past reflections.
 
-**Opcja A — Dock:**  
-Kliknij dwukrotnie `Start Trade Assistant.command` (przeciągnij go do Docka).
+## Data
 
-**Opcja B — Terminal:**
+- `data/trade-assistant.db` — SQLite; written the moment you save a trade or check-in.
+- **Backup** button exports everything as JSON; copying `data/` is a full backup.
+- `legacy_*` tables hold the old (v1, USD-based) schema, untouched.
 
-```bash
-cd ~/Documents/Trading
-npm start
-```
+## Code map
 
-Potem otwórz: **http://localhost:3847**
-
----
-
-## Backup tradów
-
-Skopiuj plik:
-
-```
-~/Documents/Trading/data/trade-assistant.db
-```
-
-To wszystko. Jeden plik = cała historia.
+| File | What it holds |
+|---|---|
+| `server/db.ts` | schema + migrations |
+| `server/index.ts` | REST API for trades and check-ins |
+| `src/lib/types.ts` | trade shape, sessions, entry models, checklist |
+| `src/lib/checkin.ts` | check-in questions, scoring, verdicts |
+| `src/lib/stats.ts` | outcomes, summary, equity, grouping |
+| `src/lib/insights.ts` | factor analysis (edges/leaks) and behaviour patterns |
+| `src/lib/coach.ts` | the briefing: rules, probabilities, wording |
+| `src/components/` | board panels, forms, charts |

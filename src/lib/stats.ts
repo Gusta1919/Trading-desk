@@ -1,246 +1,179 @@
-import type {
-  DailyPnl,
-  SetupPerformance,
-  StrategyPerformance,
-  Trade,
-  TradeStats,
-} from "@/types";
+import type { Outcome, Trade } from "./types";
 
-function closedTrades(trades: Trade[]): Trade[] {
-  return trades.filter((t) => t.status === "closed" && t.pnl != null);
+/** Result of a trade as % of the account: R-multiple × risk %. */
+export const tradePct = (t: Trade) => (t.resultR ?? 0) * t.riskPct;
+
+/** Results this close to 0R count as breakeven ("scratched"), not as a win or a loss. */
+export const BE_BAND = 0.1;
+
+/**
+ * Decides whether a closed trade counts as a win, loss or breakeven.
+ * Every stat (win rate, streaks, compare tables, the coach) is built on this.
+ */
+export function classifyOutcome(resultR: number | null): Outcome {
+  if (resultR == null) return "open";
+  if (Math.abs(resultR) <= BE_BAND) return "be";
+  return resultR > 0 ? "win" : "loss";
 }
 
-export function calculateStats(trades: Trade[]): TradeStats {
-  const closed = closedTrades(trades);
-  const wins = closed.filter((t) => (t.pnl ?? 0) > 0);
-  const losses = closed.filter((t) => (t.pnl ?? 0) < 0);
-  const breakeven = closed.filter((t) => (t.pnl ?? 0) === 0);
+export const isClosed = (t: Trade) => t.resultR != null;
 
-  const totalPnl = closed.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
-  const grossProfit = wins.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
-  const grossLoss = Math.abs(
-    losses.reduce((sum, t) => sum + (t.pnl ?? 0), 0),
-  );
+const byDateAsc = (a: Trade, b: Trade) => a.date.localeCompare(b.date);
+const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+const mean = (xs: number[]) => (xs.length ? sum(xs) / xs.length : null);
 
-  const avgWin = wins.length ? grossProfit / wins.length : 0;
-  const avgLoss = losses.length ? grossLoss / losses.length : 0;
-  const winRate = closed.length ? (wins.length / closed.length) * 100 : 0;
-  const profitFactor =
-    grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
-  const lossRate = closed.length ? losses.length / closed.length : 0;
-  const expectancy = winRate / 100 * avgWin - lossRate * avgLoss;
+export interface EquityPoint {
+  n: number;
+  date: string;
+  symbol: string;
+  pct: number; // this trade
+  cum: number; // running total
+  dd: number; // distance below the peak (≤ 0)
+}
 
-  const rMultiples = closed
-    .map((t) => t.rMultiple)
-    .filter((r): r is number => r != null);
-  const avgRMultiple = rMultiples.length
-    ? rMultiples.reduce((a, b) => a + b, 0) / rMultiples.length
-    : 0;
+export interface Summary {
+  closed: number;
+  open: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  winRate: number | null; // wins / (wins + losses), breakevens excluded
+  netPct: number;
+  totalR: number;
+  expectancyR: number | null;
+  expectancyPct: number | null;
+  avgWinR: number | null;
+  avgLossR: number | null;
+  profitFactor: number | null;
+  maxDrawdownPct: number;
+  currentDrawdownPct: number;
+  bestPct: number | null;
+  worstPct: number | null;
+  maxWinStreak: number;
+  maxLossStreak: number;
+  currentStreak: { outcome: "win" | "loss" | null; count: number };
+  planAdherence: number | null;
+  avgRiskPct: number | null;
+  avgPlannedRR: number | null;
+  equity: EquityPoint[];
+}
 
-  const pnls = closed.map((t) => t.pnl ?? 0);
-  const bestTrade = pnls.length ? Math.max(...pnls) : 0;
-  const worstTrade = pnls.length ? Math.min(...pnls) : 0;
+export function summarize(all: Trade[]): Summary {
+  const trades = all.filter(isClosed).sort(byDateAsc);
+  const outcomes = trades.map((t) => classifyOutcome(t.resultR));
+  const pcts = trades.map(tradePct);
+  const rs = trades.map((t) => t.resultR!);
 
-  const { currentStreak, maxWinStreak, maxLossStreak } = calculateStreaks(
-    closed.sort(
-      (a, b) =>
-        new Date(a.exitDate ?? a.entryDate).getTime() -
-        new Date(b.exitDate ?? b.entryDate).getTime(),
-    ),
-  );
+  const winsR = rs.filter((_, i) => outcomes[i] === "win");
+  const lossesR = rs.filter((_, i) => outcomes[i] === "loss");
+  const grossWin = sum(pcts.filter((p) => p > 0));
+  const grossLoss = Math.abs(sum(pcts.filter((p) => p < 0)));
 
-  const holdTimes = closed
-    .filter((t) => t.exitDate)
-    .map(
-      (t) =>
-        (new Date(t.exitDate!).getTime() - new Date(t.entryDate).getTime()) /
-        60000,
-    );
-  const avgHoldTimeMinutes = holdTimes.length
-    ? holdTimes.reduce((a, b) => a + b, 0) / holdTimes.length
-    : 0;
+  // Equity curve + drawdown (additive %, i.e. not compounded).
+  let cum = 0;
+  let peak = 0;
+  let maxDD = 0;
+  const equity: EquityPoint[] = trades.map((t, i) => {
+    cum += pcts[i];
+    peak = Math.max(peak, cum);
+    const dd = cum - peak;
+    maxDD = Math.min(maxDD, dd);
+    return { n: i + 1, date: t.date, symbol: t.symbol, pct: pcts[i], cum, dd };
+  });
 
-  const withPlan = closed.filter((t) => t.followedPlan != null);
-  const planAdherenceRate = withPlan.length
-    ? (withPlan.filter((t) => t.followedPlan).length / withPlan.length) * 100
-    : 0;
+  // Streaks — breakevens don't break or extend a streak.
+  let maxWin = 0;
+  let maxLoss = 0;
+  let run: { outcome: "win" | "loss" | null; count: number } = {
+    outcome: null,
+    count: 0,
+  };
+  for (const o of outcomes) {
+    if (o !== "win" && o !== "loss") continue;
+    run = run.outcome === o ? { outcome: o, count: run.count + 1 } : { outcome: o, count: 1 };
+    if (o === "win") maxWin = Math.max(maxWin, run.count);
+    else maxLoss = Math.max(maxLoss, run.count);
+  }
+
+  const withPlan = trades.filter((t) => t.followedPlan != null);
+  const planned = trades.map((t) => t.plannedRR).filter((v): v is number => v != null);
+  const decided = winsR.length + lossesR.length;
 
   return {
-    totalTrades: trades.length,
-    closedTrades: closed.length,
-    openTrades: trades.filter((t) => t.status === "open").length,
-    wins: wins.length,
-    losses: losses.length,
-    breakeven: breakeven.length,
-    winRate,
-    totalPnl,
-    avgWin,
-    avgLoss,
-    profitFactor,
-    expectancy,
-    avgRMultiple,
-    bestTrade,
-    worstTrade,
-    currentStreak,
-    maxWinStreak,
-    maxLossStreak,
-    avgHoldTimeMinutes,
-    planAdherenceRate,
+    closed: trades.length,
+    open: all.length - trades.length,
+    wins: winsR.length,
+    losses: lossesR.length,
+    breakeven: outcomes.filter((o) => o === "be").length,
+    winRate: decided ? winsR.length / decided : null,
+    netPct: sum(pcts),
+    totalR: sum(rs),
+    expectancyR: mean(rs),
+    expectancyPct: mean(pcts),
+    avgWinR: mean(winsR),
+    avgLossR: mean(lossesR),
+    profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : null,
+    maxDrawdownPct: maxDD,
+    currentDrawdownPct: equity.length ? equity[equity.length - 1].dd : 0,
+    bestPct: pcts.length ? Math.max(...pcts) : null,
+    worstPct: pcts.length ? Math.min(...pcts) : null,
+    maxWinStreak: maxWin,
+    maxLossStreak: maxLoss,
+    currentStreak: run,
+    planAdherence: withPlan.length
+      ? withPlan.filter((t) => t.followedPlan).length / withPlan.length
+      : null,
+    avgRiskPct: mean(trades.map((t) => t.riskPct)),
+    avgPlannedRR: mean(planned),
+    equity,
   };
 }
 
-function calculateStreaks(sortedClosed: Trade[]) {
-  let currentType: "win" | "loss" | "none" = "none";
-  let currentCount = 0;
-  let maxWinStreak = 0;
-  let maxLossStreak = 0;
-  let winRun = 0;
-  let lossRun = 0;
+export interface GroupRow {
+  key: string;
+  count: number;
+  winRate: number | null;
+  avgR: number | null;
+  netPct: number;
+}
 
-  for (const trade of sortedClosed) {
-    const pnl = trade.pnl ?? 0;
-    if (pnl > 0) {
-      winRun++;
-      lossRun = 0;
-      maxWinStreak = Math.max(maxWinStreak, winRun);
-    } else if (pnl < 0) {
-      lossRun++;
-      winRun = 0;
-      maxLossStreak = Math.max(maxLossStreak, lossRun);
-    } else {
-      winRun = 0;
-      lossRun = 0;
+/**
+ * Splits closed trades into groups and compares them.
+ * `keyOf` may return several keys (a trade with two mistakes counts in both).
+ */
+export function groupBy(
+  all: Trade[],
+  keyOf: (t: Trade) => string | string[] | null,
+  order?: string[],
+): GroupRow[] {
+  const groups = new Map<string, Trade[]>();
+  for (const t of all.filter(isClosed)) {
+    const raw = keyOf(t);
+    const keys = raw == null ? [] : Array.isArray(raw) ? raw : [raw];
+    for (const k of keys) {
+      if (!k) continue;
+      groups.set(k, [...(groups.get(k) ?? []), t]);
     }
   }
 
-  const last = sortedClosed[sortedClosed.length - 1];
-  if (last) {
-    const pnl = last.pnl ?? 0;
-    if (pnl > 0) {
-      currentType = "win";
-      currentCount = winRun;
-    } else if (pnl < 0) {
-      currentType = "loss";
-      currentCount = lossRun;
-    }
-  }
-
-  return {
-    currentStreak: { type: currentType, count: currentCount },
-    maxWinStreak,
-    maxLossStreak,
-  };
-}
-
-export function calculateDailyPnl(trades: Trade[]): DailyPnl[] {
-  const map = new Map<string, { pnl: number; trades: number }>();
-
-  for (const trade of closedTrades(trades)) {
-    const date = (trade.exitDate ?? trade.entryDate).slice(0, 10);
-    const existing = map.get(date) ?? { pnl: 0, trades: 0 };
-    map.set(date, {
-      pnl: existing.pnl + (trade.pnl ?? 0),
-      trades: existing.trades + 1,
-    });
-  }
-
-  return Array.from(map.entries())
-    .map(([date, data]) => ({ date, ...data }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-}
-
-export function calculateStrategyPerformance(
-  trades: Trade[],
-): StrategyPerformance[] {
-  const map = new Map<
-    string,
-    { wins: number; total: number; pnl: number; rSum: number; rCount: number }
-  >();
-
-  for (const trade of closedTrades(trades)) {
-    const key = trade.strategy || "Bez strategii";
-    const existing = map.get(key) ?? {
-      wins: 0,
-      total: 0,
-      pnl: 0,
-      rSum: 0,
-      rCount: 0,
+  const rows = [...groups].map(([key, ts]) => {
+    const outcomes = ts.map((t) => classifyOutcome(t.resultR));
+    const wins = outcomes.filter((o) => o === "win").length;
+    const decided = wins + outcomes.filter((o) => o === "loss").length;
+    return {
+      key,
+      count: ts.length,
+      winRate: decided ? wins / decided : null,
+      avgR: mean(ts.map((t) => t.resultR!)),
+      netPct: sum(ts.map(tradePct)),
     };
-    const isWin = (trade.pnl ?? 0) > 0;
-    map.set(key, {
-      wins: existing.wins + (isWin ? 1 : 0),
-      total: existing.total + 1,
-      pnl: existing.pnl + (trade.pnl ?? 0),
-      rSum: existing.rSum + (trade.rMultiple ?? 0),
-      rCount: existing.rCount + (trade.rMultiple != null ? 1 : 0),
-    });
+  });
+
+  if (order) {
+    return rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
   }
-
-  return Array.from(map.entries())
-    .map(([strategy, data]) => ({
-      strategy,
-      trades: data.total,
-      winRate: data.total ? (data.wins / data.total) * 100 : 0,
-      totalPnl: data.pnl,
-      avgR: data.rCount ? data.rSum / data.rCount : 0,
-    }))
-    .sort((a, b) => b.totalPnl - a.totalPnl);
+  return rows.sort((a, b) => b.netPct - a.netPct);
 }
 
-export function calculateSetupPerformance(trades: Trade[]): SetupPerformance[] {
-  const map = new Map<
-    string,
-    { wins: number; total: number; pnl: number }
-  >();
-
-  for (const trade of closedTrades(trades)) {
-    const key = trade.setupType || "Bez setupu";
-    const existing = map.get(key) ?? { wins: 0, total: 0, pnl: 0 };
-    const isWin = (trade.pnl ?? 0) > 0;
-    map.set(key, {
-      wins: existing.wins + (isWin ? 1 : 0),
-      total: existing.total + 1,
-      pnl: existing.pnl + (trade.pnl ?? 0),
-    });
-  }
-
-  return Array.from(map.entries())
-    .map(([setup, data]) => ({
-      setup,
-      trades: data.total,
-      winRate: data.total ? (data.wins / data.total) * 100 : 0,
-      totalPnl: data.pnl,
-    }))
-    .sort((a, b) => b.trades - a.trades);
-}
-
-export function computeRMultiple(trade: {
-  direction: string;
-  entryPrice: number;
-  exitPrice: number | null;
-  stopLoss: number | null;
-}): number | null {
-  if (trade.exitPrice == null || trade.stopLoss == null) return null;
-  const risk = Math.abs(trade.entryPrice - trade.stopLoss);
-  if (risk === 0) return null;
-  const reward =
-    trade.direction === "long"
-      ? trade.exitPrice - trade.entryPrice
-      : trade.entryPrice - trade.exitPrice;
-  return reward / risk;
-}
-
-export function computePnl(trade: {
-  direction: string;
-  entryPrice: number;
-  exitPrice: number | null;
-  quantity: number;
-  fees?: number;
-}): number | null {
-  if (trade.exitPrice == null) return null;
-  const gross =
-    trade.direction === "long"
-      ? (trade.exitPrice - trade.entryPrice) * trade.quantity
-      : (trade.entryPrice - trade.exitPrice) * trade.quantity;
-  return gross - (trade.fees ?? 0);
-}
+export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+export const weekdayOf = (t: Trade) => WEEKDAYS[(new Date(t.date).getDay() + 6) % 7];

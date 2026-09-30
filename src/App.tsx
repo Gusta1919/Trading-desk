@@ -1,93 +1,348 @@
-import { useState } from "react";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { TradeFormDialog } from "@/components/trades/TradeFormDialog";
-import { TradeDetailPanel } from "@/components/trades/TradeDetailPanel";
-import { AppDataProvider, useAppData } from "@/context/AppDataProvider";
-import { Dashboard } from "@/pages/Dashboard";
-import { InsightsPage } from "@/pages/InsightsPage";
-import { JournalPage } from "@/pages/JournalPage";
-import { StatsPage } from "@/pages/StatsPage";
-import { TradesPage } from "@/pages/TradesPage";
-import type { Trade, ViewId } from "@/types";
+import { Download, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CalendarView } from "@/components/CalendarView";
+import { CheckIn } from "@/components/CheckIn";
+import { CoachView } from "@/components/CoachView";
+import { Simulation } from "@/components/Simulation";
+import { ReadinessMeter } from "@/components/ReadinessMeter";
+import { RiskChip } from "@/components/RiskChip";
+import { Bell, BellOff } from "lucide-react";
+import { NewsView } from "@/components/NewsView";
+import { unlockAudio, clearTitle, testChime } from "@/lib/alerts";
+import { useNews, useNewsAlerts } from "@/lib/useNews";
+import { countsForTrading } from "@/lib/newsRules";
+import { StatsStrip } from "@/components/StatsStrip";
+import { StatsView } from "@/components/StatsView";
+import { StrategiesView } from "@/components/StrategiesView";
+import { TradeForm } from "@/components/TradeForm";
+import { TradeList } from "@/components/TradeList";
+import { Button, Segmented, cx } from "@/components/ui";
+import { api } from "@/lib/api";
+import type { CheckIn as CheckInData } from "@/lib/checkin";
+import type { Limits } from "@/lib/types";
+import { buildBriefing, nudge } from "@/lib/coach";
+import { takenTrades } from "@/lib/risk";
+import { dayKey } from "@/lib/format";
+import { weekKey, type Strategy, type Trade, type WeekNote } from "@/lib/types";
 
-function AppShell() {
-  const [view, setView] = useState<ViewId>("dashboard");
-  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
-  const [tradeFormOpen, setTradeFormOpen] = useState(false);
-  const [editingTrade, setEditingTrade] = useState<Trade | null>(null);
-  const { refresh } = useAppData();
+type View = "journal" | "calendar" | "strategies" | "stats" | "news" | "risk" | "coach";
 
-  const handleSelectTrade = (trade: Trade) => {
-    setSelectedTrade(trade);
-    if (view !== "trades") setView("trades");
-  };
+const TABS: { value: View; label: string }[] = [
+  { value: "journal", label: "Journal" },
+  { value: "calendar", label: "Calendar" },
+  { value: "strategies", label: "Strategies" },
+  { value: "stats", label: "Stats" },
+  { value: "news", label: "News" },
+  { value: "risk", label: "Risk lab" },
+  { value: "coach", label: "Coach" },
+];
 
-  const handleNewTrade = () => {
-    setEditingTrade(null);
-    setTradeFormOpen(true);
-  };
-
-  const handleEditTrade = (trade: Trade) => {
-    setEditingTrade(trade);
-    setTradeFormOpen(true);
-  };
-
-  const handleSaved = async () => {
-    await refresh();
-    setEditingTrade(null);
-  };
-
-  return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar
-        activeView={view}
-        onNavigate={setView}
-        onNewTrade={handleNewTrade}
-      />
-
-      <main className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-y-auto">
-          {view === "dashboard" && (
-            <Dashboard
-              onNavigate={setView}
-              onSelectTrade={handleSelectTrade}
-            />
-          )}
-          {view === "trades" && (
-            <TradesPage
-              onSelectTrade={handleSelectTrade}
-              selectedTradeId={selectedTrade?.id}
-            />
-          )}
-          {view === "journal" && <JournalPage />}
-          {view === "stats" && <StatsPage />}
-          {view === "insights" && <InsightsPage />}
-        </div>
-
-        {selectedTrade && (view === "trades" || view === "dashboard") && (
-          <TradeDetailPanel
-            trade={selectedTrade}
-            onClose={() => setSelectedTrade(null)}
-            onEdit={handleEditTrade}
-            onDeleted={refresh}
-          />
-        )}
-      </main>
-
-      <TradeFormDialog
-        open={tradeFormOpen}
-        onOpenChange={setTradeFormOpen}
-        trade={editingTrade}
-        onSaved={handleSaved}
-      />
-    </div>
-  );
-}
+const loadView = (): View => {
+  try {
+    const v = localStorage.getItem("view") as View | null;
+    return v && TABS.some((t) => t.value === v) ? v : "journal";
+  } catch {
+    return "journal";
+  }
+};
 
 export default function App() {
+  const [view, setViewState] = useState<View>(loadView);
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [checkins, setCheckins] = useState<CheckInData[]>([]);
+  const [limits, setLimits] = useState<Limits | null>(null);
+
+  /* News is owned here so the trade blocker and the alerts work on every tab. */
+  const news = useNews();
+  /*
+   * Alerts are on by default — a guard you have to remember to switch on is a guard
+   * that is off when it matters. Sound still needs one click, because browsers
+   * refuse audio until a gesture; until then the warnings are visual.
+   */
+  const [sound, setSound] = useState(true);
+  const [audible, setAudible] = useState(false);
+  /* The calendar shows every folder; only red news on the desk's currencies chimes. */
+  const tradingEvents = useMemo(() => news.events.filter(countsForTrading), [news.events]);
+  const alerts = useNewsAlerts(tradingEvents, news.headlines, news.rules, sound);
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [weeks, setWeeks] = useState<WeekNote[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState<Trade | null>(null);
+  // null = still loading, so the journal doesn't flash before the check-in.
+  const [checkInOpen, setCheckInOpen] = useState<boolean | null>(null);
+
+  /** Remembers the tab you were on between sessions. */
+  const setView = (v: View) => {
+    setViewState(v);
+    window.scrollTo({ top: 0 });
+    try {
+      localStorage.setItem("view", v);
+    } catch {
+      /* private window — the choice just won't be remembered */
+    }
+  };
+
+  /* Skipped setups are logged for Compare only — every result, the Coach and the Risk lab use what was taken. */
+  const taken = useMemo(() => takenTrades(trades), [trades]);
+
+  const today = checkins.find((c) => c.date === dayKey(new Date()));
+  const coachNudge = useMemo(
+    // The Coach sets skipped setups aside itself — it uses them to judge whether skipping was right.
+    () => nudge(buildBriefing(trades, checkins, undefined, strategies, limits)),
+    [trades, checkins, strategies, limits],
+  );
+
+  const saveLimits = (next: Limits) => {
+    setLimits(next);
+    api.saveLimits(next).then(setLimits).catch(() => {});
+  };
+
+  const loadStrategies = useCallback(async () => {
+    setStrategies(await api.strategies().catch(() => []));
+  }, []);
+
+  useEffect(() => {
+    api.weeks().then(setWeeks).catch(() => []);
+  }, []);
+
+  const thisWeek = weeks.find((w) => w.week === weekKey(new Date())) ?? null;
+
+  useEffect(() => {
+    loadStrategies();
+  }, [loadStrategies]);
+
+  const load = useCallback(async () => {
+    try {
+      setTrades(await api.list());
+      setLoadError(null);
+    } catch {
+      setLoadError(
+        "Can't reach the local server — your saved data is safe, but nothing new can be saved until it's running again.",
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  useEffect(() => {
+    api
+      .checkins()
+      .then((list) => {
+        setCheckins(list);
+        setCheckInOpen(!list.some((c) => c.date === dayKey(new Date())));
+      })
+      .catch(() => setCheckInOpen(true));
+  }, []);
+
+  // Your risk lines and the prop firm's drive the trade form and the Coach, so they load with everything else.
+  useEffect(() => {
+    api.limits().then(setLimits).catch(() => {});
+  }, []);
+
+  const saveCheckin = (c: CheckInData) =>
+    setCheckins((list) => [c, ...list.filter((x) => x.date !== c.date)]);
+
+  const openNew = () => {
+    setEditing(null);
+    setFormOpen(true);
+  };
+  const openEdit = (t: Trade) => {
+    setEditing(t);
+    setFormOpen(true);
+  };
+
+  // "N" opens a new trade from anywhere (unless you're typing in a field).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Key events can come from the window itself, which has no .closest — guard for that.
+      const target = e.target as HTMLElement | null;
+      const typing = typeof target?.closest === "function" && target.closest("input, textarea, select");
+      if (e.key.toLowerCase() === "n" && !typing && !formOpen && !checkInOpen && !e.metaKey) {
+        e.preventDefault();
+        openNew();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [formOpen, checkInOpen]);
+
+  /** Saves a copy of everything as one JSON file — your own backup. */
+  function exportData() {
+    const blob = new Blob(
+      [JSON.stringify({ exportedAt: new Date().toISOString(), trades, checkins }, null, 2)],
+      { type: "application/json" },
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `trade-journal-${dayKey(new Date())}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if (checkInOpen === null) return null;
+  if (checkInOpen) {
+    return (
+      <CheckIn
+        trades={trades}
+        checkins={checkins}
+        onDone={(c) => {
+          saveCheckin(c);
+          setCheckInOpen(false);
+        }}
+        onKeep={today ? () => setCheckInOpen(false) : undefined}
+      />
+    );
+  }
+
   return (
-    <AppDataProvider>
-      <AppShell />
-    </AppDataProvider>
+    <div className="w-full px-8 pb-24 xl:px-12">
+      <header className="glass sticky top-0 z-30 -mx-8 flex items-center gap-6 border-b border-line px-8 py-4 xl:-mx-12 xl:px-12">
+        <h1 className="flex items-center gap-2.5 text-[13px] font-semibold uppercase tracking-[0.2em]">
+          <span className="size-1.5 rounded-full bg-accent shadow-[0_0_12px_var(--glow-accent)]" />
+          Trading Desk
+        </h1>
+        <Segmented size="sm" value={view} onChange={(v) => v && setView(v)} options={TABS} />
+
+        {/* Your risk lines, always in view — small, and a click away from changing. */}
+        <div className="ml-auto">
+          <RiskChip trades={taken} limits={limits} onChange={saveLimits} />
+        </div>
+        <button
+          onClick={() => setCheckInOpen(true)}
+          title={today ? "Redo today's check-in" : "Do today's check-in"}
+          className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink"
+        >
+          {today ? (
+            <ReadinessMeter score={today.score} verdict={today.verdict} />
+          ) : (
+            "Check in"
+          )}
+        </button>
+        <button
+          onClick={async () => {
+            // One job: on or off. An earlier version tried to make the first click
+            // "add sound", which left anyone whose browser blocks audio unable to
+            // mute at all — the button could only ever turn on.
+            if (sound) {
+              setSound(false);
+              setAudible(false);
+              clearTitle();
+              return;
+            }
+            // Alerts turn on either way; this click is also the gesture that
+            // browsers require before any sound may be played.
+            setSound(true);
+            const ok = await unlockAudio();
+            setAudible(ok);
+            // Play it once on the way in: silence is the only way to find out
+            // whether a browser is honouring the unlock.
+            if (ok) testChime();
+          }}
+          title={
+            !sound
+              ? "Alerts off. Click to be warned before red releases."
+              : audible
+                ? "Alerts on — chime 1 minute before and at each red release"
+                : "Alerts on, but this browser is blocking sound. Visual warnings still work; allow sound for this site to hear the chime."
+          }
+          className={cx(
+            "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] hover:bg-subtle",
+            sound ? "text-accent-2" : "text-soft hover:text-ink",
+          )}
+        >
+          {sound ? <Bell size={14} /> : <BellOff size={14} />}
+          {sound ? "Alerts" : "Muted"}
+        </button>
+        <button
+          onClick={exportData}
+          title="Download a backup of every trade and check-in"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink"
+        >
+          <Download size={14} /> Backup
+        </button>
+        <Button variant="accent" onClick={openNew} title="New trade (N)">
+          <Plus size={15} /> New trade
+        </Button>
+      </header>
+
+      {loadError && (
+        <div className="card mt-8 border-down/40 px-4 py-3 text-[13px] text-down">{loadError}</div>
+      )}
+
+      <div className="mt-8 space-y-4">
+        {/* The headline numbers stay visible on every tab. */}
+        {view !== "stats" && <StatsStrip trades={taken} />}
+
+        {/* Crossfade on tab change. Deliberately a CSS animation, not a JS one:
+            browsers pause frame-driven animation in background tabs, which can strand
+            content at opacity 0. A time-based animation always finishes. */}
+        <div key={view} className="anim-view">
+            {view === "journal" && (
+              <TradeList
+                trades={trades}
+                strategies={strategies}
+                onNew={openNew}
+                onOpen={openEdit}
+              />
+            )}
+            {view === "calendar" && (
+              <CalendarView trades={taken} checkins={checkins} onOpen={openEdit} />
+            )}
+            {view === "strategies" && (
+              <StrategiesView
+                strategies={strategies}
+                trades={trades}
+                limits={limits}
+                onSaved={loadStrategies}
+              />
+            )}
+            {view === "stats" && (
+              <StatsView trades={trades} checkins={checkins} strategies={strategies} />
+            )}
+            {view === "news" && <NewsView news={news} />}
+            {view === "risk" && (
+              <Simulation trades={taken} strategies={strategies} limits={limits} />
+            )}
+            {view === "coach" && (
+              <CoachView
+                trades={trades}
+                checkins={checkins}
+                strategies={strategies}
+                limits={limits}
+              />
+            )}
+        </div>
+      </div>
+
+      {/* A one-second ring around the desk, so an alert lands even in silence. */}
+      {alerts.pulse && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-[60] anim-fade"
+          style={{
+            boxShadow: `inset 0 0 0 2px var(--color-${alerts.pulse === "critical" ? "down" : "accent"})`,
+          }}
+        />
+      )}
+
+      <TradeForm
+        calendar={news.events}
+        limits={limits}
+        open={formOpen}
+        trade={editing}
+        trades={trades}
+        strategies={strategies}
+        checkins={checkins}
+        week={thisWeek}
+        onStrategySaved={loadStrategies}
+        nudge={coachNudge}
+        onClose={() => setFormOpen(false)}
+        onSaved={load}
+      />
+    </div>
   );
 }

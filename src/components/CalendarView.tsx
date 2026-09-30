@@ -1,0 +1,370 @@
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
+import { dayKey, fmtPct, fmtR, fmtTime, tone } from "@/lib/format";
+import { WEEKDAYS, isClosed, tradePct } from "@/lib/stats";
+import { QUESTIONS, VERDICTS, type CheckIn } from "@/lib/checkin";
+import { isGrade, type Trade } from "@/lib/types";
+import { verdictColor } from "./CheckIn";
+import { GradeBadge } from "./GradeBadge";
+import { setupOf } from "./TradeList";
+import { Button, cx } from "./ui";
+
+interface Day {
+  key: string;
+  date: Date;
+  inMonth: boolean;
+  trades: Trade[];
+  pct: number;
+}
+
+/** How strongly a day is lit: scaled against the month's biggest move. */
+function heat(pct: number, peak: number) {
+  return Math.min(1, Math.abs(pct) / (peak || 1));
+}
+
+/** "YYYY-MM-DD" of a calendar cell, read from its own date parts. */
+const cellKey = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+export function CalendarView({
+  trades,
+  checkins,
+  onOpen,
+  compact = false,
+}: {
+  trades: Trade[];
+  checkins: CheckIn[];
+  onOpen: (t: Trade) => void;
+  /** Board mode: fits a small panel — no week column, no day panel, smaller cells. */
+  compact?: boolean;
+}) {
+  // "Today" is New York's date, like every date a trade carries.
+  const todayKey = dayKey(new Date());
+  const thisMonth = () => new Date(Number(todayKey.slice(0, 4)), Number(todayKey.slice(5, 7)) - 1, 1);
+  const [month, setMonth] = useState(thisMonth);
+  const [selected, setSelected] = useState<string | null>(todayKey);
+
+  const byDay = useMemo(() => {
+    const map = new Map<string, Trade[]>();
+    for (const t of trades) {
+      const k = t.date.slice(0, 10);
+      map.set(k, [...(map.get(k) ?? []), t]);
+    }
+    return map;
+  }, [trades]);
+
+  // 6 rows × 7 days, starting on the Monday on/before the 1st of the month.
+  const weeks = useMemo(() => {
+    const start = new Date(month);
+    start.setDate(1 - ((month.getDay() + 6) % 7));
+    const days: Day[] = Array.from({ length: 42 }, (_, i) => {
+      const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
+      /*
+       * A cell is a calendar date, not a moment in time: its key comes straight from
+       * the year, month and day. Converting it through a timezone would move midnight
+       * here to the evening before in New York and shift every trade a day later.
+       */
+      const key = cellKey(date);
+      const ts = byDay.get(key) ?? [];
+      return {
+        key,
+        date,
+        inMonth: date.getMonth() === month.getMonth(),
+        trades: ts,
+        pct: ts.filter(isClosed).reduce((a, t) => a + tradePct(t), 0),
+      };
+    });
+    const rows = Array.from({ length: 6 }, (_, w) => days.slice(w * 7, w * 7 + 7));
+    // Drop a trailing week that belongs entirely to the next month.
+    return rows.filter((row) => row.some((d) => d.inMonth));
+  }, [month, byDay]);
+
+  const monthDays = weeks.flat().filter((d) => d.inMonth && d.trades.length);
+  const peak = Math.max(...monthDays.map((d) => Math.abs(d.pct)), 0.001);
+  const monthPct = monthDays.reduce((a, d) => a + d.pct, 0);
+  const greenDays = monthDays.filter((d) => d.pct > 0).length;
+  const redDays = monthDays.filter((d) => d.pct < 0).length;
+  const monthTrades = monthDays.reduce((a, d) => a + d.trades.length, 0);
+
+  const shift = (n: number) =>
+    setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
+
+  const selectedTrades = selected ? byDay.get(selected) ?? [] : [];
+  const selectedCheckIn = checkins.find((c) => c.date === selected);
+
+  return (
+    <div className={cx(compact ? "flex h-full min-h-0 flex-col gap-2" : "space-y-4")}>
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" className="px-2" onClick={() => shift(-1)} aria-label="Previous month">
+            <ChevronLeft size={16} />
+          </Button>
+          <h2 className="w-40 text-center text-[15px] font-semibold">
+            {month.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
+          </h2>
+          <Button variant="ghost" className="px-2" onClick={() => shift(1)} aria-label="Next month">
+            <ChevronRight size={16} />
+          </Button>
+          <Button
+            variant="ghost"
+            className="text-[12px]"
+            onClick={() => {
+              setMonth(thisMonth());
+              setSelected(todayKey);
+            }}
+          >
+            Today
+          </Button>
+        </div>
+        <div className={cx("num flex gap-5 text-soft", compact ? "text-[12px]" : "text-[13px]")}>
+          <span>
+            Month <b className="font-medium text-ink">{fmtPct(monthPct)}</b>
+          </span>
+          <span>{monthTrades} trade{monthTrades === 1 ? "" : "s"}</span>
+          {!compact && (
+            <span>
+              {greenDays} green · {redDays} red days
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div
+        className={cx(
+          compact
+            ? "min-h-0 flex-1 overflow-hidden rounded-lg border"
+            : "card overflow-x-auto",
+        )}
+      >
+        <div
+          className={cx(
+            "grid",
+            compact
+              ? "h-full grid-cols-7 grid-rows-[auto_repeat(var(--weeks),minmax(0,1fr))]"
+              : "min-w-[720px] grid-cols-[repeat(7,1fr)_0.9fr]",
+          )}
+          style={compact ? ({ "--weeks": weeks.length } as React.CSSProperties) : undefined}
+        >
+          {(compact ? WEEKDAYS : [...WEEKDAYS, "Week"]).map((d) => (
+            <div
+              key={d}
+              className={cx(
+                "border-b text-[10px] font-medium uppercase tracking-[0.1em] text-faint",
+                compact ? "px-2 py-1.5" : "px-4 py-3",
+              )}
+            >
+              {compact ? d[0] + d[1] : d}
+            </div>
+          ))}
+
+          {weeks.map((week, w) => {
+            const weekDays = week.filter((d) => d.inMonth);
+            const weekPct = weekDays.reduce((a, d) => a + d.pct, 0);
+            const weekTrades = weekDays.reduce((a, d) => a + d.trades.length, 0);
+            return [
+              ...week.map((d) => (
+                <DayCell
+                  key={d.key}
+                  day={d}
+                  peak={peak}
+                  checkin={checkins.find((c) => c.date === d.key)}
+                  compact={compact}
+                  isToday={d.key === todayKey}
+                  isSelected={d.key === selected}
+                  onClick={() => {
+                    setSelected(d.key);
+                    // On the board there's no day panel, so a day with trades opens the
+                    // first one directly — one click from calendar to the trade itself.
+                    if (compact && d.trades.length) onOpen(d.trades[0]);
+                  }}
+                />
+              )),
+              compact ? null : (
+              <div
+                key={`w${w}`}
+                className="flex min-h-[88px] flex-col justify-center border-b px-3 py-2 last:border-b-0"
+              >
+                {weekTrades > 0 && (
+                  <>
+                    <span className="num text-[14px] font-medium text-soft">{fmtPct(weekPct)}</span>
+                    <span className="num text-[11px] text-faint">
+                      {weekTrades} trade{weekTrades === 1 ? "" : "s"}
+                    </span>
+                  </>
+                )}
+              </div>
+              ),
+            ];
+          })}
+        </div>
+      </div>
+
+      {selected && !compact && (
+        <div className="card px-6 py-5">
+          <h3 className="mb-3 text-[14px] font-semibold">
+            {new Date(`${selected}T00:00`).toLocaleDateString("en-GB", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            })}
+          </h3>
+          {selectedCheckIn && <DayCheckIn checkin={selectedCheckIn} />}
+          {selectedTrades.length === 0 ? (
+            <p className="text-soft">No trades on this day.</p>
+          ) : (
+            <ul className="-mx-2">
+              {selectedTrades.map((t) => (
+                <li key={t.id}>
+                  <button
+                    onClick={() => onOpen(t)}
+                    className="num flex w-full items-center gap-4 rounded-lg px-2 py-2 text-left text-[13px] hover:bg-subtle"
+                  >
+                    <span className="w-12 text-faint">{fmtTime(t.date)}</span>
+                    <span className="w-24 font-medium">{t.symbol}</span>
+                    <span className="w-14 text-soft">{t.direction === "long" ? "Long" : "Short"}</span>
+                    <span className="w-10 shrink-0">{isGrade(t.grade) && <GradeBadge grade={t.grade} size="sm" />}</span>
+                    <span className="min-w-0 max-w-xl flex-1 truncate text-soft">{setupOf(t)}</span>
+                    <span className={cx("w-16 text-right font-medium", tone(t.resultR))}>
+                      {t.resultR == null ? "open" : fmtR(t.resultR)}
+                    </span>
+                    <span className={cx("w-16 text-right font-medium", tone(isClosed(t) ? tradePct(t) : null))}>
+                      {isClosed(t) ? fmtPct(tradePct(t)) : "—"}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Compact view of the day's check-in: verdict, score, every answer and the note. */
+function DayCheckIn({ checkin }: { checkin: CheckIn }) {
+  return (
+    <div className="mb-4 rounded-lg bg-subtle px-4 py-3">
+      <div className={cx("flex items-center gap-2 text-[13px] font-medium", verdictColor[checkin.verdict])}>
+        <span className="size-2 rounded-full bg-current" />
+        {VERDICTS[checkin.verdict].label}
+        <span className="num font-normal text-faint">{checkin.score}/100</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px]">
+        {QUESTIONS.map((q) => {
+          const o = q.options[checkin.answers[q.id]];
+          if (!o) return null;
+          return (
+            <span key={q.id}>
+              <span className="text-faint">{q.short}:</span>{" "}
+              <span className={cx(o.risk === 2 ? "text-down" : o.risk === 1 ? "text-warn" : "text-soft")}>
+                {o.label}
+              </span>
+            </span>
+          );
+        })}
+      </div>
+      {checkin.note && <p className="mt-2 text-[12px] italic text-soft">“{checkin.note}”</p>}
+    </div>
+  );
+}
+
+function DayCell({
+  day,
+  peak,
+  checkin,
+  isToday,
+  isSelected,
+  onClick,
+  compact,
+}: {
+  day: Day;
+  peak: number;
+  checkin?: CheckIn;
+  isToday: boolean;
+  isSelected: boolean;
+  onClick: () => void;
+  compact?: boolean;
+}) {
+  const n = day.trades.length;
+  const hasClosed = day.trades.some(isClosed);
+  const intensity = hasClosed ? heat(day.pct, peak) : 0;
+  /* Green and red live in the text and a thin edge — the cell itself stays dark. */
+  const hue = day.pct >= 0 ? "var(--color-up)" : "var(--color-down)";
+
+  return (
+    <button
+      onClick={onClick}
+      style={
+        intensity
+          ? {
+              backgroundColor: `color-mix(in oklab, ${hue} ${2 + intensity * 6}%, var(--color-surface))`,
+              boxShadow: `inset 2px 0 0 color-mix(in oklab, ${hue} ${34 + intensity * 56}%, transparent)`,
+            }
+          : undefined
+      }
+      className={cx(
+        "group relative flex overflow-hidden border-b border-r text-left transition-[transform,background-color] duration-200",
+        compact
+          ? "min-h-0 flex-row items-baseline justify-between gap-1 px-2 py-1"
+          : "min-h-[104px] flex-col items-start gap-1.5 px-4 py-3",
+        !day.inMonth && "opacity-25",
+        "hover:bg-raised",
+        isSelected && "ring-1 ring-inset ring-line",
+      )}
+    >
+      {n > 0 && !compact && (
+        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden -translate-x-1/2 translate-y-1 group-hover:block">
+          <span className="glass block min-w-[190px] rounded-xl border px-3 py-2 text-[12px] shadow-xl">
+            <span className="num block text-faint">
+              {day.date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+            </span>
+            {day.trades.map((t) => (
+              <span key={t.id} className="num mt-1 flex justify-between gap-3">
+                <span className="text-soft">{t.symbol}</span>
+                <span className={tone(t.resultR)}>
+                  {t.resultR == null ? "open" : fmtR(t.resultR)}
+                </span>
+              </span>
+            ))}
+            {checkin && (
+              <span className="mt-1.5 block border-t pt-1.5 text-[11px] text-faint">
+                Check-in {checkin.score}/100
+              </span>
+            )}
+          </span>
+        </span>
+      )}
+      <span
+        className={cx(
+          "num flex items-center justify-center rounded-full",
+          compact ? "size-5 text-[11px]" : "size-6 text-[12px]",
+          isToday ? "bg-ink font-semibold text-bg" : "text-soft",
+        )}
+      >
+        {day.date.getDate()}
+      </span>
+      {n > 0 && (
+        <span className={cx(compact ? "flex items-baseline gap-1" : "contents")}>
+          <span
+            className={cx(
+              "num font-medium",
+              compact ? "text-[11px]" : "text-[14px]",
+              hasClosed ? tone(day.pct) : "text-faint",
+              hasClosed && (day.pct >= 0 ? "glow-up" : "glow-down"),
+            )}
+          >
+            {hasClosed ? fmtPct(day.pct, compact ? 1 : 2) : "open"}
+          </span>
+          {!compact && (
+            <span className="num text-[10px] text-faint">
+              {n} trade{n > 1 ? "s" : ""}
+              {n > 1 && " ⚠"}
+            </span>
+          )}
+          {compact && n > 1 && <span className="num text-[10px] text-down">⚠{n}</span>}
+        </span>
+      )}
+    </button>
+  );
+}
