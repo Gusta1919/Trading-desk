@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Timeframe } from "@/lib/chart";
 import type { DailyBias, Scenario } from "@/lib/dailyBias";
 import { useCandles } from "@/lib/useCandles";
@@ -42,13 +42,18 @@ function useChartHeight() {
     window.addEventListener("resize", on);
     return () => window.removeEventListener("resize", on);
   }, []);
-  return Math.round(Math.min(940, Math.max(440, vh - 250)));
+  // What sits above the plot: the desk's header, the tab's top margin, the
+  // chart's title bar and the layer switches — about 270px.
+  return Math.round(Math.min(940, Math.max(440, vh - 270)));
 }
 
 export function BiasChart({
   b,
   pick,
   onPick,
+  headline,
+  day,
+  writtenAt,
   className,
   style,
 }: {
@@ -56,6 +61,12 @@ export function BiasChart({
   /** Index of the scenario drawn on the chart; -1 draws none. */
   pick: number;
   onPick: (i: number) => void;
+  /** The day's call, shown in the middle of the title bar. */
+  headline: ReactNode;
+  /** The briefing's day, e.g. "Wednesday 30 Sept". */
+  day: string;
+  /** When the briefing was written, e.g. "14:05 NY". */
+  writtenAt: string | null;
   className?: string;
   style?: React.CSSProperties;
 }) {
@@ -131,15 +142,18 @@ export function BiasChart({
 
   return (
     <section className={cx("card overflow-hidden", className)} style={style}>
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
+      {/* Title left, the day's call in the middle, controls right. */}
+      <header className="grid grid-cols-1 items-center gap-3 border-b px-5 py-3 xl:grid-cols-[1fr_auto_1fr]">
         <div>
-          <h3 className="text-[14px] font-semibold">Today on the chart</h3>
+          <h3 className="text-[14px] font-semibold">XAU/USD · {day}</h3>
           <p className="text-[11px] text-faint">
-            XAU/USD spot · {prefs.tf} · {feed.source || "live feed"}
-            {feed.stale && <span className="text-warn"> · delayed</span>} · NY time · refreshed each minute
+            {writtenAt && `Briefing written ${writtenAt} · `}
+            spot {prefs.tf} · {feed.source || "live feed"}
+            {feed.stale && <span className="text-warn"> · delayed</span>} · NY time
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="xl:justify-self-center">{headline}</div>
+        <div className="flex flex-wrap items-center gap-2 xl:justify-self-end">
           <div className="inline-flex flex-wrap gap-1 rounded-lg bg-subtle p-1" role="group" aria-label="Scenario drawn on the chart">
             {b.scenarios.map((sc, i) => (
               <button

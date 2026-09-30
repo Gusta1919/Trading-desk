@@ -205,12 +205,17 @@ export default function App() {
 
   return (
     <div className="w-full px-8 pb-24 xl:px-12">
-      <header className="glass sticky top-0 z-30 -mx-8 flex items-center gap-6 border-b border-line px-8 py-4 xl:-mx-12 xl:px-12">
+      {/* One line, never wrapped: nothing in it shrinks or breaks onto a second row. On
+          narrower windows the gaps tighten, the two status bars drop to their numbers and
+          Alerts/Backup show as icons (tooltips stay); only under ~1400px does it wrap. */}
+      <header className="glass sticky top-0 z-30 -mx-8 flex items-center flex-wrap gap-3 whitespace-nowrap min-[1400px]:flex-nowrap 2xl:gap-5 border-b border-line px-8 py-4 xl:-mx-12 xl:px-12 [&>*]:shrink-0">
         <h1 className="flex items-center gap-2.5 text-[13px] font-semibold uppercase tracking-[0.2em]">
           <span className="size-1.5 rounded-full bg-accent shadow-[0_0_12px_var(--glow-accent)]" />
           Trading Desk
         </h1>
-        <Segmented size="sm" value={view} onChange={(v) => v && setView(v)} options={TABS} />
+        <nav aria-label="Sections" className="[&>div]:flex-nowrap">
+          <Segmented size="sm" value={view} onChange={(v) => v && setView(v)} options={TABS} />
+        </nav>
 
         {/* Your risk lines, always in view — small, and a click away from changing. */}
         <div className="ml-auto">
@@ -260,14 +265,14 @@ export default function App() {
           )}
         >
           {sound ? <Bell size={14} /> : <BellOff size={14} />}
-          {sound ? "Alerts" : "Muted"}
+          <span className="hidden 2xl:inline">{sound ? "Alerts" : "Muted"}</span>
         </button>
         <button
           onClick={exportData}
           title="Download a backup of every trade and check-in"
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink"
         >
-          <Download size={14} /> Backup
+          <Download size={14} /> <span className="hidden 2xl:inline">Backup</span>
         </button>
         <Button variant="accent" onClick={openNew} title="New trade (N)">
           <Plus size={15} /> New trade
@@ -279,8 +284,9 @@ export default function App() {
       )}
 
       <div className="mt-8 space-y-4">
-        {/* The headline numbers stay visible on every tab. */}
-        {view !== "stats" && <StatsStrip trades={taken} />}
+        {/* The headline numbers stay visible on every tab — except Stats, which shows
+            them in full, and Daily Bias, where the chart has to be the first thing on screen. */}
+        {view !== "stats" && view !== "bias" && <StatsStrip trades={taken} />}
 
         {/* Crossfade on tab change. Deliberately a CSS animation, not a JS one:
             browsers pause frame-driven animation in background tabs, which can strand

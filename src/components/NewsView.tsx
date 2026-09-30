@@ -499,26 +499,32 @@ function NextUp({
 }) {
   return (
     <div className="space-y-4 px-5 py-4">
-      <div className="flex items-baseline gap-3 text-[13px]">
-        <span className="w-16 shrink-0 text-[11px] uppercase tracking-[0.08em] text-faint">
-          Next red
-        </span>
-        {nextRed ? (
-          <>
-            <span className="num shrink-0 text-soft">
-              {deskDay(new Date(nextRed.at!)) === deskDay(new Date(now))
-                ? time(nextRed.at!)
-                : `${dayLabel(nextRed.at!, new Date(now))} ${time(nextRed.at!)}`}
-            </span>
-            <span className="min-w-0 truncate font-medium">
-              {nextRed.currency} {nextRed.title}
-            </span>
-            <span className="num ml-auto shrink-0 font-medium text-down">
-              {untilLabel(Date.parse(nextRed.at!) - now)}
-            </span>
-          </>
-        ) : (
-          <span className="text-soft">No more red releases in the feed</span>
+      {/* The release gets its own line: in this narrow column a name sharing the row
+          with the time and countdown was always cut off. */}
+      <div className="text-[13px]">
+        <div className="flex items-baseline gap-3">
+          <span className="w-16 shrink-0 text-[11px] uppercase tracking-[0.08em] text-faint">
+            Next red
+          </span>
+          {nextRed ? (
+            <>
+              <span className="num shrink-0 text-soft">
+                {deskDay(new Date(nextRed.at!)) === deskDay(new Date(now))
+                  ? time(nextRed.at!)
+                  : `${dayLabel(nextRed.at!, new Date(now))} ${time(nextRed.at!)}`}
+              </span>
+              <span className="num ml-auto shrink-0 font-medium text-down">
+                {untilLabel(Date.parse(nextRed.at!) - now)}
+              </span>
+            </>
+          ) : (
+            <span className="text-soft">No more red releases in the feed</span>
+          )}
+        </div>
+        {nextRed && (
+          <div className="mt-1 pl-[76px] font-medium leading-snug">
+            {nextRed.currency} {nextRed.title}
+          </div>
         )}
       </div>
 

@@ -37,10 +37,11 @@ export function RiskChip({
   const budget = dayBudget(trades, deskDay(), limits);
   const used = Math.max(0, limits.dailyStopPct - budget.remaining);
   const left = limits.dailyStopPct > 0 ? budget.remaining / limits.dailyStopPct : 0;
-  // Green while most of the day's budget is there, amber under half, red once it is gone.
+  // Green while more than half of the day's budget is there, amber from half down
+  // (0.50 of a 1% stop is already amber), red once it is gone.
   const state = budget.stopHit
     ? { label: "Stop hit", cls: "text-down" }
-    : left < 0.5
+    : left <= 0.5 + 1e-9
       ? { label: "Budget low", cls: "text-warn" }
       : { label: "Daily budget", cls: "text-up" };
 
@@ -53,7 +54,7 @@ export function RiskChip({
         className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors hover:bg-subtle"
       >
         <span className={cx("font-medium", state.cls)}>{state.label}</span>
-        <span className="h-[5px] w-12 overflow-hidden rounded-full bg-subtle">
+        <span className="hidden h-[5px] w-12 overflow-hidden rounded-full bg-subtle 2xl:block">
           <span
             className={cx("block h-full rounded-full bg-current transition-[width] duration-700", state.cls)}
             style={{ width: `${Math.max(0, Math.min(1, left)) * 100}%`, boxShadow: "0 0 8px currentColor" }}

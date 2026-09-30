@@ -150,20 +150,6 @@ export function rulesRisk(strategies: Pick<Strategy, "id" | "grades">[]) {
   };
 }
 
-/** Daily results under the current rules — the samples the Risk lab draws from. */
-export function dailyResultsUnderRules(
-  trades: Trade[],
-  strategies: Pick<Strategy, "id" | "grades">[],
-  limits: Pick<Limits, "maxRiskPct" | "dailyStopPct">,
-): number[] {
-  const riskOf = rulesRisk(strategies);
-  return tradingDays(trades).map((day) => replayDay(day, riskOf, limits));
-}
-
-/** Daily results as actually traded. */
-export const dailyResultsAsTraded = (trades: Trade[]) =>
-  tradingDays(trades).map((day) => tidy(day.reduce((a, t) => a + tradePct(t), 0)));
-
 /** Every closed, taken trade grouped by its New York day, in date order. */
 export function tradingDays(trades: Trade[]): Trade[][] {
   const byDay = new Map<string, Trade[]>();

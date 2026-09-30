@@ -73,52 +73,6 @@ export function limitState(trades: Trade[], limits: Limits, now = new Date()): L
   };
 }
 
-export interface BreachOdds {
-  daily: number;
-  max: number;
-  days: number;
-}
-
-/**
- * Re-shuffles your own trading days into thousands of possible futures and counts how
- * many breach. Each sample is one whole day's result, so the daily and overall lines
- * can be read from the same run.
- */
-export function breachOdds(
-  samples: number[],
-  limits: Limits,
-  days: number,
-  runs = 4000,
-): BreachOdds | null {
-  if (samples.length < 15 || days < 1) return null;
-
-  let seed = samples.length * 7919 + Math.round(samples.reduce((a, b) => a + b, 0) * 1000);
-  const rand = () => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-
-  let daily = 0;
-  let max = 0;
-  for (let r = 0; r < runs; r++) {
-    let cum = 0;
-    let hitDaily = false;
-    let hitMax = false;
-    for (let d = 0; d < days; d++) {
-      const day = samples[Math.floor(rand() * samples.length)];
-      if (day <= -limits.dailyLossPct) hitDaily = true;
-      cum += day;
-      if (cum <= -limits.maxLossPct) hitMax = true;
-      if (hitDaily && hitMax) break;
-    }
-    if (hitDaily) daily++;
-    if (hitMax) max++;
-  }
-  return { daily: daily / runs, max: max / runs, days };
-}
-
 /** Commission and swap, summed over the trades that actually measured them. */
 export function costDrag(trades: Trade[]) {
   const measured = trades.filter((t) => isClosed(t) && t.costPct != null);

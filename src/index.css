@@ -224,16 +224,6 @@
 @utility glow-down {
   text-shadow: 0 0 22px var(--glow-down);
 }
-@utility glow-ring {
-  box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--color-accent) 35%, transparent),
-    0 10px 40px var(--glow-accent);
-}
-
-/* A day that deserves attention: breathes rather than blinks. */
-@utility pulse-accent {
-  animation: pulseGlow 4.5s ease-in-out infinite;
-}
 
 /* ── Motion ───────────────────────────────────────────────────────────── */
 
@@ -248,11 +238,6 @@
     transform: none;
     filter: none;
   }
-}
-@keyframes wave {
-  0%, 60%, 100% { transform: rotate(0); }
-  10%, 30% { transform: rotate(14deg); }
-  20%, 40% { transform: rotate(-8deg); }
 }
 @keyframes grow {
   from { transform: scaleX(0); }
@@ -286,10 +271,6 @@
   from { opacity: 0; transform: translateY(16px) scale(0.995); }
   to { opacity: 1; transform: none; }
 }
-@keyframes pulseGlow {
-  0%, 100% { box-shadow: inset 0 0 26px var(--glow-accent); }
-  50% { box-shadow: inset 0 0 52px var(--glow-accent); }
-}
 @keyframes cascade {
   from { opacity: 0; transform: translateY(-18px); }
   to { opacity: 1; transform: none; }
@@ -308,18 +289,9 @@
   60% { opacity: 1; transform: scale(0.94); }
   100% { opacity: 1; transform: none; }
 }
-@keyframes drift {
-  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(-2%, 2%, 0) scale(1.04); }
-}
 
 @utility anim-rise {
   animation: rise var(--t-med) var(--ease-slow) both;
-}
-@utility anim-wave {
-  display: inline-block;
-  transform-origin: 70% 70%;
-  animation: wave 2.2s ease-in-out 0.3s both;
 }
 @utility anim-grow {
   transform-origin: left;

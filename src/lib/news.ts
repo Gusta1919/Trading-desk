@@ -97,9 +97,3 @@ export function newsForTrade(events: CalendarEvent[], symbol: string, nyDay: str
     .sort((a, b) => a.at!.localeCompare(b.at!));
 }
 
-/** "in 12 min" / "14 min ago" / "now". */
-export function awayLabel(minutes: number) {
-  const m = Math.round(minutes);
-  if (m === 0) return "now";
-  return m > 0 ? `in ${m} min` : `${-m} min ago`;
-}

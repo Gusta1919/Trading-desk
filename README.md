@@ -4,7 +4,9 @@ A local, percentage-based trading journal with a daily psychological check-in an
 coach that turns your own history into a pre-session briefing.
 
 Everything runs on your machine: an Express API (port 3848) over a SQLite file, and a
-React page (port 3847). No account, no cloud, no network calls.
+React page (port 3847). No account and no API keys. The only outside calls are read-only:
+the economic calendar and headlines, the gold price (Dukascopy's public feed) and, while
+today's briefing is missing, your own Gmail drafts folder.
 
 ## Run
 
@@ -18,6 +20,8 @@ open http://localhost:3847
 
 - **KPI strip** — net return, win rate, expectancy, profit factor, drawdown, streak.
 - **Journal** — every trade in R and % of account; click a row to edit.
+- **Daily Bias** — today's gold briefing drawn over live price: the day's odds, the
+  chosen scenario's targets and invalidation, key levels, the CRT box and sessions.
 - **Coach** — today's briefing: streak maths, drawdown simulation, your leaks and edges,
   if-then plans, a principle and a reflection question.
 - **Calendar** — daily and weekly results; a day with more than one trade is flagged.
@@ -42,6 +46,12 @@ open http://localhost:3847
 | `src/lib/insights.ts` | factor analysis (edges/leaks) and behaviour patterns |
 | `src/lib/coach.ts` | the briefing: rules, probabilities, wording |
 | `src/lib/dailyBias.ts` | Daily Bias: file shape, parsing, is-it-today's |
+| `src/lib/chart.ts` | chart maths: sessions, CRT box, price range, level roles, label stacking |
+| `src/lib/useCandles.ts` | polls today's candles for the chart |
+| `src/lib/layout.ts` | even card rows for the Coach |
 | `server/bias.ts` | reads and writes `data/daily-bias.json` |
 | `server/gmailBias.ts` | collects the briefing from its Gmail draft (setup: JAK-URUCHOMIC.txt) |
+| `server/candles.ts` | XAU/USD candles from Dukascopy's public feed, cached for a minute |
+| `src/components/BiasChart.tsx` | the Daily Bias chart card: title bar, scenario pills, layers, legend |
+| `src/components/PriceChart.tsx` | the SVG candle chart itself |
 | `src/components/` | board panels, forms, charts |

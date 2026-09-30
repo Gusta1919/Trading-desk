@@ -290,7 +290,3 @@ export async function getHeadlines(): Promise<{
   return { ...entry, stale: false };
 }
 
-/** Exposed for tests: the parser must be checkable without hitting the feed. */
-export const __parseCalendarForTest = parseCalendar;
-
-export const __parseRssForTest = parseRss;

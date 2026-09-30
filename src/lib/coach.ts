@@ -614,6 +614,8 @@ export function buildBriefing(
    * The ladder itself: does each rung earn its risk? Per strategy, because every
    * strategy defines its own grades.
    */
+  // Grades the ladder card already calls out, so the leak card doesn't repeat them.
+  const ladderGrades = new Set<string>();
   for (const st of strategies) {
     const mine = closed.filter((t) => t.strategyId === st.id && isGrade(t.grade));
     const byGrade = new Map<Grade, Trade[]>(GRADES.map((g) => [g, mine.filter((t) => t.grade === g)]));
@@ -622,6 +624,7 @@ export function buildBriefing(
 
     const losing = st.grades.find((c) => c.traded && c.grade !== "A+" && n(c.grade) >= 10 && avg(c.grade) < 0);
     if (losing) {
+      ladderGrades.add(losing.grade);
       add({
         id: `ladder-${st.id}`,
         tone: "warn",
@@ -857,7 +860,13 @@ export function buildBriefing(
 
   /* Biggest leak in discipline or behaviour (mistakes have their own card) */
   const DISCIPLINE = new Set(["Checklist", "Plan", "Trade of day", "Risk", "State of mind", "Grade", "Break", "Previous trade"]);
-  const leak = firmLeaks(insights).find((i) => DISCIPLINE.has(i.dimension) && !today_.has(i.key));
+  const leak = firmLeaks(insights).find(
+    (i) =>
+      DISCIPLINE.has(i.dimension) &&
+      !today_.has(i.key) &&
+      // Already said by the ladder card ("B setups … are losing money") — pick the next leak.
+      !(i.dimension === "Grade" && ladderGrades.has(i.key.split("::")[1])),
+  );
   if (leak) {
     add({
       id: "leak",

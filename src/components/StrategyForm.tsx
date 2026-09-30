@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Copy, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Copy, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { definitionErrors, gradeRequirements, rangeLabel } from "@/lib/grading";
@@ -127,18 +127,26 @@ export function StrategyForm({
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
         }}
+        className="flex max-h-[calc(100vh-3rem)] flex-col"
       >
-        <header className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-[15px] font-semibold">
-            {strategy ? "Edit strategy" : draft ? "New strategy — from a copy" : "New strategy"}
-          </h2>
-          <button type="button" onClick={onClose} className="text-faint hover:text-ink">
+        {/* Built like the trade form: fixed header and footer, the cards scroll between. */}
+        <header className="flex shrink-0 items-center justify-between border-b px-7 pb-4 pt-5">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-faint">
+              {strategy ? "Strategy" : draft ? "From a copy" : "New strategy"}
+            </p>
+            <h2 className="text-[18px] font-semibold tracking-tight">
+              {strategy ? `Edit ${strategy.name}` : f.name.trim() || "Define the strategy"}
+            </h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-faint hover:bg-subtle hover:text-ink">
             <X size={18} />
           </button>
         </header>
 
-        <div className="grid grid-cols-1 gap-x-10 gap-y-8 px-8 py-7 lg:grid-cols-2">
-          <Section title="What it is">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="grid grid-cols-1 gap-5 px-7 py-6 lg:grid-cols-2">
+          <Section index={0} title="What it is">
             <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
               <Field label="Name">
                 <input
@@ -169,7 +177,7 @@ export function StrategyForm({
             </Field>
           </Section>
 
-          <Section title="When you may trade it">
+          <Section index={1} title="When you may trade it">
             <div className="flex flex-wrap gap-x-8 gap-y-4">
               <Field label="Sessions you trade it in">
                 <Chips options={SESSIONS} value={f.sessions} onChange={(v) => set("sessions", v)} />
@@ -202,7 +210,7 @@ export function StrategyForm({
             </Field>
           </Section>
 
-          <Section title="The box this setup is measured against">
+          <Section index={2} title="The box this setup is measured against">
             <Field label="What you call it">
               <input
                 className="field"
@@ -235,7 +243,7 @@ export function StrategyForm({
             )}
           </Section>
 
-          <Section title="Targets">
+          <Section index={3} title="Targets">
             <Field label="Planned R:R — the range you aim for">
               <RangeSlider
                 min={0.5}
@@ -249,14 +257,14 @@ export function StrategyForm({
             </Field>
           </Section>
 
-          <Section
+          <Section index={4}
             title="Base rules — every one must hold, or the setup is a C"
             className="lg:col-span-2"
           >
             <BaseRulesEditor value={f.baseRules} onChange={(v) => set("baseRules", v)} />
           </Section>
 
-          <Section
+          <Section index={5}
             title="Grade factors — each answer caps the best grade the setup can reach"
             className="lg:col-span-2"
           >
@@ -267,7 +275,7 @@ export function StrategyForm({
             </p>
           </Section>
 
-          <Section title="Grade ladder" className="lg:col-span-2">
+          <Section index={6} title="Grade ladder" className="lg:col-span-2">
             <GradeLadder
               grades={f.grades}
               definition={f}
@@ -277,7 +285,7 @@ export function StrategyForm({
         </div>
 
         {problems.length > 0 && (
-          <div className="mx-8 mb-4 rounded-xl bg-warn/[0.08] px-4 py-3 text-[12px] text-warn">
+          <div className="mx-7 mb-6 rounded-xl border border-warn/25 bg-warn/[0.06] px-4 py-3 text-[12px] text-warn">
             <p className="font-medium">Fix before saving:</p>
             <ul className="mt-1 list-inside list-disc space-y-0.5">
               {problems.map((p) => (
@@ -287,10 +295,12 @@ export function StrategyForm({
           </div>
         )}
 
-        <footer className="flex items-center gap-2 border-t px-6 py-4">
+        </div>
+
+        <footer className="flex shrink-0 items-center gap-2 border-t bg-raised px-7 py-4">
           {strategy && (
             <Button type="button" variant="danger" onClick={remove}>
-              {confirmDelete ? "Click again to delete" : "Delete"}
+              <Trash2 size={14} /> {confirmDelete ? "Click again to delete" : "Delete"}
             </Button>
           )}
           {strategy && onDuplicate && (
@@ -304,12 +314,16 @@ export function StrategyForm({
             </Button>
           )}
           {error && <span className="text-[13px] text-down">{error}</span>}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-3">
+            <span className="hidden text-[12px] text-faint sm:inline">
+              {problems.length > 0 ? `${problems.length} to fix before saving` : "⌘↵ to save"}
+            </span>
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={saving || problems.length > 0}>
-              {strategy ? "Save" : "Add strategy"}
+            <Button type="submit" variant="accent" disabled={saving || problems.length > 0} className="px-5">
+              <Check size={15} />
+              {strategy ? "Save changes" : "Add strategy"}
             </Button>
           </div>
         </footer>
@@ -675,10 +689,24 @@ const AddButton = ({ onClick, children }: { onClick: () => void; children: React
   </button>
 );
 
-function Section({ title, className, children }: { title: string; className?: string; children: ReactNode }) {
+/** A card like the trade form's: soft surface, small caps title, rises in turn. */
+function Section({
+  index,
+  title,
+  className,
+  children,
+}: {
+  index: number;
+  title: string;
+  className?: string;
+  children: ReactNode;
+}) {
   return (
-    <section className={cx("space-y-4", className)}>
-      <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">{title}</h3>
+    <section
+      className={cx("anim-rise space-y-4 rounded-2xl border bg-surface/40 px-5 py-4", className)}
+      style={stagger(index, 80)}
+    >
+      <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">{title}</h3>
       {children}
     </section>
   );

@@ -81,9 +81,6 @@ export async function unlockAudio(timeoutMs = 600): Promise<boolean> {
   }
 }
 
-/** Whether a chime would actually be heard right now. */
-export const audioReady = () => ctx?.state === "running";
-
 /**
  * A two-tone terminal chime, synthesised rather than loaded — no asset to ship and
  * no delay the first time it fires. Critical alerts get a lower, harder pair.

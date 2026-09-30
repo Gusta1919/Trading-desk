@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { amsterdamClock, cleanUrl, parseBias, toHundred } from "../src/lib/dailyBias";
+import { amsterdamClock, cleanUrl, freshness, parseBias, toHundred } from "../src/lib/dailyBias";
 
 const core = { date: "2026-10-01", bias: { bullish: 55, range: 30, bearish: 15, why: "x" } };
 
@@ -155,6 +155,26 @@ describe("parseBias — the visual fields", () => {
   it("drops half a range rather than drawing a gauge from one end", () => {
     const b = parseBias({ ...core, risk: { dayLow: 4164.8 } })!;
     assert.deepEqual([b.risk.dayLow, b.risk.dayHigh], [null, null]);
+  });
+});
+
+describe("freshness", () => {
+  // October 2026 is still CEST: Amsterdam = UTC + 2. The 6th is a Tuesday.
+  const at = (utc: string) => new Date(utc);
+
+  it("shows today's briefing whenever it's on file", () => {
+    assert.equal(freshness("2026-10-06", at("2026-10-06T09:00:00Z")), "today");
+  });
+
+  it("waits for the morning run, then calls it late", () => {
+    assert.equal(freshness("2026-10-05", at("2026-10-06T06:00:00Z")), "waiting"); // 08:00, before the run
+    assert.equal(freshness("2026-10-05", at("2026-10-06T08:20:00Z")), "waiting"); // 10:20, run still landing
+    assert.equal(freshness("2026-10-05", at("2026-10-06T09:00:00Z")), "late"); // 11:00, should be here
+    assert.equal(freshness(null, at("2026-10-06T06:00:00Z")), "waiting");
+  });
+
+  it("expects nothing at weekends", () => {
+    assert.equal(freshness("2026-10-02", at("2026-10-03T10:00:00Z")), "offday");
   });
 });
 

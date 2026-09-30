@@ -31,8 +31,10 @@ import {
 } from "@/lib/types";
 import { GradeBadge } from "./GradeBadge";
 import { GradePanel, SetupCheck, answerSummary } from "./SetupCheck";
-import { biasTone } from "./WeekNote";
 import { Button, Chips, Modal, Segmented, cx, stagger } from "./ui";
+
+const biasTone = (bias: string) =>
+  bias === "long" ? "text-up" : bias === "short" ? "text-down" : "text-soft";
 
 interface FormState {
   date: string;
@@ -344,6 +346,7 @@ export function TradeForm({
       ticked={f.checklist}
       answers={f.answers}
       budgetOk={!budget.stopHit}
+      side={step === "setup"}
       onToggle={(id) =>
         setF((p) => ({
           ...p,
@@ -443,21 +446,21 @@ export function TradeForm({
 
   if (step === "setup" && !trade && definition) {
     return (
-      <Modal open={open} onClose={onClose} width="max-w-4xl">
+      <Modal open={open} onClose={onClose} width="max-w-7xl">
         {/*
-          Three parts: the title, the rules and factors (the only part that scrolls), and a
-          fixed footer with the grade and the buttons — the grade never moves while you tick.
+          Three parts, all in view at once: the title, the rules and factors side by side,
+          and the grade with the buttons. Only a very short window ever needs to scroll.
         */}
         <div className="flex max-h-[calc(100vh-3rem)] flex-col">
-          <div className="shrink-0 px-10 pb-5 pt-9">
+          <div className="shrink-0 px-10 pb-4 pt-6">
             <StepHeader step={2} title={`${strategy?.name ?? "Setup"} — grade the setup`}>
               Tick the base rules and answer each factor. The grade decides what you may risk.
             </StepHeader>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-6">{setupCheck}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-5">{setupCheck}</div>
 
-          <div className="shrink-0 space-y-4 border-t bg-raised px-10 pb-6 pt-5">
+          <div className="shrink-0 space-y-3 border-t bg-raised px-10 pb-5 pt-4">
             {gradePanel}
             <div className="flex items-center justify-center gap-3">
             <Button type="button" variant="ghost" onClick={() => setStep("strategy")}>

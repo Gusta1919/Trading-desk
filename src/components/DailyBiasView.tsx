@@ -3,7 +3,6 @@ import { useState, type ReactNode } from "react";
 import { toHundred, type DailyBias, type Driver, type Lean, type Scenario, type Trend } from "@/lib/dailyBias";
 import { DESK_TZ, deskDateLabel, deskDay, deskTime } from "@/lib/tz";
 import type { DailyBiasState } from "@/lib/useDailyBias";
-import { useCandles } from "@/lib/useCandles";
 import { BiasChart } from "./BiasChart";
 import { Tip, cx, stagger } from "./ui";
 
@@ -76,64 +75,69 @@ function Briefing({ b }: { b: DailyBias }) {
   // One scenario is on the chart at a time; the cards and the chart's pills share it.
   const [pick, setPick] = useState(() => Math.max(0, b.scenarios.findIndex((s) => s.kind === "primary")));
   const choose = (i: number) => setPick(i === pick ? -1 : i);
-  // Live price for the header, so a stale briefing is obvious at a glance.
-  const liveCandles = useCandles("15m").candles;
-  const live = liveCandles.length ? liveCandles[liveCandles.length - 1].c : null;
   let i = 0;
   const rise = () => ({ className: "anim-rise", style: stagger(i++, 70) });
 
+  // The day's three outcomes sit in the middle of the chart's title bar: the likeliest in
+  // its colour, the split as one thin bar underneath, the reasoning a hover away.
+  const split = [
+    { pole: "bullish", word: "Bullish", pct: b.bias.bullish },
+    { pole: "neutral", word: "Range", pct: b.bias.range },
+    { pole: "bearish", word: "Bearish", pct: b.bias.bearish },
+  ] as const;
+  const headline = (
+    <Tip
+      text={
+        <>
+          <span className="block text-ink">The kind of day expected, up to the 17:00 NY close.</span>
+          {b.bias.why && <span className="mt-1 block">{b.bias.why}</span>}
+        </>
+      }
+    >
+      <span className="block w-[300px]" aria-label={`Bullish ${b.bias.bullish}%, range ${b.bias.range}%, bearish ${b.bias.bearish}%`}>
+        <span className="flex items-baseline justify-between text-[12px]">
+          {split.map((x) => (
+            <span
+              key={x.pole}
+              className={cx("flex items-baseline gap-1.5", x.pole === lead.pole ? cx("font-semibold", POLE[x.pole].text) : "text-faint")}
+            >
+              <span className="text-[9px]">{POLE[x.pole].glyph}</span>
+              {x.word}
+              <span className={cx("num text-[15px]", x.pole !== lead.pole && "text-soft")}>{x.pct}%</span>
+            </span>
+          ))}
+        </span>
+        <span className="mt-1.5 flex h-[5px] gap-[2px]">
+          {split
+            .filter((x) => x.pct > 0)
+            .map((x) => (
+              <span
+                key={x.pole}
+                className={cx("rounded-full", POLE[x.pole].bar, x.pole !== lead.pole && "opacity-35")}
+                style={{ flexGrow: x.pct }}
+              />
+            ))}
+        </span>
+      </span>
+    </Tip>
+  );
+
   /*
-   * Most practical first: the call, then the plan against live price, then what to
-   * do (scenarios), what to watch (tiles), when (sessions, risk), why (macro,
-   * consensus) and finally the reference material.
+   * Most practical first: the plan against live price (with the day's call on top),
+   * then what to do (scenarios), what to watch (tiles), when (sessions, risk), why
+   * (macro, consensus) and finally the full text.
    */
   return (
     <div className="space-y-6">
-      <header {...rise()} className="anim-rise flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
-            Daily bias · XAU/USD · {deskDateLabel(`${b.date}T12:00:00Z`)}
-            {b.generatedAt && <> · written {deskTime(b.generatedAt)} NY</>}
-          </div>
-          <h2 className={cx("mt-1.5 text-[26px] font-semibold leading-tight tracking-tight", POLE[lead.pole].text)}>
-            {POLE[lead.pole].glyph} {lead.word} day · {lead.pct}%
-          </h2>
-        </div>
-        <div className="flex items-end gap-6 text-right">
-          {b.spot != null && (
-            <div>
-              <div className="label !mb-0.5">When written{b.spotAt && ` · ${deskTime(b.spotAt)} NY`}</div>
-              <div className="text-[18px] font-semibold tracking-tight text-soft">{px(b.spot)}</div>
-            </div>
-          )}
-          {live != null && (
-            <div>
-              <div className="label !mb-0.5">Now</div>
-              <div className="flex items-baseline justify-end gap-2">
-                <span className="text-[24px] font-semibold tracking-tight">{px(live)}</span>
-                {b.spot != null && (
-                  <span className={cx("num text-[12px]", live - b.spot >= 0 ? "text-up" : "text-down")}>
-                    {signedPts(live - b.spot)}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </header>
-
-      <section {...rise()} className="anim-rise card px-6 py-5">
-        <SplitBar
-          why={b.bias.why}
-          parts={[
-            { pole: "bullish", label: "Bullish", value: b.bias.bullish },
-            { pole: "neutral", label: "Range", value: b.bias.range },
-            { pole: "bearish", label: "Bearish", value: b.bias.bearish },
-          ]}
-        />
-      </section>
-
-      <BiasChart b={b} pick={pick} onPick={setPick} {...rise()} />
+      <BiasChart
+        b={b}
+        pick={pick}
+        onPick={setPick}
+        headline={headline}
+        day={deskDateLabel(`${b.date}T12:00:00Z`)}
+        writtenAt={b.generatedAt ? `${deskTime(b.generatedAt)} NY` : null}
+        {...rise()}
+      />
 
       {b.scenarios.length > 0 && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

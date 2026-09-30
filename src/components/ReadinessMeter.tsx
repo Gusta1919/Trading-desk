@@ -14,7 +14,7 @@ export function ReadinessMeter({ score, verdict }: { score: number; verdict: Ver
     <span className="flex items-center gap-2">
       <span className={cx("font-medium", verdictColor[verdict])}>{VERDICTS[verdict].label}</span>
 
-      <span className="h-[5px] w-16 overflow-hidden rounded-full bg-subtle">
+      <span className="hidden h-[5px] w-16 overflow-hidden rounded-full bg-subtle 2xl:block">
         <span
           className={cx("block h-full rounded-full bg-current", verdictColor[verdict])}
           style={{ width: `${pct}%`, boxShadow: "0 0 8px currentColor" }}

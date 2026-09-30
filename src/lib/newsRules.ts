@@ -124,10 +124,6 @@ export const DEFAULT_STANCE: NewsStance = {
   blockCurrencies: ["USD", "EUR", "GBP"],
 };
 
-/** Falls back to the defaults while the saved rules are still loading. */
-export const stanceFor = (rules: NewsStance | null | undefined): NewsStance =>
-  rules ?? DEFAULT_STANCE;
-
 /**
  * Where an event sits. Only call this for events that pass `countsForTrading` —
  * orange and yellow releases are shown on the calendar but never judged.
@@ -154,8 +150,3 @@ export function stanceOf(event: CalendarEvent, rules: NewsStance): Stance {
 export const countsForTrading = (e: CalendarEvent) =>
   e.impact === "High" && NEWS_CURRENCIES.includes(e.currency);
 
-export const STANCE_LABEL: Record<Stance, string> = {
-  forbidden: "No trading",
-  caution: "Be flat for this",
-  holiday: "Holiday elsewhere — thin liquidity",
-};

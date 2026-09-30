@@ -423,8 +423,17 @@ export function amsterdamClock(now: Date) {
 /** The run is scheduled for 9:46; research takes a few minutes on top. */
 export const RUN_AT_MIN = 9 * 60 + 46;
 
+/**
+ * How long after 9:46 a missing briefing counts as late: the routine's dispatch can lag
+ * a few minutes, the research takes 5–15, and the desk looks in Gmail every two — 45
+ * minutes covers all of it with room to spare, so "late" means something went wrong.
+ */
+export const LATE_AFTER_MIN = 45;
+
 export function freshness(briefingDate: string | null, now: Date = new Date()): Freshness {
   const clock = amsterdamClock(now);
-  // TODO(human): decide what the tab shows when the saved briefing isn't today's.
-  return briefingDate === clock.date ? "today" : "waiting";
+  // Written for today — or, with a clock a little off, for a day that hasn't begun here yet.
+  if (briefingDate != null && briefingDate >= clock.date) return "today";
+  if (clock.weekend) return "offday";
+  return clock.minutes < RUN_AT_MIN + LATE_AFTER_MIN ? "waiting" : "late";
 }

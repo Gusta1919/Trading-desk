@@ -66,24 +66,3 @@ export function deskDateLabel(iso: string | Date) {
   }).format(typeof iso === "string" ? new Date(iso) : iso);
 }
 
-/**
- * Turns a stored desk wall-clock string into the real instant it refers to.
- *
- * Needed wherever a logged trade is compared against something with a true
- * timestamp, such as a news release. Works by guessing at UTC and correcting by
- * whatever the desk's offset turns out to be on that date.
- */
-export function deskStringToInstant(wall: string): Date {
-  const guess = new Date(`${wall}:00Z`);
-  const shown = new Date(
-    `${deskDay(guess)}T${deskTime(guess)}:00Z`,
-  );
-  return new Date(guess.getTime() + (guess.getTime() - shown.getTime()));
-}
-
-/** How many hours the desk is from the clock on this machine, e.g. −6. */
-export function deskOffsetHours(d = new Date()) {
-  const here = new Date(`${d.toISOString().slice(0, 19)}Z`).getTime();
-  const there = new Date(`${deskDay(d)}T${deskTime(d)}:00Z`).getTime();
-  return Math.round((there - here + d.getTimezoneOffset() * 60_000) / 3_600_000);
-}

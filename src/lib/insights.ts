@@ -316,9 +316,20 @@ export function findInsights(
   return deduped.sort((x, y) => Math.abs(y.effect) - Math.abs(x.effect));
 }
 
-/** Better than the rest AND actually profitable — being "less bad" is not an edge. */
+/*
+ * Things the desk will never tell you to do more of, whatever their numbers: a mistake
+ * can look profitable only by accident of how it's logged ("Early exit" is only ever
+ * tagged on a trade that was already winning), and a broken rule stays broken even
+ * when it paid.
+ */
+const NEVER_AN_EDGE_DIMS = new Set(["Mistake", "Flag", "Risk", "Checklist"]);
+const NEVER_AN_EDGE_KEYS = new Set(["Plan::broken", "Previous trade::rule-break"]);
+export const isRuleBreak = (i: Pick<Insight, "dimension" | "key">) =>
+  NEVER_AN_EDGE_DIMS.has(i.dimension) || NEVER_AN_EDGE_KEYS.has(i.key);
+
+/** Better than the rest, actually profitable — being "less bad" is not an edge — and never a rule break. */
 export const edges = (xs: Insight[]) =>
-  xs.filter((i) => i.effect > 0 && i.avgR > 0).sort((a, b) => b.effect - a.effect);
+  xs.filter((i) => i.effect > 0 && i.avgR > 0 && !isRuleBreak(i)).sort((a, b) => b.effect - a.effect);
 export const leaks = (xs: Insight[]) => xs.filter((i) => i.effect < 0).sort((a, b) => a.effect - b.effect);
 
 /** Leaks solid enough to act on today, rather than every negative wobble. */

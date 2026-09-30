@@ -17,6 +17,7 @@ export function SetupCheck({
   onToggle,
   onAnswer,
   budgetOk,
+  side = false,
 }: {
   definition: Pick<Definition, "baseRules" | "factors">;
   /** Hand-ticked rule ids. Auto rules are answered by `budgetOk`. */
@@ -26,6 +27,8 @@ export function SetupCheck({
   onToggle: (id: string) => void;
   onAnswer: (factorId: string, value: string | number | null) => void;
   budgetOk: boolean;
+  /** Rules and factors side by side, so the whole check fits without scrolling. */
+  side?: boolean;
 }) {
   const toggle = onToggle;
   const holds = (r: BaseRule) => (r.auto === "daily-budget" ? budgetOk : ticked.includes(r.id));
@@ -34,7 +37,7 @@ export function SetupCheck({
   const answered = definition.factors.filter((f) => factorCap(f, answers[f.id]) != null).length;
 
   return (
-    <div className="space-y-4">
+    <div className={cx(side ? "grid items-start gap-4 lg:grid-cols-2" : "space-y-4")}>
       {rules.length > 0 && (
         <Panel
           title="Base rules"
@@ -52,7 +55,7 @@ export function SetupCheck({
                     disabled={auto}
                     onClick={() => toggle(r.id)}
                     className={cx(
-                      "group flex w-full items-center gap-3.5 px-4 py-3 text-left transition-colors duration-200",
+                      "group flex w-full items-center gap-3.5 px-4 py-2.5 text-left transition-colors duration-200",
                       auto ? "cursor-default" : "hover:bg-subtle",
                     )}
                   >
@@ -127,7 +130,7 @@ export function SetupCheck({
         >
           <div className="divide-y">
             {definition.factors.map((f, i) => (
-              <div key={f.id} className="anim-rise px-4 py-3" style={stagger(rules.length + i, 45)}>
+              <div key={f.id} className="anim-rise px-4 py-2.5" style={stagger(rules.length + i, 45)}>
                 <FactorInput factor={f} value={answers[f.id]} onChange={(v) => onAnswer(f.id, v)} />
               </div>
             ))}
@@ -145,6 +148,9 @@ export function SetupCheck({
   );
 }
 
+const RANK: Record<Grade, number> = { "A+": 0, A: 1, B: 2, C: 3 };
+const LADDER: Grade[] = ["A+", "A", "B", "C"];
+
 /** A bordered section with a title and a small progress bar. */
 function Panel({
   title,
@@ -159,8 +165,8 @@ function Panel({
 }) {
   const complete = progress.done === progress.total;
   return (
-    <section className="overflow-hidden rounded-xl border">
-      <header className="flex items-center gap-3 border-b bg-subtle px-4 py-2.5">
+    <section className="overflow-hidden rounded-2xl border bg-surface/40">
+      <header className="flex items-center gap-3 border-b bg-subtle px-4 py-3">
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-soft">{title}</h3>
         <span className="text-[11px] text-faint">{note}</span>
         <span className="ml-auto flex items-center gap-2">
@@ -193,18 +199,22 @@ function FactorInput({
   value: string | number | undefined;
   onChange: (v: string | number | null) => void;
 }) {
-  // A number factor is answered by picking its range — lowest on the left, like reading a scale.
+  // Every factor reads the same way: the answer allowing the best grade on the left, the
+  // worst on the right. A number factor whose best range is its highest (e.g. ≥65%) is
+  // therefore shown high-to-low; ties keep their natural order.
+  const best = <T,>(xs: T[], cap: (x: T) => Grade) =>
+    xs.map((x, i) => ({ x, i })).sort((a, b) => RANK[cap(a.x)] - RANK[cap(b.x)] || a.i - b.i);
   const picked = f.kind === "number" && typeof value === "number" ? rangeIndex(f, value) : null;
   // A fixed label column: long answer lists wrap inside their own column, never under the name.
   return (
-    <div className="grid items-center gap-x-4 gap-y-2 sm:grid-cols-[10rem_1fr]">
+    <div className="grid items-center gap-x-4 gap-y-2 sm:grid-cols-[8.5rem_1fr]">
       <div>
         <p className="text-[13px] font-medium">{f.name}</p>
         {f.hint && <p className="text-[11px] text-faint">{f.hint}</p>}
       </div>
       <div className="flex flex-wrap gap-1.5">
         {f.kind === "choice"
-          ? f.options.map((o) => (
+          ? best(f.options, (o) => o.cap).map(({ x: o }) => (
               <AnswerButton
                 key={o.id}
                 label={o.label}
@@ -213,7 +223,7 @@ function FactorInput({
                 onClick={() => onChange(value === o.id ? null : o.id)}
               />
             ))
-          : f.caps.map((cap, i) => (
+          : best(f.caps, (c) => c).map(({ x: cap, i }) => (
               <AnswerButton
                 key={i}
                 label={withUnit(rangeLabel(f, i), f.unit)}
@@ -247,7 +257,7 @@ function AnswerButton({
       type="button"
       onClick={onClick}
       className={cx(
-        "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] transition-[color,background-color,border-color,transform] duration-200 active:scale-[0.97]",
+        "flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[12.5px] transition-[color,background-color,border-color,transform] duration-200 active:scale-[0.97]",
         mono && "num",
         on ? "border-transparent text-ink" : "text-soft hover:border-soft hover:text-ink",
       )}
@@ -304,7 +314,8 @@ export function GradePanel({
 
   return (
     <div
-      className="relative overflow-hidden rounded-xl border bg-surface py-4 pl-6 pr-5"
+      className="relative overflow-hidden rounded-2xl border bg-surface py-4 pl-6 pr-5 transition-[background-image] duration-500"
+      style={{ backgroundImage: `radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, ${colour} 12%, transparent), transparent 55%)` }}
     >
       {/* The grade's colour lives on the left edge only — the same accent the Coach cards use. */}
       <span className="absolute inset-y-0 left-0 w-[3px] transition-colors duration-300" style={{ backgroundColor: colour }} />
@@ -323,11 +334,34 @@ export function GradePanel({
             </p>
           </div>
         </div>
+        {/* Where this grade sits on the ladder: the current rung lit in its colour. */}
+        <div className="flex items-center gap-1" aria-label={`Grade ${grade} of A+, A, B, C`}>
+          {LADDER.map((g) => (
+            <span
+              key={g}
+              className={cx(
+                "num flex h-7 w-9 items-center justify-center rounded-md text-[11px] font-semibold transition-all duration-300",
+                g === grade ? "scale-110" : "bg-subtle text-faint",
+              )}
+              style={
+                g === grade
+                  ? {
+                      color: GRADE_COLOUR[g],
+                      backgroundColor: `color-mix(in oklab, ${GRADE_COLOUR[g]} 16%, transparent)`,
+                      boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${GRADE_COLOUR[g]} 55%, transparent), 0 0 18px color-mix(in oklab, ${GRADE_COLOUR[g]} 25%, transparent)`,
+                    }
+                  : undefined
+              }
+            >
+              {g}
+            </span>
+          ))}
+        </div>
         <div className="ml-auto text-right">
           <p className="text-[11px] uppercase tracking-[0.08em] text-faint">Allowed today</p>
           <p
             key={allowed}
-            className={cx("anim-fade num text-[22px] font-semibold", allowed > 0 ? "text-ink" : "text-down")}
+            className={cx("anim-fade num text-[26px] font-semibold leading-tight", allowed > 0 ? "text-ink" : "text-down")}
           >
             {allowed}%
           </p>

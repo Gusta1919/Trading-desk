@@ -149,8 +149,8 @@ export function TradeList({
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
           <input
-            className={cx("field py-1.5 pl-8", compact ? "w-44" : "w-60")}
-            placeholder="Search symbol, setup, mistake…"
+            className={cx("field py-1.5 pl-8", compact ? "w-44" : "w-72")}
+            placeholder="Search setup, notes, mistakes…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />

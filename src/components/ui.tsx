@@ -165,47 +165,6 @@ export function Button({
   );
 }
 
-/** Fades a section in the first time it scrolls into view. */
-export function Reveal({ children, className }: { children: ReactNode; className?: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [shown, setShown] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || shown) return;
-    const io = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting) {
-          setShown(true);
-          io.disconnect();
-        }
-      },
-      { rootMargin: "0px 0px -10% 0px" },
-    );
-    io.observe(el);
-    // Safety net: content must never stay invisible because an animation didn't run
-    // (background tabs throttle them, and the observer can be missed on fast jumps).
-    const failsafe = window.setTimeout(() => setShown(true), 1200);
-    return () => {
-      io.disconnect();
-      clearTimeout(failsafe);
-    };
-  }, [shown]);
-
-  return (
-    <div
-      ref={ref}
-      className={cx(
-        "transition-[opacity,transform] duration-700 ease-out motion-reduce:transition-none",
-        shown ? "translate-y-0 opacity-100" : "translate-y-3 opacity-0",
-        className,
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
 /** Counts a number up from zero — used once, when a value first appears. */
 export function useCountUp(target: number | null, ms = 900) {
   const [v, setV] = useState(0);
