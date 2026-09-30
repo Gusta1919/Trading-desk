@@ -1,6 +1,6 @@
-import { ExternalLink, Info } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ExternalLink, Info, MoveRight, TrendingDown, TrendingUp } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import type { BiasLevel, DailyBias, Lean, LevelKind, Scenario, Trend } from "@/lib/dailyBias";
+import { toHundred, type BiasLevel, type DailyBias, type Driver, type Lean, type LevelKind, type Scenario, type Trend } from "@/lib/dailyBias";
 import { DESK_TZ, deskDateLabel, deskDay, deskTime } from "@/lib/tz";
 import type { DailyBiasState } from "@/lib/useDailyBias";
 import { Tip, cx, stagger } from "./ui";
@@ -51,9 +51,9 @@ export function DailyBiasView({ state }: { state: DailyBiasState }) {
  * glyph and a word, so polarity never rests on colour alone.
  */
 const POLE = {
-  bullish: { glyph: "▲", bar: "bg-up", text: "text-up", word: "Bullish" },
-  neutral: { glyph: "◆", bar: "bg-soft", text: "text-soft", word: "Neutral" },
-  bearish: { glyph: "▼", bar: "bg-down", text: "text-down", word: "Bearish" },
+  bullish: { glyph: "▲", bar: "bg-up", text: "text-up", tint: "bg-up/10", word: "Bullish" },
+  neutral: { glyph: "◆", bar: "bg-soft", text: "text-soft", tint: "bg-subtle", word: "Neutral" },
+  bearish: { glyph: "▼", bar: "bg-down", text: "text-down", tint: "bg-down/10", word: "Bearish" },
 } as const;
 
 const trendPole = (t: Trend): Lean => (t === "range" ? "neutral" : t);
@@ -115,7 +115,7 @@ function Briefing({ b }: { b: DailyBias }) {
 
       {b.levels.length > 0 && <LevelMap b={b} {...rise()} />}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {b.sessions.length > 0 && (
           <Panel {...rise()} title="Sessions">
             <ul className="space-y-3.5 px-5 py-4">
@@ -131,7 +131,17 @@ function Briefing({ b }: { b: DailyBias }) {
             </ul>
           </Panel>
         )}
-        <Macro b={b} {...rise()} />
+        {(() => {
+          // Six driver cards need the room; sessions are a short list beside them.
+          const r = rise();
+          return (
+            <Macro
+              b={b}
+              className={cx(r.className, b.sessions.length > 0 ? "lg:col-span-2" : "lg:col-span-3")}
+              style={r.style}
+            />
+          );
+        })()}
       </div>
 
       {b.analysts.length > 0 && <Consensus b={b} {...rise()} />}
@@ -233,11 +243,18 @@ function StructureTile({ b, className, style }: { b: DailyBias } & Anim) {
   const s = b.structure;
   return (
     <Tile tone="bg-soft" label="Structure" why={s.why} className={className} style={style}>
-      <div className="space-y-1.5">
-        <TrendRow tf="D1" trend={s.d1Trend} note={s.d1} />
-        <TrendRow tf="H4" trend={s.h4Trend} note={s.h4} />
-      </div>
-      <div className="mt-auto pt-3">
+      {s.d1Trend || s.h4Trend ? (
+        <div className="mt-1 grid grid-cols-2 gap-2">
+          <TrendCard tf="D1" trend={s.d1Trend} note={s.d1} />
+          <TrendCard tf="H4" trend={s.h4Trend} note={s.h4} />
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <TrendRow tf="D1" note={s.d1} />
+          <TrendRow tf="H4" note={s.h4} />
+        </div>
+      )}
+      <div className="mt-auto pt-4">
         {s.rangeLow != null && s.rangeHigh != null && b.spot != null ? (
           <RangeGauge low={s.rangeLow} high={s.rangeHigh} spot={b.spot} />
         ) : (
@@ -248,55 +265,90 @@ function StructureTile({ b, className, style }: { b: DailyBias } & Anim) {
   );
 }
 
-/** A timeframe's direction as a mark; the prose note waits in the tooltip. */
-function TrendRow({ tf, trend, note }: { tf: string; trend: Trend | null; note: string }) {
-  const pole = trend ? POLE[trendPole(trend)] : null;
+const TREND_ICON = { bullish: TrendingUp, bearish: TrendingDown, range: MoveRight } as const;
+
+/** A timeframe's direction, read in one glance: arrow, word, tinted card. The note is on hover. */
+function TrendCard({ tf, trend, note }: { tf: string; trend: Trend | null; note: string }) {
+  if (!trend) {
+    return <div className="rounded-xl bg-subtle px-3 py-2.5 text-[12px] text-faint">{tf} · —</div>;
+  }
+  const pole = POLE[trendPole(trend)];
+  const Icon = TREND_ICON[trend];
+  return (
+    <Tip text={note} className="block">
+      <span className={cx("flex items-center gap-2.5 rounded-xl px-3 py-2.5", pole.tint)}>
+        <Icon size={22} strokeWidth={2.25} className={cx("shrink-0", pole.text)} />
+        <span className="min-w-0">
+          <span className="num block text-[10px] text-faint">{tf}</span>
+          <span className="block text-[14px] font-semibold leading-tight">
+            {trend === "range" ? "Range" : pole.word}
+          </span>
+        </span>
+      </span>
+    </Tip>
+  );
+}
+
+/** Older briefings without trend fields: the note itself, one line. */
+function TrendRow({ tf, note }: { tf: string; note: string }) {
   return (
     <div className="flex items-center gap-2.5 text-[13px]">
-      <span className="num w-6 text-[11px] text-faint">{tf}</span>
-      <Tip text={note} className="flex min-w-0 items-center gap-1.5">
-        {pole ? (
-          <>
-            <span className={cx("text-[11px]", pole.text)}>{pole.glyph}</span>
-            <span>{trend === "range" ? "Range" : pole.word}</span>
-          </>
-        ) : (
-          // An older briefing without a trend field: fall back to its note.
-          <span className="truncate text-soft">{note || "—"}</span>
-        )}
+      <span className="num w-6 shrink-0 text-[11px] text-faint">{tf}</span>
+      <Tip text={note} className="truncate text-soft">
+        {note || "—"}
       </Tip>
     </div>
   );
 }
 
 /**
- * Where spot sits in the dealing range. The lower half is discount, the upper half
- * premium, split at equilibrium — the picture behind "premium vs discount".
+ * Where spot sits in the dealing range: discount fades into premium around
+ * equilibrium, and a pin marks spot with its price — "premium vs discount" as a picture.
  */
 function RangeGauge({ low, high, spot }: { low: number; high: number; spot: number }) {
   const pct = Math.min(100, Math.max(0, ((spot - low) / (high - low)) * 100));
-  const zone = pct < 45 ? "Discount" : pct > 55 ? "Premium" : "Equilibrium";
+  const zone = pct < 45 ? "discount" : pct > 55 ? "premium" : "equilibrium";
+  const pole = zone === "discount" ? POLE.bullish : zone === "premium" ? POLE.bearish : POLE.neutral;
+  // Keep the price chip inside the tile at the extremes.
+  const chipAt = Math.min(86, Math.max(14, pct));
   return (
     <div>
-      <div className="mb-1.5 flex justify-between text-[11px] text-faint">
-        <span>Dealing range</span>
-        <span className="text-soft">
-          {zone} · {Math.round(pct)}%
+      <div className="mb-1 flex items-baseline justify-between text-[11px]">
+        <span className="text-faint">Dealing range</span>
+        <span className="flex items-center gap-1.5 text-soft">
+          <span className={cx("size-1.5 rounded-full", pole.bar)} />
+          <span className="font-semibold capitalize text-ink">{zone}</span> · {Math.round(pct)}%
         </span>
       </div>
-      <div className="relative h-2">
-        <div className="absolute inset-y-0 left-0 w-[calc(50%-1px)] rounded-l-full bg-up/20" />
-        <div className="absolute inset-y-0 right-0 w-[calc(50%-1px)] rounded-r-full bg-down/20" />
+      <div className="relative pt-7">
         <span
-          className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface bg-accent"
+          className="absolute top-0 -translate-x-1/2 whitespace-nowrap rounded-md bg-accent/15 px-1.5 py-0.5 text-[11px] font-semibold text-accent-2"
+          style={{ left: `${chipAt}%` }}
+        >
+          {px(spot)}
+        </span>
+        <span className="absolute top-[22px] -bottom-1 w-[2px] -translate-x-1/2 bg-accent" style={{ left: `${pct}%` }} />
+        <div
+          className="h-3 rounded-full"
+          style={{
+            background:
+              "linear-gradient(90deg, color-mix(in oklab, var(--color-up) 45%, transparent), var(--color-subtle) 50%, color-mix(in oklab, var(--color-down) 45%, transparent))",
+          }}
+        />
+        <span className="absolute -bottom-1 left-1/2 top-[24px] w-px bg-ink/40" />
+        <span
+          className="absolute bottom-[-2px] size-4 -translate-x-1/2 rounded-full border-2 border-surface bg-accent"
           style={{ left: `${pct}%` }}
-          title={`Spot ${px(spot)}`}
         />
       </div>
-      <div className="num mt-1.5 flex justify-between text-[11px] text-faint">
+      <div className="num mt-2 grid grid-cols-3 text-[11px] text-faint">
         <span>{px(low)}</span>
-        <span>EQ {px((low + high) / 2)}</span>
-        <span>{px(high)}</span>
+        <span className="text-center">EQ {px((low + high) / 2)}</span>
+        <span className="text-right">{px(high)}</span>
+      </div>
+      <div className="grid grid-cols-2 text-[10px] uppercase tracking-[0.08em] text-faint">
+        <span>Discount</span>
+        <span className="text-right">Premium</span>
       </div>
     </div>
   );
@@ -468,45 +520,65 @@ const GOLD_WORD: Record<Lean, string> = { bullish: "tailwind", neutral: "neutral
 function Macro({ b, className, style }: { b: DailyBias } & Anim) {
   const d = b.macro.drivers;
   const count = (p: Lean) => d.filter((x) => x.gold === p).length;
+  const net = count("bullish") - count("bearish");
   return (
     <Panel title="Macro & intermarket" why={b.macro.flow} className={className} style={style}>
       {d.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-px bg-line sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
             {d.map((x) => (
-              <div key={x.name} className="bg-surface px-5 py-3.5">
-                <div className="label !mb-1">{x.name}</div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-[18px] font-semibold tracking-tight">{x.value || "—"}</span>
-                  {x.change && <span className="num text-[12px] text-soft">{x.change}</span>}
-                </div>
-                <div className="mt-1 flex items-center gap-1.5 text-[11px] text-soft">
-                  <span className={POLE[x.gold].text}>{POLE[x.gold].glyph}</span>
-                  gold {GOLD_WORD[x.gold]}
-                </div>
-              </div>
+              <DriverCard key={x.name} x={x} />
             ))}
           </div>
-          <div className="border-t px-5 py-3.5">
-            <div className="label">Net for gold</div>
-            <SplitBar
-              compact
-              parts={[
-                { pole: "bullish", label: "Tailwinds", value: count("bullish"), raw: true },
-                { pole: "neutral", label: "Neutral", value: count("neutral"), raw: true },
-                { pole: "bearish", label: "Headwinds", value: count("bearish"), raw: true },
-              ]}
+          <div className="border-t px-5 py-4">
+            <SidesBar
+              title="Net for gold"
+              verdict={net > 0 ? "Net tailwind" : net < 0 ? "Net headwind" : "Balanced"}
+              bear={{ value: count("bearish"), shown: `${count("bearish")} headwind${count("bearish") === 1 ? "" : "s"}` }}
+              neutral={{ value: count("neutral"), shown: `${count("neutral")} neutral` }}
+              bull={{ value: count("bullish"), shown: `${count("bullish")} tailwind${count("bullish") === 1 ? "" : "s"}` }}
             />
           </div>
         </>
       ) : (
-        // An older briefing without driver tiles: its three short lines.
+        // An older briefing without driver cards: its two short lines.
         <dl className="space-y-2.5 px-5 py-4 text-[13px]">
           <Fact term="DXY">{b.macro.dxy}</Fact>
           <Fact term="Yields">{b.macro.yields}</Fact>
         </dl>
       )}
     </Panel>
+  );
+}
+
+/** Which way a driver moved, when its change is a signed number ("-2bp", "+0.3%"). */
+function moveOf(change: string): "up" | "down" | null {
+  const m = change.trim().match(/^([+\-−])\s*\d/);
+  return m ? (m[1] === "+" ? "up" : "down") : null;
+}
+
+/**
+ * One instrument: its level and move up top, and — the part that matters for the
+ * trade — whether it pushes gold up or down today, as the card's edge colour and chip.
+ */
+function DriverCard({ x }: { x: Driver }) {
+  const pole = POLE[x.gold];
+  const move = moveOf(x.change);
+  return (
+    <div className="relative overflow-hidden rounded-xl border bg-raised py-3 pl-4 pr-3">
+      <span className={cx("absolute inset-y-0 left-0 w-[3px]", pole.bar)} />
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-[11px] font-medium uppercase tracking-[0.08em] text-faint">{x.name}</span>
+        {move === "up" && <ArrowUpRight size={14} className="shrink-0 text-soft" />}
+        {move === "down" && <ArrowDownRight size={14} className="shrink-0 text-soft" />}
+      </div>
+      <div className="mt-1 truncate text-[20px] font-semibold tracking-tight">{x.value || "—"}</div>
+      <div className="num truncate text-[11px] text-faint">{x.change || " "}</div>
+      <span className={cx("mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium", pole.tint)}>
+        <span className={cx("text-[9px]", pole.text)}>{pole.glyph}</span>
+        Gold {GOLD_WORD[x.gold]}
+      </span>
+    </div>
   );
 }
 
@@ -521,12 +593,21 @@ function Consensus({ b, className, style }: { b: DailyBias } & Anim) {
   const ref = b.generatedAt ? Date.parse(b.generatedAt) : Date.now();
   const col = (p: Lean) => b.analysts.filter((a) => a.lean === p);
   const n = b.analysts.length;
-  const pct = (p: Lean) => Math.round((col(p).length / n) * 100);
+  const [bear, neutral, bull] = toHundred([col("bearish").length, col("neutral").length, col("bullish").length]);
+  const fresh = b.analysts.filter(
+    (a) => a.publishedAt != null && ref - Date.parse(a.publishedAt) <= 24 * 3_600_000,
+  ).length;
+  const verdict = bear - bull >= 10 ? "Bearish lean" : bull - bear >= 10 ? "Bullish lean" : "Split";
 
   return (
-    <Panel title="Pro-trader consensus" note={`${n} views`} className={className} style={style}>
+    <Panel title="Pro-trader consensus" note={`${n} views · ${fresh} from the last 24h`} className={className} style={style}>
       <div className="px-5 pt-4">
-        <CentredBar bear={pct("bearish")} neutral={pct("neutral")} bull={pct("bullish")} />
+        <SidesBar
+          verdict={verdict}
+          bear={{ value: bear, shown: `${bear}% bearish` }}
+          neutral={{ value: neutral, shown: `${neutral}% neutral` }}
+          bull={{ value: bull, shown: `${bull}% bullish` }}
+        />
       </div>
       <div className="grid grid-cols-3 gap-4 px-5 py-4">
         {(["bearish", "neutral", "bullish"] as const).map((p) => (
@@ -591,41 +672,60 @@ function Consensus({ b, className, style }: { b: DailyBias } & Anim) {
 }
 
 /**
- * Bearish grows left, bullish right, neutral straddles the centre line — a diverging
- * stacked bar, so the lean reads as which side is longer.
+ * Two sides and a middle across the full width: bearish/headwinds from the left,
+ * bullish/tailwinds from the right, neutral between. The tick at 50% makes the
+ * dominant side obvious without reading a number; segments are split by 2px gaps.
  */
-function CentredBar({ bear, neutral, bull }: { bear: number; neutral: number; bull: number }) {
-  const left = bear + neutral / 2;
-  const right = bull + neutral / 2;
-  // Scale so the longer side just reaches its edge; the centre line stays at 50%.
-  const unit = 50 / Math.max(left, right, 1);
+function SidesBar({
+  title,
+  verdict,
+  bear,
+  neutral,
+  bull,
+}: {
+  title?: string;
+  verdict: string;
+  bear: { value: number; shown: string };
+  neutral: { value: number; shown: string };
+  bull: { value: number; shown: string };
+}) {
+  const parts = [
+    { key: "bearish" as const, ...bear },
+    { key: "neutral" as const, ...neutral },
+    { key: "bullish" as const, ...bull },
+  ];
   return (
     <div>
-      <div className="relative h-2.5">
-        <div
-          className="absolute inset-y-0 flex gap-[2px] overflow-hidden rounded-full"
-          style={{ left: `${50 - left * unit}%`, width: `${(left + right) * unit}%` }}
-        >
-          {bear > 0 && <div className="anim-grow h-full bg-down" style={{ flex: bear }} title={`Bearish ${bear}%`} />}
-          {neutral > 0 && <div className="anim-grow h-full bg-soft" style={{ flex: neutral }} title={`Neutral ${neutral}%`} />}
-          {bull > 0 && <div className="anim-grow h-full bg-up" style={{ flex: bull }} title={`Bullish ${bull}%`} />}
-        </div>
-        <span className="absolute -inset-y-1 left-1/2 w-px bg-ink/40" />
+      <div className="mb-2 flex items-baseline justify-between text-[11px]">
+        <span className="text-faint">{title}</span>
+        <span className="font-semibold uppercase tracking-[0.08em] text-ink">{verdict}</span>
       </div>
-      <div className="mt-2 flex justify-between text-[12px]">
+      <div className="relative">
+        <div className="flex h-3 w-full gap-[2px] overflow-hidden rounded-full bg-subtle">
+          {parts.map((p) =>
+            p.value > 0 ? (
+              <div
+                key={p.key}
+                className={cx("anim-grow h-full", POLE[p.key].bar)}
+                style={{ flex: p.value }}
+                title={p.shown}
+              />
+            ) : null,
+          )}
+        </div>
+        <span className="absolute -inset-y-1 left-1/2 w-px bg-ink/50" />
+      </div>
+      <div className="mt-2 grid grid-cols-3 text-[12px]">
         <span className="flex items-baseline gap-1.5">
           <span className="text-[10px] text-down">▼</span>
-          <span className="font-semibold">{bear}%</span>
-          <span className="text-faint">bearish</span>
+          <span className="font-semibold">{bear.shown}</span>
         </span>
-        <span className="flex items-baseline gap-1.5">
-          <span className="text-[10px] text-soft">◆</span>
-          <span className="font-semibold">{neutral}%</span>
-          <span className="text-faint">neutral</span>
+        <span className="flex items-baseline justify-center gap-1.5 text-soft">
+          <span className="text-[10px]">◆</span>
+          {neutral.shown}
         </span>
-        <span className="flex items-baseline gap-1.5">
-          <span className="text-faint">bullish</span>
-          <span className="font-semibold">{bull}%</span>
+        <span className="flex items-baseline justify-end gap-1.5">
+          <span className="font-semibold">{bull.shown}</span>
           <span className="text-[10px] text-up">▲</span>
         </span>
       </div>
