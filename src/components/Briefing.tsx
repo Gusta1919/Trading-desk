@@ -1,6 +1,8 @@
+import { CircleCheck, Info, OctagonAlert, Quote, TriangleAlert, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import type { Briefing as BriefingData, CoachCard, Tone } from "@/lib/coach";
-import { cx } from "./ui";
+import { balancedSpans } from "@/lib/layout";
+import { Tip, cx } from "./ui";
 
 export const toneBar: Record<Tone, string> = {
   good: "bg-up",
@@ -14,6 +16,14 @@ export const toneText: Record<Tone, string> = {
   info: "text-ink",
   warn: "text-warn",
   alert: "text-down",
+};
+
+/* Each tone gets a mark and a word, so a card's weight never rests on colour alone. */
+const TONE: Record<Tone, { icon: LucideIcon; word: string; tint: string; mark: string }> = {
+  good: { icon: CircleCheck, word: "On track", tint: "bg-up/10", mark: "text-up" },
+  info: { icon: Info, word: "Context", tint: "bg-subtle", mark: "text-soft" },
+  warn: { icon: TriangleAlert, word: "Careful", tint: "bg-warn/10", mark: "text-warn" },
+  alert: { icon: OctagonAlert, word: "Stop", tint: "bg-down/10", mark: "text-down" },
 };
 
 /** The coach's pre-session briefing: headline, cards, principle, reflection. */
@@ -34,6 +44,7 @@ export function Briefing({
 }) {
   const cards = maxCards ? briefing.cards.slice(0, maxCards) : briefing.cards;
   const hidden = briefing.cards.length - cards.length;
+  const spans = balancedSpans(cards.length);
   const delay = (i: number) => (animate ? { animationDelay: `${200 + i * 180}ms` } : undefined);
   const rise = animate ? "anim-rise" : "";
 
@@ -48,10 +59,10 @@ export function Briefing({
         </h2>
       </header>
 
-      {/* A strict grid, not masonry: fixed tracks keep every row aligned. */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+      {/* Balanced rows on a six-track grid: two cards share a row evenly, five sit 3 + 2. */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-6">
         {cards.map((c, i) => (
-          <Card key={c.id} card={c} className={cx(rise, i === 0 && leadSpan(cards.length))} style={delay(i)} />
+          <Card key={c.id} card={c} className={cx(rise, spans[i])} style={delay(i)} />
         ))}
       </div>
 
@@ -61,12 +72,16 @@ export function Briefing({
         </button>
       )}
 
-      <blockquote
-        className={cx("border-l-2 border-accent/60 pl-4 text-[14px] italic text-soft", rise)}
-        style={delay(cards.length)}
-      >
-        {briefing.principle}
-      </blockquote>
+      <div className={cx("grid grid-cols-1 gap-6", briefing.reflection && "md:grid-cols-2", rise)} style={delay(cards.length)}>
+        <Note label="Principle" icon={<Quote size={13} />}>
+          <span className="italic">{briefing.principle}</span>
+        </Note>
+        {briefing.reflection && (
+          <Note label="Reflect before you trade" icon={<span className="text-[13px] leading-none">?</span>}>
+            {briefing.reflection}
+          </Note>
+        )}
+      </div>
 
       {footer && (
         <div className={rise} style={delay(cards.length + 2)}>
@@ -75,16 +90,6 @@ export function Briefing({
       )}
     </div>
   );
-}
-
-/**
- * How wide the first card runs so no row is left with a gap: across two columns it
- * spans both when the count is odd; across three it spans two or all three as needed.
- */
-function leadSpan(n: number) {
-  const md = n % 2 === 1 && n > 1 ? "md:col-span-2" : "";
-  const lg = n % 3 === 2 ? "lg:col-span-2" : n % 3 === 1 && n > 1 ? "lg:col-span-3" : "lg:col-span-1";
-  return cx(md, lg);
 }
 
 function Card({
@@ -96,30 +101,55 @@ function Card({
   className?: string;
   style?: React.CSSProperties;
 }) {
+  const t = TONE[card.tone];
+  const Icon = t.icon;
   return (
     <article
       className={cx(
         // h-full so every card fills its grid track and the rows line up.
-        "card relative flex h-full flex-col overflow-hidden border-white/5 py-5 pl-6 pr-5 text-left",
+        "card relative flex h-full flex-col overflow-hidden py-5 pl-6 pr-5 text-left",
         className,
       )}
       style={style}
     >
       <span className={cx("absolute inset-y-0 left-0 w-[3px]", toneBar[card.tone])} />
-      <h3 className="text-[14px] font-semibold">{card.title}</h3>
-      <p className="mt-1 text-[13px] leading-relaxed text-soft">{card.body}</p>
+      <div className="flex items-center justify-between gap-3">
+        <span className="flex items-center gap-2">
+          <span className={cx("grid size-6 place-items-center rounded-full", t.tint)}>
+            <Icon size={13} strokeWidth={2.25} className={t.mark} />
+          </span>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">{t.word}</span>
+        </span>
+        {card.why && (
+          <Tip text={card.why} className="flex items-center gap-1 text-[11px] text-faint hover:text-soft">
+            <Info size={11} /> Why
+          </Tip>
+        )}
+      </div>
+      <h3 className="mt-3 text-[15px] font-semibold leading-snug">{card.title}</h3>
+      <p className="mt-1.5 text-[13px] leading-relaxed text-soft">{card.body}</p>
+      {/* Pinned to the bottom so the numbers line up across a row of cards. */}
       {card.stat && (
-        <p className="num mt-2.5 rounded-md bg-subtle px-3 py-2 text-[12px] text-soft">{card.stat}</p>
-      )}
-      {card.why && (
-        <details className="group mt-2">
-          <summary className="cursor-pointer list-none text-[12px] text-faint hover:text-soft">
-            <span className="group-open:hidden">Why this matters →</span>
-            <span className="hidden group-open:inline">Why this matters ↓</span>
-          </summary>
-          <p className="mt-1.5 text-[12px] leading-relaxed text-soft">{card.why}</p>
-        </details>
+        <div className="mt-auto pt-3.5">
+          <p className="num rounded-lg bg-subtle px-3 py-2 text-[12px] text-soft">{card.stat}</p>
+        </div>
       )}
     </article>
+  );
+}
+
+/** A quiet panel for the words that frame the day: the principle and the question. */
+function Note({ label, icon, children }: { label: string; icon: ReactNode; children: ReactNode }) {
+  return (
+    <section className="card relative flex h-full gap-3.5 overflow-hidden py-4 pl-6 pr-5">
+      <span className="absolute inset-y-0 left-0 w-[3px] bg-accent/60" />
+      <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-accent/10 text-accent-2">
+        {icon}
+      </span>
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">{label}</div>
+        <p className="mt-1 text-[14px] leading-relaxed text-soft">{children}</p>
+      </div>
+    </section>
   );
 }
