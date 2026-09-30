@@ -3,6 +3,8 @@ import { useState, type ReactNode } from "react";
 import { toHundred, type BiasLevel, type DailyBias, type Driver, type Lean, type LevelKind, type Scenario, type Trend } from "@/lib/dailyBias";
 import { DESK_TZ, deskDateLabel, deskDay, deskTime } from "@/lib/tz";
 import type { DailyBiasState } from "@/lib/useDailyBias";
+import { useCandles } from "@/lib/useCandles";
+import { BiasChart } from "./BiasChart";
 import { Tip, cx, stagger } from "./ui";
 
 /**
@@ -62,9 +64,20 @@ const trendPole = (t: Trend): Lean => (t === "range" ? "neutral" : t);
 
 function Briefing({ b }: { b: DailyBias }) {
   const lead = leading(b);
+  // One scenario is on the chart at a time; the cards and the chart's pills share it.
+  const [pick, setPick] = useState(() => Math.max(0, b.scenarios.findIndex((s) => s.kind === "primary")));
+  const choose = (i: number) => setPick(i === pick ? -1 : i);
+  // Live price for the header, so a stale briefing is obvious at a glance.
+  const liveCandles = useCandles("15m").candles;
+  const live = liveCandles.length ? liveCandles[liveCandles.length - 1].c : null;
   let i = 0;
   const rise = () => ({ className: "anim-rise", style: stagger(i++, 70) });
 
+  /*
+   * Most practical first: the call, then the plan against live price, then what to
+   * do (scenarios), what to watch (tiles), when (sessions, risk), why (macro,
+   * consensus) and finally the reference material.
+   */
   return (
     <div className="space-y-6">
       <header {...rise()} className="anim-rise flex flex-wrap items-end justify-between gap-4">
@@ -77,12 +90,27 @@ function Briefing({ b }: { b: DailyBias }) {
             {POLE[lead.pole].glyph} {lead.word} day · {lead.pct}%
           </h2>
         </div>
-        {b.spot != null && (
-          <div className="text-right">
-            <div className="label !mb-0.5">Spot{b.spotAt && ` · ${deskTime(b.spotAt)} NY`}</div>
-            <div className="text-[24px] font-semibold tracking-tight">{px(b.spot)}</div>
-          </div>
-        )}
+        <div className="flex items-end gap-6 text-right">
+          {b.spot != null && (
+            <div>
+              <div className="label !mb-0.5">When written{b.spotAt && ` · ${deskTime(b.spotAt)} NY`}</div>
+              <div className="text-[18px] font-semibold tracking-tight text-soft">{px(b.spot)}</div>
+            </div>
+          )}
+          {live != null && (
+            <div>
+              <div className="label !mb-0.5">Now</div>
+              <div className="flex items-baseline justify-end gap-2">
+                <span className="text-[24px] font-semibold tracking-tight">{px(live)}</span>
+                {b.spot != null && (
+                  <span className={cx("num text-[12px]", live - b.spot >= 0 ? "text-up" : "text-down")}>
+                    {signedPts(live - b.spot)}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </header>
 
       <section {...rise()} className="anim-rise card px-6 py-5">
@@ -94,30 +122,32 @@ function Briefing({ b }: { b: DailyBias }) {
             { pole: "bearish", label: "Bearish", value: b.bias.bearish },
           ]}
         />
-        {b.tldr && (
-          <p className="mt-4 border-l-2 border-accent/60 pl-4 text-[14px] leading-relaxed">{b.tldr}</p>
-        )}
       </section>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-        <KeyLevelTile b={b} {...rise()} />
-        <EventTile b={b} {...rise()} />
-        <StructureTile b={b} {...rise()} />
-      </div>
+      <BiasChart b={b} pick={pick} onPick={setPick} {...rise()} />
 
       {b.scenarios.length > 0 && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          {b.scenarios.map((s) => (
-            <ScenarioCard key={s.kind + s.title} s={s} {...rise()} />
+          {b.scenarios.map((s, i) => (
+            <ScenarioCard key={s.kind + s.title} s={s} selected={i === pick} onSelect={() => choose(i)} {...rise()} />
           ))}
         </div>
       )}
 
-      {b.levels.length > 0 && <LevelMap b={b} {...rise()} />}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+        <KeyLevelTile b={b} {...rise()} />
+        <EventTile b={b} {...rise()} />
+        <VolatilityTile b={b} {...rise()} />
+        <StructureTile b={b} {...rise()} />
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {b.sessions.length > 0 && (
-          <Panel {...rise()} title="Sessions">
+          <Panel
+            {...rise()}
+            title="Sessions"
+            sub="How today's Asia, London and New York sessions are likely to trade: the chance each call comes true."
+          >
             <ul className="space-y-3.5 px-5 py-4">
               {b.sessions.map((s) => (
                 <li key={s.label}>
@@ -132,10 +162,9 @@ function Briefing({ b }: { b: DailyBias }) {
           </Panel>
         )}
         {(() => {
-          // Six driver cards need the room; sessions are a short list beside them.
           const r = rise();
           return (
-            <Macro
+            <Risk
               b={b}
               className={cx(r.className, b.sessions.length > 0 ? "lg:col-span-2" : "lg:col-span-3")}
               style={r.style}
@@ -144,9 +173,11 @@ function Briefing({ b }: { b: DailyBias }) {
         })()}
       </div>
 
+      <Macro b={b} {...rise()} />
+
       {b.analysts.length > 0 && <Consensus b={b} {...rise()} />}
 
-      <Risk b={b} {...rise()} />
+      {b.levels.length > 0 && <LevelMap b={b} {...rise()} />}
 
       <footer {...rise()} className="anim-rise space-y-3">
         {b.markdown && (
@@ -189,7 +220,7 @@ function KeyLevelTile({ b, className, style }: { b: DailyBias } & Anim) {
           {match?.sweepProb != null && (
             <div className="mt-auto pt-3">
               <div className="flex justify-between text-[11px] text-faint">
-                <span>Tagged today</span>
+                <span>Touched by 17:00 NY</span>
                 <span className="num text-soft">{match.sweepProb}%</span>
               </div>
               <Meter value={match.sweepProb} />
@@ -261,6 +292,48 @@ function StructureTile({ b, className, style }: { b: DailyBias } & Anim) {
           s.zone && <ZoneStrip zone={s.zone} />
         )}
       </div>
+    </Tile>
+  );
+}
+
+/** How much of a normal day's range is already spent — room left to trade. */
+function VolatilityTile({ b, className, style }: { b: DailyBias } & Anim) {
+  const r = b.risk;
+  const used = r.dayLow != null && r.dayHigh != null ? r.dayHigh - r.dayLow : null;
+  const pct = used != null && r.atr ? Math.round((used / r.atr) * 100) : null;
+  return (
+    <Tile
+      tone="bg-cyan"
+      label="Volatility"
+      why={r.expectedRange ? `Expected range today: ${r.expectedRange}.` : undefined}
+      className={className}
+      style={style}
+    >
+      {pct != null ? (
+        <>
+          <div className="flex items-baseline gap-2.5">
+            <span className="text-[22px] font-semibold tracking-tight">{pct}%</span>
+            <span className="text-[12px] text-soft">of ATR used</span>
+          </div>
+          <div className="text-[13px] text-soft">
+            {Math.round(used!)} of {r.atr} pts · {Math.max(0, Math.round(r.atr! - used!))} pts left
+          </div>
+          <div className="mt-auto pt-3">
+            <Meter value={Math.min(pct, 100)} bar={pct >= 80 ? "bg-warn" : "bg-cyan"} className="!h-1.5" />
+            <div className="mt-1.5 flex justify-between text-[11px] text-faint">
+              <span>
+                Range {px(r.dayLow!)}–{px(r.dayHigh!)}
+              </span>
+              {pct >= 80 && <span className="text-warn">most of the day's move is done</span>}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="text-[22px] font-semibold tracking-tight">{r.atr != null ? `ATR ${r.atr}` : "—"}</div>
+          {r.expectedRange && <div className="text-[13px] text-soft">Expected {r.expectedRange}</div>}
+        </>
+      )}
     </Tile>
   );
 }
@@ -356,10 +429,29 @@ function RangeGauge({ low, high, spot }: { low: number; high: number; spot: numb
 
 /* ── Scenarios ───────────────────────────────────────────────────────── */
 
-function ScenarioCard({ s, className, style }: { s: Scenario } & Anim) {
+function ScenarioCard({
+  s,
+  selected,
+  onSelect,
+  className,
+  style,
+}: { s: Scenario; selected: boolean; onSelect: () => void } & Anim) {
   const pole = POLE[s.direction === "long" ? "bullish" : s.direction === "short" ? "bearish" : "neutral"];
   return (
-    <article className={cx("card relative flex h-full flex-col overflow-hidden py-5 pl-6 pr-5", className)} style={style}>
+    <article
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onClick={onSelect}
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect())}
+      title={selected ? "Shown on the chart" : "Show on the chart"}
+      className={cx(
+        "card card-hover relative flex h-full cursor-pointer flex-col overflow-hidden py-5 pl-6 pr-5 outline-none",
+        selected && "ring-1 ring-accent/50",
+        className,
+      )}
+      style={style}
+    >
       <span className={cx("absolute inset-y-0 left-0 w-[3px]", pole.bar)} />
       <div className="flex items-baseline justify-between gap-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
@@ -444,8 +536,8 @@ function LevelMap({ b, className, style }: { b: DailyBias } & Anim) {
 
   return (
     <Panel
-      title="Key levels"
-      note="bar = chance of a tag or sweep today · hover a level for the note"
+      title="All key levels"
+      sub="The chart's levels as a table, with their notes. The bar is the chance price trades at each level (a wick counts) before today's 17:00 NY close."
       className={className}
       style={style}
     >
@@ -515,6 +607,14 @@ function LevelRow({ l, spot }: { l: BiasLevel; spot: number | null }) {
 
 /* ── Macro ───────────────────────────────────────────────────────────── */
 
+/* Full width: one row of driver cards whatever their count (written out for Tailwind). */
+const DRIVER_COLS: Record<number, string> = {
+  3: "xl:grid-cols-3",
+  4: "xl:grid-cols-4",
+  5: "xl:grid-cols-5",
+  6: "xl:grid-cols-6",
+};
+
 const GOLD_WORD: Record<Lean, string> = { bullish: "tailwind", neutral: "neutral", bearish: "headwind" };
 
 function Macro({ b, className, style }: { b: DailyBias } & Anim) {
@@ -525,7 +625,7 @@ function Macro({ b, className, style }: { b: DailyBias } & Anim) {
     <Panel title="Macro & intermarket" why={b.macro.flow} className={className} style={style}>
       {d.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
+          <div className={cx("grid grid-cols-2 gap-3 p-4 sm:grid-cols-3", DRIVER_COLS[Math.min(Math.max(d.length, 3), 6)])}>
             {d.map((x) => (
               <DriverCard key={x.name} x={x} />
             ))}
@@ -737,9 +837,6 @@ function SidesBar({
 
 function Risk({ b, className, style }: { b: DailyBias } & Anim) {
   const r = b.risk;
-  const used = r.atr != null && r.dayLow != null && r.dayHigh != null ? r.dayHigh - r.dayLow : null;
-  const usedPct = used != null && r.atr ? Math.round((used / r.atr) * 100) : null;
-
   // Group releases by desk day so "today" reads apart from the rest of the week.
   const days = new Map<string, typeof r.events>();
   for (const e of r.events) {
@@ -748,10 +845,10 @@ function Risk({ b, className, style }: { b: DailyBias } & Anim) {
   }
 
   return (
-    <Panel title="Risk" className={className} style={style}>
-      <div className="grid grid-cols-1 gap-6 px-5 py-4 md:grid-cols-3">
+    <Panel title="Risk & timing" sub="Scheduled releases on New York time, and when to keep your hands off." className={className} style={style}>
+      <div className="grid grid-cols-1 gap-6 px-5 py-4 md:grid-cols-2">
         <div>
-          <div className="label">Releases · NY time</div>
+          <div className="label">Releases</div>
           <div className="space-y-2.5">
             {[...days].map(([day, list]) => (
               <div key={day}>
@@ -770,6 +867,9 @@ function Risk({ b, className, style }: { b: DailyBias } & Anim) {
                         title={`${e.impact} impact`}
                       />
                       <span className="truncate">{e.title}</span>
+                      {e.at && Date.parse(e.at) > Date.now() && Date.parse(e.at) - Date.now() < 24 * 3_600_000 && (
+                        <span className="num ml-auto shrink-0 text-[11px] text-faint">{countdown(e.at)}</span>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -780,35 +880,15 @@ function Risk({ b, className, style }: { b: DailyBias } & Anim) {
         </div>
 
         <div>
-          <div className="label">Volatility</div>
-          {usedPct != null ? (
-            <>
-              <div className="flex items-baseline gap-2">
-                <span className="text-[22px] font-semibold tracking-tight">{Math.round(used!)}</span>
-                <span className="text-[12px] text-soft">of ATR {r.atr} pts used</span>
-              </div>
-              <Meter value={Math.min(usedPct, 100)} bar={usedPct >= 80 ? "bg-warn" : "bg-accent"} className="!h-1.5" />
-              <p className="mt-1.5 text-[11px] text-faint">
-                {usedPct}% of a normal day{r.expectedRange && ` · expected ${r.expectedRange}`}
-              </p>
-            </>
-          ) : (
-            <>
-              <div className="text-[22px] font-semibold tracking-tight">{r.atr != null ? `ATR ${r.atr}` : "—"}</div>
-              {r.expectedRange && <p className="text-[12px] text-faint">Expected {r.expectedRange}</p>}
-            </>
-          )}
-        </div>
-
-        <div>
           <div className="label">Stand aside if</div>
           <ul className="space-y-1.5 text-[13px] text-soft">
-            {r.standAside.map((s) => (
-              <li key={s} className="flex gap-2">
+            {r.standAside.map((x) => (
+              <li key={x} className="flex gap-2">
                 <span className="text-faint">✕</span>
-                {s}
+                {x}
               </li>
             ))}
+            {!r.standAside.length && <li className="text-faint">No stand-aside conditions today.</li>}
           </ul>
         </div>
       </div>
@@ -972,23 +1052,27 @@ function Tile({
 
 function Panel({
   title,
+  sub,
   note,
   why,
   children,
   className,
   style,
-}: { title: string; note?: string; why?: string; children: ReactNode } & Anim) {
+}: { title: string; sub?: string; note?: string; why?: string; children: ReactNode } & Anim) {
   return (
     <section className={cx("card overflow-hidden", className)} style={style}>
       <header className="flex items-baseline justify-between gap-4 border-b px-5 py-3.5">
-        <h3 className="flex items-center gap-1.5 text-[14px] font-semibold">
-          {title}
-          {why && (
-            <Tip text={why} className="text-faint">
-              <Info size={12} />
-            </Tip>
-          )}
-        </h3>
+        <div>
+          <h3 className="flex items-center gap-1.5 text-[14px] font-semibold">
+            {title}
+            {why && (
+              <Tip text={why} className="text-faint">
+                <Info size={12} />
+              </Tip>
+            )}
+          </h3>
+          {sub && <p className="mt-0.5 text-[11px] leading-snug text-faint">{sub}</p>}
+        </div>
         {note && <span className="text-right text-[11px] text-faint">{note}</span>}
       </header>
       {children}

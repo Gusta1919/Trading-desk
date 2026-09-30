@@ -10,6 +10,8 @@
  * task writes alongside.
  */
 
+import { zoneFromText } from "./chart";
+
 export type Lean = "bullish" | "bearish" | "neutral";
 export type LevelKind =
   | "resistance"
@@ -52,6 +54,8 @@ export interface Scenario {
   trigger: string;
   targets: { price: number; prob: number | null }[];
   invalidation: number | null;
+  /** The price zone the scenario plays out in: the chop range, or the trigger area. */
+  zone: { low: number; high: number } | null;
   why: string;
 }
 
@@ -173,6 +177,25 @@ function instant(v: unknown): string | null {
 const list = <T>(v: unknown, each: (o: Obj) => T | null): T[] =>
   Array.isArray(v) ? v.map((x) => each(obj(x))).filter((x): x is T => x != null) : [];
 
+/**
+ * An analyst link that opens the source directly. Gmail rewrites links in drafts
+ * into Google redirects (google.com/url?q=…), so those are unwrapped; anything that
+ * isn't plain http(s) — javascript:, data: — is dropped.
+ */
+export function cleanUrl(raw: unknown): string {
+  let u: URL;
+  try {
+    u = new URL(str(raw));
+  } catch {
+    return "";
+  }
+  if (/(^|\.)google\.[a-z.]+$/.test(u.hostname) && u.pathname === "/url") {
+    const target = u.searchParams.get("q") ?? u.searchParams.get("url");
+    return target ? cleanUrl(target) : "";
+  }
+  return u.protocol === "https:" || u.protocol === "http:" ? u.toString() : "";
+}
+
 const texts = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
 
 /**
@@ -236,6 +259,13 @@ export function parseBias(raw: unknown): DailyBias | null {
         return price == null ? null : { price, prob: pct(t.prob) };
       }),
       invalidation: num(s.invalidation),
+      zone: (() => {
+        const r = orderedRange(num(s.zoneLow), num(s.zoneHigh));
+        // Older briefings name the zone only in words ("4136-4181 range into NFP").
+        return r.rangeLow != null
+          ? { low: r.rangeLow, high: r.rangeHigh! }
+          : zoneFromText(`${str(s.title)} ${str(s.trigger)}`);
+      })(),
       why: str(s.why),
     };
   });
@@ -295,7 +325,7 @@ export function parseBias(raw: unknown): DailyBias | null {
         ? {
             name: str(a.name),
             source: str(a.source),
-            url: /^https?:\/\//.test(str(a.url)) ? str(a.url) : "",
+            url: cleanUrl(a.url),
             lean: oneOf(a.lean, ["bullish", "bearish", "neutral"], "neutral"),
             levels: str(a.levels),
             why: str(a.why),

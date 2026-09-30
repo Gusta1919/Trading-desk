@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import { readBias } from "./bias.js";
+import { getCandles } from "./candles.js";
 import { gmailStatus, syncBias } from "./gmailBias.js";
 import { db } from "./db.js";
 import { getCalendar, getHeadlines, startCalendarRefresh } from "./news.js";
@@ -488,6 +489,16 @@ app.get("/api/news/headlines", async (_req, res) => {
 app.get("/api/bias", (_req, res) => {
   syncBias();
   res.json({ ...readBias(), gmail: gmailStatus() });
+});
+
+/* Intraday spot gold for the Daily Bias chart — see server/candles.ts. */
+app.get("/api/candles", async (req, res) => {
+  const tf = req.query.tf === "5m" ? "5m" : req.query.tf === "1h" ? "1h" : "15m";
+  try {
+    res.json({ tf, source: "Dukascopy · spot bid", ...(await getCandles(tf)) });
+  } catch (err) {
+    res.status(502).json({ error: (err as Error).message || "Price feed unavailable" });
+  }
 });
 
 app.get("/api/limits", (_req, res) => {

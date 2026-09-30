@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { amsterdamClock, parseBias, toHundred } from "../src/lib/dailyBias";
+import { amsterdamClock, cleanUrl, parseBias, toHundred } from "../src/lib/dailyBias";
 
 const core = { date: "2026-10-01", bias: { bullish: 55, range: 30, bearish: 15, why: "x" } };
 
@@ -92,6 +92,21 @@ describe("parseBias", () => {
   });
 });
 
+describe("cleanUrl", () => {
+  it("unwraps the Google redirects Gmail puts around links in drafts", () => {
+    const wrapped =
+      "https://www.google.com/url?q=https://www.fxempire.com/forecasts/article/gold-1633778&source=gmail&ust=1790877720000000&usg=AOv";
+    assert.equal(cleanUrl(wrapped), "https://www.fxempire.com/forecasts/article/gold-1633778");
+  });
+
+  it("leaves ordinary links alone and drops anything that isn't http(s)", () => {
+    assert.equal(cleanUrl("https://www.kitco.com/news/a"), "https://www.kitco.com/news/a");
+    assert.equal(cleanUrl("javascript:alert(1)"), "");
+    assert.equal(cleanUrl("https://www.google.com/url?q=javascript:alert(1)"), "");
+    assert.equal(cleanUrl("not a link"), "");
+  });
+});
+
 describe("parseBias — the visual fields", () => {
   it("reads trends, the dealing range, drivers and the day's range", () => {
     const b = parseBias({
@@ -119,6 +134,22 @@ describe("parseBias — the visual fields", () => {
     assert.equal(b.structure.zone, "discount");
     assert.deepEqual(b.macro.drivers, []);
     assert.equal(b.risk.dayLow, null);
+  });
+
+  it("reads a scenario's zone, from its fields or else from its words", () => {
+    const b = parseBias({
+      ...core,
+      scenarios: [
+        { kind: "chop", prob: 30, title: "4136-4181 range into NFP" },
+        { kind: "primary", prob: 45, zoneLow: 4181, zoneHigh: 4162, title: "Fade retest" },
+        { kind: "alternative", prob: 25, title: "Sweep of 4111 then reclaim" },
+      ],
+    })!;
+    assert.deepEqual(b.scenarios.map((s) => s.zone), [
+      { low: 4136, high: 4181 },
+      { low: 4162, high: 4181 },
+      null,
+    ]);
   });
 
   it("drops half a range rather than drawing a gauge from one end", () => {

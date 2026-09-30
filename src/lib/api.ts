@@ -1,4 +1,5 @@
 import type { CheckIn } from "./checkin";
+import type { Candle, Timeframe } from "./chart";
 import type { BiasFile } from "./dailyBias";
 import type { Limits, Strategy, StrategyInput, Trade, TradeInput, WeekNote } from "./types";
 
@@ -35,6 +36,10 @@ export const api = {
   saveLimits: (l: Limits) =>
     request<Limits>("/api/limits", { method: "PUT", body: JSON.stringify(l) }),
   bias: () => request<BiasFile>("/api/bias"),
+  candles: (tf: Timeframe) =>
+    request<{ tf: string; source: string; candles: Candle[]; fetchedAt: number; stale: boolean }>(
+      `/api/candles?tf=${tf}`,
+    ),
   checkins: () => request<CheckIn[]>("/api/checkins"),
   saveCheckIn: (c: Omit<CheckIn, "createdAt">) =>
     request<CheckIn>(`/api/checkins/${c.date}`, { method: "PUT", body: JSON.stringify(c) }),
