@@ -1,4 +1,5 @@
 import type { CheckIn } from "./checkin";
+import type { BiasFile } from "./dailyBias";
 import type { Limits, Strategy, StrategyInput, Trade, TradeInput, WeekNote } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -33,6 +34,7 @@ export const api = {
   limits: () => request<Limits>("/api/limits"),
   saveLimits: (l: Limits) =>
     request<Limits>("/api/limits", { method: "PUT", body: JSON.stringify(l) }),
+  bias: () => request<BiasFile>("/api/bias"),
   checkins: () => request<CheckIn[]>("/api/checkins"),
   saveCheckIn: (c: Omit<CheckIn, "createdAt">) =>
     request<CheckIn>(`/api/checkins/${c.date}`, { method: "PUT", body: JSON.stringify(c) }),

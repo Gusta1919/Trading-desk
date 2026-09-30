@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+import { readBias } from "./bias.js";
 import { db } from "./db.js";
 import { getCalendar, getHeadlines, startCalendarRefresh } from "./news.js";
 
@@ -477,6 +478,11 @@ app.get("/api/news/headlines", async (_req, res) => {
   } catch (err) {
     res.status(502).json({ error: (err as Error).message || "Headlines unavailable" });
   }
+});
+
+/* The morning's gold bias, written by a scheduled Claude task — see server/bias.ts. */
+app.get("/api/bias", (_req, res) => {
+  res.json(readBias());
 });
 
 app.get("/api/limits", (_req, res) => {

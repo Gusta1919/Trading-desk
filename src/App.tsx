@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarView } from "@/components/CalendarView";
 import { CheckIn } from "@/components/CheckIn";
 import { CoachView } from "@/components/CoachView";
+import { DailyBiasView } from "@/components/DailyBiasView";
 import { Simulation } from "@/components/Simulation";
 import { ReadinessMeter } from "@/components/ReadinessMeter";
 import { RiskChip } from "@/components/RiskChip";
@@ -10,6 +11,7 @@ import { Bell, BellOff } from "lucide-react";
 import { NewsView } from "@/components/NewsView";
 import { unlockAudio, clearTitle, testChime } from "@/lib/alerts";
 import { useNews, useNewsAlerts } from "@/lib/useNews";
+import { useDailyBias } from "@/lib/useDailyBias";
 import { countsForTrading } from "@/lib/newsRules";
 import { StatsStrip } from "@/components/StatsStrip";
 import { StatsView } from "@/components/StatsView";
@@ -25,10 +27,11 @@ import { takenTrades } from "@/lib/risk";
 import { dayKey } from "@/lib/format";
 import { weekKey, type Strategy, type Trade, type WeekNote } from "@/lib/types";
 
-type View = "journal" | "calendar" | "strategies" | "stats" | "news" | "risk" | "coach";
+type View = "journal" | "bias" | "calendar" | "strategies" | "stats" | "news" | "risk" | "coach";
 
 const TABS: { value: View; label: string }[] = [
   { value: "journal", label: "Journal" },
+  { value: "bias", label: "Daily Bias" },
   { value: "calendar", label: "Calendar" },
   { value: "strategies", label: "Strategies" },
   { value: "stats", label: "Stats" },
@@ -54,6 +57,8 @@ export default function App() {
 
   /* News is owned here so the trade blocker and the alerts work on every tab. */
   const news = useNews();
+  /* Fetched on open, not on first click, so the tab is ready the moment you look. */
+  const dailyBias = useDailyBias();
   /*
    * Alerts are on by default — a guard you have to remember to switch on is a guard
    * that is off when it matters. Sound still needs one click, because browsers
@@ -303,6 +308,7 @@ export default function App() {
             {view === "stats" && (
               <StatsView trades={trades} checkins={checkins} strategies={strategies} />
             )}
+            {view === "bias" && <DailyBiasView state={dailyBias} />}
             {view === "news" && <NewsView news={news} />}
             {view === "risk" && (
               <Simulation trades={taken} strategies={strategies} limits={limits} />

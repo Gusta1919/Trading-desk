@@ -41,4 +41,6 @@ open http://localhost:3847
 | `src/lib/stats.ts` | outcomes, summary, equity, grouping |
 | `src/lib/insights.ts` | factor analysis (edges/leaks) and behaviour patterns |
 | `src/lib/coach.ts` | the briefing: rules, probabilities, wording |
+| `src/lib/dailyBias.ts` | Daily Bias: file shape, parsing, is-it-today's |
+| `server/bias.ts` | serves `data/daily-bias.json` (written by a scheduled Claude task) |
 | `src/components/` | board panels, forms, charts |
