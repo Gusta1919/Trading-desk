@@ -42,5 +42,6 @@ open http://localhost:3847
 | `src/lib/insights.ts` | factor analysis (edges/leaks) and behaviour patterns |
 | `src/lib/coach.ts` | the briefing: rules, probabilities, wording |
 | `src/lib/dailyBias.ts` | Daily Bias: file shape, parsing, is-it-today's |
-| `server/bias.ts` | serves `data/daily-bias.json` (written by a scheduled Claude task) |
+| `server/bias.ts` | reads and writes `data/daily-bias.json` |
+| `server/gmailBias.ts` | collects the briefing from its Gmail draft (setup: JAK-URUCHOMIC.txt) |
 | `src/components/` | board panels, forms, charts |

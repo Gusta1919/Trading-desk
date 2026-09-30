@@ -1,9 +1,10 @@
 /**
- * Today's gold bias: a briefing a scheduled Claude task writes every weekday morning.
+ * Today's gold bias: a briefing a cloud Claude routine writes every weekday morning.
  *
- * The task researches at least five analysts, then saves one file,
- * data/daily-bias.json, replacing yesterday's — so the desk only ever holds one read.
- * That file is written by a language model, so nothing in it is trusted: every field
+ * The routine researches at least five analysts and leaves the result as a Gmail
+ * draft; the desk collects it into data/daily-bias.json, replacing yesterday's — so
+ * the desk only ever holds one read (server/gmailBias.ts).
+ * The briefing is written by a language model, so nothing in it is trusted: every field
  * is coerced here, a malformed row is dropped rather than breaking the page, and when
  * the core (date and bias split) is missing the tab shows the plain-text copy the
  * task writes alongside.
@@ -21,6 +22,7 @@ export type LevelKind =
 export type Verdict = "hold" | "break" | "unclear";
 export type ScenarioKind = "primary" | "alternative" | "chop";
 export type Zone = "premium" | "discount" | "equilibrium";
+export type Trend = "bullish" | "bearish" | "range";
 
 export interface BiasLevel {
   price: number;
@@ -59,6 +61,14 @@ export interface Odds {
   why: string;
 }
 
+/** One intermarket driver and which way it pushes gold today. */
+export interface Driver {
+  name: string;
+  value: string;
+  change: string;
+  gold: Lean;
+}
+
 export interface BiasEvent {
   title: string;
   /** UTC instant; rendered on the desk's clock like every other release. */
@@ -76,7 +86,17 @@ export interface DailyBias {
   bias: { bullish: number; range: number; bearish: number; why: string };
   keyLevel: { price: number | null; label: string; why: string } | null;
   mainEvent: { title: string; at: string | null; why: string } | null;
-  structure: { d1: string; h4: string; zone: Zone | null; why: string };
+  structure: {
+    d1: string;
+    h4: string;
+    d1Trend: Trend | null;
+    h4Trend: Trend | null;
+    /** The dealing range the premium/discount call is measured against. */
+    rangeLow: number | null;
+    rangeHigh: number | null;
+    zone: Zone | null;
+    why: string;
+  };
   levels: BiasLevel[];
   analysts: Analyst[];
   consensus: { bullish: number; neutral: number; bearish: number; take: string } | null;
@@ -86,18 +106,34 @@ export interface DailyBias {
     dxy: string;
     yields: string;
     flow: string;
+    drivers: Driver[];
     surprise: { event: string; bullish: number; bearish: number; why: string } | null;
   };
-  risk: { events: BiasEvent[]; atr: number | null; expectedRange: string; standAside: string[] };
+  risk: {
+    events: BiasEvent[];
+    atr: number | null;
+    /** The day's range so far when the briefing was written — how much of the ATR is spent. */
+    dayLow: number | null;
+    dayHigh: number | null;
+    expectedRange: string;
+    standAside: string[];
+  };
   /** The whole briefing as text — shown when the structured part is unusable. */
   markdown: string;
 }
 
+/** Whether the desk can reach Gmail, and how the last check went. */
+export type GmailStatus =
+  | { state: "off" }
+  | { state: "ok"; checkedAt: string; collected: string | null }
+  | { state: "error"; checkedAt: string; message: string };
+
 /** What the server hands over: nothing yet, a file it could read, or one it couldn't. */
-export type BiasFile =
+export type BiasFile = (
   | { found: false }
   | { found: true; savedAt: string; data: unknown }
-  | { found: true; savedAt: string; error: string; text: string };
+  | { found: true; savedAt: string; error: string; text: string }
+) & { gmail?: GmailStatus };
 
 /* ── Coercion ────────────────────────────────────────────────────────── */
 
@@ -155,6 +191,12 @@ export function toHundred(parts: number[]): number[] {
     out[i]++;
   }
   return out;
+}
+
+/** A low/high pair, swapped if written the wrong way round; both null unless both are there. */
+function orderedRange(a: number | null, b: number | null) {
+  if (a == null || b == null || a === b) return { rangeLow: null, rangeHigh: null };
+  return { rangeLow: Math.min(a, b), rangeHigh: Math.max(a, b) };
 }
 
 /* ── Reading the file ────────────────────────────────────────────────── */
@@ -226,6 +268,9 @@ export function parseBias(raw: unknown): DailyBias | null {
     structure: {
       d1: str(st.d1),
       h4: str(st.h4),
+      d1Trend: str(st.d1Trend) ? oneOf<Trend>(st.d1Trend, ["bullish", "bearish", "range"], "range") : null,
+      h4Trend: str(st.h4Trend) ? oneOf<Trend>(st.h4Trend, ["bullish", "bearish", "range"], "range") : null,
+      ...orderedRange(num(st.rangeLow), num(st.rangeHigh)),
       zone: str(st.zone) ? oneOf<Zone>(st.zone, ["premium", "discount", "equilibrium"], "equilibrium") : null,
       why: str(st.why),
     },
@@ -269,6 +314,16 @@ export function parseBias(raw: unknown): DailyBias | null {
       dxy: str(macro.dxy),
       yields: str(macro.yields),
       flow: str(macro.flow),
+      drivers: list(macro.drivers, (d): Driver | null =>
+        str(d.name)
+          ? {
+              name: str(d.name),
+              value: str(d.value),
+              change: str(d.change),
+              gold: oneOf(d.gold, ["bullish", "bearish", "neutral"], "neutral"),
+            }
+          : null,
+      ),
       surprise:
         surBull != null
           ? { event: str(surprise.event), bullish: surBull, bearish: surBear, why: str(surprise.why) }
@@ -289,6 +344,10 @@ export function parseBias(raw: unknown): DailyBias | null {
           : null,
       ),
       atr: num(risk.atr),
+      ...(() => {
+        const r = orderedRange(num(risk.dayLow), num(risk.dayHigh));
+        return { dayLow: r.rangeLow, dayHigh: r.rangeHigh };
+      })(),
       expectedRange: str(risk.expectedRange),
       standAside: texts(risk.standAside),
     },
@@ -307,7 +366,7 @@ export function parseBias(raw: unknown): DailyBias | null {
  */
 export type Freshness = "today" | "waiting" | "late" | "offday";
 
-/** The task runs on the Mac's Amsterdam clock, so freshness is judged on it too. */
+/** The routine runs on Amsterdam time, so freshness is judged on that clock too. */
 export function amsterdamClock(now: Date) {
   const f = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Amsterdam",

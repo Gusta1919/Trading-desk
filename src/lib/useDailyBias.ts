@@ -1,14 +1,14 @@
 /**
  * The morning's gold bias, kept current while the desk is open.
  *
- * Reading the file is a local disk read, so polling once a minute costs nothing —
- * and it means a briefing that lands while the journal is already open shows up on
- * its own. The same tick re-judges freshness, so "waiting" turns into "late" without
+ * Each poll is a local disk read; while today's briefing is missing it also nudges
+ * the server to look in Gmail, which the server throttles on its own. So a briefing
+ * that lands while the journal is already open shows up by itself. The same tick re-judges freshness, so "waiting" turns into "late" without
  * a reload.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
-import { freshness, parseBias, type DailyBias, type Freshness } from "./dailyBias";
+import { freshness, parseBias, type DailyBias, type Freshness, type GmailStatus } from "./dailyBias";
 
 const POLL_MS = 60 * 1000;
 
@@ -21,6 +21,8 @@ export interface DailyBiasState {
   date: string | null;
   savedAt: string | null;
   freshness: Freshness;
+  /** How collecting from Gmail is going — explains a missing briefing. */
+  gmail: GmailStatus | null;
   loading: boolean;
   error: string | null;
 }
@@ -60,6 +62,7 @@ export function useDailyBias(): DailyBiasState {
         date: null,
         savedAt: null,
         freshness: freshness(null, now),
+        gmail: file?.gmail ?? null,
         loading: file == null && error == null,
         error,
       };
@@ -74,6 +77,7 @@ export function useDailyBias(): DailyBiasState {
       date,
       savedAt: file.savedAt,
       freshness: freshness(date, now),
+      gmail: file.gmail ?? null,
       loading: false,
       error,
     };

@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import { readBias } from "./bias.js";
+import { gmailStatus, syncBias } from "./gmailBias.js";
 import { db } from "./db.js";
 import { getCalendar, getHeadlines, startCalendarRefresh } from "./news.js";
 
@@ -480,9 +481,13 @@ app.get("/api/news/headlines", async (_req, res) => {
   }
 });
 
-/* The morning's gold bias, written by a scheduled Claude task — see server/bias.ts. */
+/*
+ * The morning's gold bias. Each read also nudges a Gmail check while today's briefing
+ * is missing (throttled in gmailBias.ts), so the page's polling is what collects it.
+ */
 app.get("/api/bias", (_req, res) => {
-  res.json(readBias());
+  syncBias();
+  res.json({ ...readBias(), gmail: gmailStatus() });
 });
 
 app.get("/api/limits", (_req, res) => {
@@ -543,6 +548,8 @@ app.put("/api/weeks/:week", (req, res) => {
 });
 
 startCalendarRefresh();
+// Opening the desk starts the server — collect a waiting briefing straight away.
+syncBias();
 
 app.listen(PORT, "127.0.0.1", () => {
   console.log(`Trade Assistant API → http://127.0.0.1:${PORT}`);

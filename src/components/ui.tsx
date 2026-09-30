@@ -446,3 +446,58 @@ export function DecimalInput({
     </div>
   );
 }
+
+/**
+ * The reasoning behind a number, one hover away. Portalled to <body> for the same
+ * reason as Modal (the tab transition's transform would otherwise crop it), and
+ * opened by keyboard focus too, so it never depends on a mouse.
+ */
+export function Tip({
+  text,
+  children,
+  className,
+}: {
+  text: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [at, setAt] = useState<DOMRect | null>(null);
+  if (!text) return <span className={className}>{children}</span>;
+
+  const show = () => setAt(ref.current?.getBoundingClientRect() ?? null);
+  const hide = () => setAt(null);
+  // Open above unless that would leave the viewport; keep 12px off either edge.
+  const above = at ? at.top > 140 : true;
+  const x = at ? Math.min(Math.max(at.left + at.width / 2, 172), window.innerWidth - 172) : 0;
+
+  return (
+    <span
+      ref={ref}
+      tabIndex={0}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+      className={cx("cursor-help rounded outline-none focus-visible:ring-1 focus-visible:ring-accent/60", className)}
+    >
+      {children}
+      {at &&
+        createPortal(
+          <div
+            role="tooltip"
+            className="anim-fade pointer-events-none fixed z-[80] w-max max-w-[320px] rounded-lg border bg-raised px-3 py-2 text-[12px] leading-snug text-soft"
+            style={{
+              left: x,
+              top: above ? at.top - 8 : at.bottom + 8,
+              transform: above ? "translate(-50%, -100%)" : "translate(-50%, 0)",
+              boxShadow: "var(--shadow-lift)",
+            }}
+          >
+            {text}
+          </div>,
+          document.body,
+        )}
+    </span>
+  );
+}

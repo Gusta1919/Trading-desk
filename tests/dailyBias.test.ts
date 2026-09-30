@@ -92,6 +92,41 @@ describe("parseBias", () => {
   });
 });
 
+describe("parseBias — the visual fields", () => {
+  it("reads trends, the dealing range, drivers and the day's range", () => {
+    const b = parseBias({
+      ...core,
+      structure: { d1Trend: "BEARISH", h4Trend: "range", rangeLow: 4110, rangeHigh: "4,285" },
+      macro: { drivers: [{ name: "DXY", value: "101.2", change: "-0.1%", gold: "bullish" }, { value: "no name" }] },
+      risk: { dayLow: 4164.8, dayHigh: 4220 },
+    })!;
+    assert.equal(b.structure.d1Trend, "bearish");
+    assert.equal(b.structure.h4Trend, "range");
+    assert.deepEqual([b.structure.rangeLow, b.structure.rangeHigh], [4110, 4285]);
+    assert.deepEqual(b.macro.drivers, [{ name: "DXY", value: "101.2", change: "-0.1%", gold: "bullish" }]);
+    assert.deepEqual([b.risk.dayLow, b.risk.dayHigh], [4164.8, 4220]);
+  });
+
+  it("puts a range written high-first the right way round", () => {
+    const b = parseBias({ ...core, structure: { rangeLow: 4285, rangeHigh: 4110 } })!;
+    assert.deepEqual([b.structure.rangeLow, b.structure.rangeHigh], [4110, 4285]);
+  });
+
+  it("leaves them empty for an older briefing, so the tab falls back to its text", () => {
+    const b = parseBias({ ...core, structure: { d1: "Bearish", zone: "discount" } })!;
+    assert.equal(b.structure.d1Trend, null);
+    assert.equal(b.structure.rangeLow, null);
+    assert.equal(b.structure.zone, "discount");
+    assert.deepEqual(b.macro.drivers, []);
+    assert.equal(b.risk.dayLow, null);
+  });
+
+  it("drops half a range rather than drawing a gauge from one end", () => {
+    const b = parseBias({ ...core, risk: { dayLow: 4164.8 } })!;
+    assert.deepEqual([b.risk.dayLow, b.risk.dayHigh], [null, null]);
+  });
+});
+
 describe("amsterdamClock", () => {
   it("reads the Amsterdam calendar, not the machine's or New York's", () => {
     // 23:30 UTC on Thursday is already Friday 01:30 in Amsterdam (CEST).

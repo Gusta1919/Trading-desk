@@ -59,3 +59,29 @@ W APLIKACJI:
   ⌘↵       — zapisz transakcję
   1–5      — odpowiedzi w porannym check-inie
   Backup   — pobierz kopię wszystkich danych
+
+DAILY BIAS (ZŁOTO) — SKĄD SIĘ BIERZE:
+  Codziennie (pon–pt) o 9:46 czasu Amsterdamu rutyna Claude w chmurze
+  („Gold Daily Bias → Gmail draft" na claude.ai/code/routines) robi analizę
+  i zapisuje ją jako SZKIC w Gmailu: „[Trading Desk] Daily Bias RRRR-MM-DD".
+  Szkic nigdy nie jest wysyłany. Dziennik po otwarciu sam go pobiera,
+  zapisuje w data/daily-bias.json i przenosi szkic do Kosza
+  (Gmail sam opróżnia Kosz po 30 dniach). Aplikacja Claude nie musi być otwarta.
+
+  JEDNORAZOWA KONFIGURACJA (tylko Ty — hasła nie wklejaj nikomu, także Claude):
+   1. Konto Google musi mieć włączoną weryfikację dwuetapową.
+   2. Utwórz hasło do aplikacji: https://myaccount.google.com/apppasswords
+      Nazwa np. „Trading Desk". Google pokaże 16 znaków — skopiuj je.
+   3. Terminal (adres = ten sam Gmail, który jest podłączony do Claude):
+        security add-generic-password -s trading-desk-gmail -a TWOJ_ADRES@gmail.com -w
+      Terminal poprosi o hasło (nic nie widać przy wpisywaniu) — wklej te 16 znaków,
+      potem jeszcze raz. Hasło trafia do pęku kluczy macOS (Keychain), nie do pliku.
+
+  CO DZIENNIK ROBI Z DOSTĘPEM:
+   - otwiera tylko folder Wersje robocze (Drafts), nic innego nie czyta;
+   - bierze tylko szkice z dokładnym tematem „[Trading Desk] Daily Bias RRRR-MM-DD";
+   - łączy się tylko wtedy, gdy nie ma jeszcze dzisiejszego briefingu.
+
+  WYŁĄCZENIE / COFNIĘCIE DOSTĘPU:
+   - usuń hasło z Google: https://myaccount.google.com/apppasswords
+   - usuń z Keychain:  security delete-generic-password -s trading-desk-gmail
