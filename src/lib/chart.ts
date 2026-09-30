@@ -51,21 +51,6 @@ export function sessionRuns(candles: Candle[]) {
 }
 
 /**
- * Trading days as runs, for the hourly view: gold's day runs from the 18:00 NY
- * reopen to the 17:00 close, so a bar belongs to the calendar day six hours ahead.
- */
-export function dayRuns(candles: Candle[]) {
-  const runs: { day: string; from: number; to: number }[] = [];
-  candles.forEach((c, i) => {
-    const day = deskDay(new Date(c.t + 6 * 3_600_000));
-    const last = runs[runs.length - 1];
-    if (last && last.day === day) last.to = i;
-    else runs.push({ day, from: i, to: i });
-  });
-  return runs;
-}
-
-/**
  * The GOLD Model's CRT box: the high and low of the 03:00–04:00 NY hour on the most
  * recent day that has it, and the bars of its sweep window (04:00–16:00 NY) that are
  * on the chart so far.

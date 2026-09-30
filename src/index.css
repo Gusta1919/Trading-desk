@@ -342,6 +342,22 @@
 @utility anim-stamp {
   animation: stamp 0.45s var(--ease-slow) both;
 }
+/* A candle growing out of its own body, for the chart's opening sweep. */
+@keyframes candleIn {
+  from {
+    opacity: 0;
+    transform: scaleY(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility anim-candle {
+  animation: candleIn 0.45s var(--ease-slow) both;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *,

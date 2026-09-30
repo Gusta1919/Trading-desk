@@ -1,7 +1,6 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   crtBox,
-  dayRuns,
   levelEffect,
   levelRole,
   priceDomain,
@@ -62,6 +61,8 @@ export interface Layers {
 }
 
 const PAD = { top: 28, right: 132, bottom: 26 };
+/* Stagger across the whole series; with the 0.45 s grow, the sweep lasts ~2.5 s. */
+const INTRO_MS = 2050;
 const TAG_GAP = 17;
 const LABEL_GAP = 15;
 
@@ -89,13 +90,11 @@ const WASH: Record<ChartTone, string> = {
   accent: "fill-accent/10",
 };
 
-/* The session strip: three quiet steps of the same grey; days alternate on 1h. */
+/* The session strip: three quiet steps of the same grey. */
 const STRIP = {
   asia: "fill-faint/40",
   london: "fill-soft/45",
   ny: "fill-soft/80",
-  a: "fill-soft/30",
-  b: "fill-soft/60",
 } as const;
 
 /* Text over candles gets a halo in the surface colour instead of a box. */
@@ -138,22 +137,20 @@ export function PriceChart({
   const [ref, width] = useWidth(1000);
   const [cursor, setCursor] = useState<{ i: number; y: number } | null>(null);
   const [focus, setFocus] = useState<number | null>(null);
+  // The opening sweep: candles appear left to right over ~2.5 s, once per mount.
+  // Candles that arrive later with the minute refresh simply appear.
+  const [intro, setIntro] = useState(true);
+  useEffect(() => {
+    const t = window.setTimeout(() => setIntro(false), INTRO_MS + 600);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const n = candles.length;
   const box = useMemo(() => (layers.box ? crtBox(candles) : null), [candles, layers.box]);
-  // Sessions on intraday views; on 1h a week of sessions is noise, so whole trading
-  // days are shaded instead (the bottom axis names them).
+  // Sessions on intraday views only: on 1h a week of sessions is noise, and the
+  // bottom axis already names the days.
   const runs = useMemo(() => {
-    if (!layers.sessions) return [];
-    if (tf === "1h") {
-      return dayRuns(candles).map((r, k) => ({
-        key: r.day,
-        label: null,
-        tint: (k % 2 ? "b" : "a") as keyof typeof STRIP,
-        from: r.from,
-        to: r.to,
-      }));
-    }
+    if (!layers.sessions || tf === "1h") return [];
     return sessionRuns(candles).map((r) => ({
       key: `${r.session}-${r.from}`,
       label: r.session,
@@ -360,15 +357,27 @@ export function PriceChart({
             const up = c.c >= c.o;
             const top = y(Math.max(c.o, c.c));
             return (
-              <g key={c.t} className={up ? "fill-up stroke-up" : "fill-down stroke-down"}>
+              <g
+                key={c.t}
+                className={cx(up ? "fill-up stroke-up" : "fill-down stroke-down", intro && "anim-candle")}
+                style={intro ? { animationDelay: `${Math.round((i / n) * INTRO_MS)}ms` } : undefined}
+              >
                 <line x1={x(i)} x2={x(i)} y1={y(c.h)} y2={y(c.l)} strokeWidth={1} />
                 <rect x={x(i) - bodyW / 2} y={top} width={bodyW} height={Math.max(1, y(Math.min(c.o, c.c)) - top)} stroke="none" />
               </g>
             );
           })}
 
-          {/* Live price: a hairline from the last candle to its tag. */}
-          <line x1={x(n - 1)} x2={plotW + 6} y1={y(last.c)} y2={y(last.c)} className="stroke-accent" strokeWidth={1} />
+          {/* Live price: a hairline from the last candle to its tag — arrives with that candle. */}
+          <line
+            x1={x(n - 1)}
+            x2={plotW + 6}
+            y1={y(last.c)}
+            y2={y(last.c)}
+            className={cx("stroke-accent", intro && "anim-fade")}
+            style={intro ? { animationDelay: `${INTRO_MS}ms` } : undefined}
+            strokeWidth={1}
+          />
 
           {/* Crosshair. */}
           {cursor && (

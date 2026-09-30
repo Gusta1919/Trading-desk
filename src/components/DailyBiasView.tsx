@@ -1,6 +1,6 @@
 import { ArrowDownRight, ArrowUpRight, ExternalLink, Info, MoveRight, TrendingDown, TrendingUp } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import { toHundred, type BiasLevel, type DailyBias, type Driver, type Lean, type LevelKind, type Scenario, type Trend } from "@/lib/dailyBias";
+import { toHundred, type DailyBias, type Driver, type Lean, type Scenario, type Trend } from "@/lib/dailyBias";
 import { DESK_TZ, deskDateLabel, deskDay, deskTime } from "@/lib/tz";
 import type { DailyBiasState } from "@/lib/useDailyBias";
 import { useCandles } from "@/lib/useCandles";
@@ -53,9 +53,18 @@ export function DailyBiasView({ state }: { state: DailyBiasState }) {
  * glyph and a word, so polarity never rests on colour alone.
  */
 const POLE = {
-  bullish: { glyph: "▲", bar: "bg-up", text: "text-up", tint: "bg-up/10", word: "Bullish" },
-  neutral: { glyph: "◆", bar: "bg-soft", text: "text-soft", tint: "bg-subtle", word: "Neutral" },
-  bearish: { glyph: "▼", bar: "bg-down", text: "text-down", tint: "bg-down/10", word: "Bearish" },
+  bullish: {
+    glyph: "▲", bar: "bg-up", text: "text-up", tint: "bg-up/10", word: "Bullish",
+    ring: "ring-up/60", edge: "border-up/40", hoverEdge: "hover:border-up/40",
+  },
+  neutral: {
+    glyph: "◆", bar: "bg-soft", text: "text-soft", tint: "bg-subtle", word: "Neutral",
+    ring: "ring-soft/60", edge: "border-soft/40", hoverEdge: "hover:border-soft/40",
+  },
+  bearish: {
+    glyph: "▼", bar: "bg-down", text: "text-down", tint: "bg-down/10", word: "Bearish",
+    ring: "ring-down/60", edge: "border-down/40", hoverEdge: "hover:border-down/40",
+  },
 } as const;
 
 const trendPole = (t: Trend): Lean => (t === "range" ? "neutral" : t);
@@ -176,8 +185,6 @@ function Briefing({ b }: { b: DailyBias }) {
       <Macro b={b} {...rise()} />
 
       {b.analysts.length > 0 && <Consensus b={b} {...rise()} />}
-
-      {b.levels.length > 0 && <LevelMap b={b} {...rise()} />}
 
       <footer {...rise()} className="anim-rise space-y-3">
         {b.markdown && (
@@ -446,8 +453,13 @@ function ScenarioCard({
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect())}
       title={selected ? "Shown on the chart" : "Show on the chart"}
       className={cx(
-        "card card-hover relative flex h-full cursor-pointer flex-col overflow-hidden py-5 pl-6 pr-5 outline-none",
-        selected && "ring-1 ring-accent/50",
+        // The card lights up in its own direction's colour, not the desk's orange accent:
+        // a picked short reads red, a long green, chop grey.
+        "card relative flex h-full cursor-pointer flex-col overflow-hidden py-5 pl-6 pr-5 outline-none",
+        "hover:-translate-y-[3px] hover:bg-raised hover:shadow-[var(--shadow-lift)] focus-visible:ring-1",
+        pole.ring,
+        pole.hoverEdge,
+        selected && cx("ring-1", pole.edge),
         className,
       )}
       style={style}
@@ -486,122 +498,6 @@ function ScenarioCard({
         </p>
       )}
     </article>
-  );
-}
-
-/* ── Level map ───────────────────────────────────────────────────────── */
-
-const KIND_TAG: Record<LevelKind, string> = {
-  resistance: "RES",
-  support: "SUP",
-  liquidity: "LIQ",
-  fvg: "FVG",
-  orderblock: "OB",
-  round: "RND",
-  open: "OPEN",
-};
-
-const ROW_H = 38;
-
-/** A level worth a row: some chance of being reached, or within a day's range of spot. */
-function relevant(l: BiasLevel, b: DailyBias) {
-  const near = b.spot != null && b.risk.atr != null && Math.abs(l.price - b.spot) <= b.risk.atr;
-  return near || l.sweepProb == null || l.sweepProb >= 5;
-}
-
-/**
- * The ladder, highest first, with spot slotted in. Rows are evenly spaced so they
- * stay readable; the rail on the left keeps true price distance, and a leader line
- * ties each row to its real place — clusters like 4160/4165 show as clusters.
- */
-function LevelMap({ b, className, style }: { b: DailyBias } & Anim) {
-  const [all, setAll] = useState(false);
-  const sorted = [...b.levels].sort((x, y) => y.price - x.price);
-  const shown = all ? sorted : sorted.filter((l) => relevant(l, b));
-  const hidden = sorted.length - shown.length;
-
-  type Row = { price: number; level: BiasLevel | null };
-  const rows: Row[] = shown.map((l) => ({ price: l.price, level: l }));
-  if (b.spot != null) {
-    const at = rows.findIndex((r) => r.price < b.spot!);
-    rows.splice(at === -1 ? rows.length : at, 0, { price: b.spot, level: null });
-  }
-
-  const prices = rows.map((r) => r.price);
-  const hi = Math.max(...prices);
-  const lo = Math.min(...prices);
-  const h = rows.length * ROW_H;
-  const trueY = (p: number) => (hi === lo ? h / 2 : 8 + ((hi - p) / (hi - lo)) * (h - 16));
-  const rowY = (i: number) => i * ROW_H + ROW_H / 2;
-
-  return (
-    <Panel
-      title="All key levels"
-      sub="The chart's levels as a table, with their notes. The bar is the chance price trades at each level (a wick counts) before today's 17:00 NY close."
-      className={className}
-      style={style}
-    >
-      <div className="relative px-5 py-3">
-        <svg className="absolute left-5 top-3" width="56" height={h} aria-hidden>
-          <line x1="6" x2="6" y1={trueY(hi)} y2={trueY(lo)} className="stroke-line" strokeWidth="1" />
-          {rows.map((r, n) => {
-            const y0 = trueY(r.price);
-            const y1 = rowY(n);
-            const spot = r.level == null;
-            return (
-              <g key={n} className={spot ? "stroke-accent" : "stroke-faint/60"}>
-                <line x1="2" x2="10" y1={y0} y2={y0} strokeWidth={spot ? 2 : 1} />
-                <path d={`M10 ${y0} C 30 ${y0}, 30 ${y1}, 52 ${y1}`} fill="none" strokeWidth="1" />
-              </g>
-            );
-          })}
-        </svg>
-
-        <ol className="ml-16">
-          {rows.map((r, n) =>
-            r.level ? (
-              <LevelRow key={n} l={r.level} spot={b.spot} />
-            ) : (
-              <li key="spot" className="flex items-center gap-3" style={{ height: ROW_H }}>
-                <span className="w-16 font-semibold text-accent-2">{px(r.price)}</span>
-                <span className="h-px flex-1 bg-accent/40" />
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-accent-2">Spot</span>
-              </li>
-            ),
-          )}
-        </ol>
-
-        {hidden > 0 && !all && (
-          <button onClick={() => setAll(true)} className="ml-16 mt-1 text-[12px] text-faint hover:text-ink">
-            + {hidden} distant level{hidden === 1 ? "" : "s"} (under 5% and beyond a day's range)
-          </button>
-        )}
-      </div>
-    </Panel>
-  );
-}
-
-function LevelRow({ l, spot }: { l: BiasLevel; spot: number | null }) {
-  return (
-    <li className="grid grid-cols-[64px_56px_minmax(0,300px)_minmax(120px,260px)_72px] items-center gap-3 text-[13px]" style={{ height: ROW_H }}>
-      <span className="num font-medium">{px(l.price)}</span>
-      <span className="num text-right text-[12px] text-faint">{spot != null ? signedPts(l.price - spot) : ""}</span>
-      <Tip text={l.note} className="flex min-w-0 items-center gap-2">
-        <span className="num w-9 shrink-0 text-[10px] text-faint">{KIND_TAG[l.kind]}</span>
-        <span className="truncate">{l.label}</span>
-      </Tip>
-      <span className="flex items-center gap-2">
-        {l.sweepProb != null && (
-          <>
-            <Meter value={l.sweepProb} className="!mt-0 flex-1" />
-            <span className="num w-8 text-right text-[12px] text-soft">{l.sweepProb}%</span>
-          </>
-        )}
-      </span>
-      <span className="text-[12px] text-soft">
-        {l.verdict === "hold" ? "↩ holds" : l.verdict === "break" ? "⇥ breaks" : <span className="text-faint">—</span>}
-      </span>
-    </li>
   );
 }
 

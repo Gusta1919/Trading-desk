@@ -8,7 +8,6 @@ import { describe, it } from "node:test";
 import { parseFeed } from "../server/candles";
 import {
   crtBox,
-  dayRuns,
   levelEffect,
   levelRole,
   priceDomain,
@@ -40,16 +39,6 @@ describe("sessionOf", () => {
     assert.deepEqual(sessionRuns(c), [
       { session: "Asia", from: 0, to: 1 },
       { session: "London", from: 2, to: 3 },
-    ]);
-  });
-});
-
-describe("dayRuns", () => {
-  it("starts gold's trading day at the 18:00 NY reopen", () => {
-    const c = [bar(ny("16:00", "2026-09-29"), 1, 1, 1, 1), bar(ny("18:00", "2026-09-29"), 1, 1, 1, 1), bar(ny("10:00"), 1, 1, 1, 1)];
-    assert.deepEqual(dayRuns(c), [
-      { day: "2026-09-29", from: 0, to: 0 },
-      { day: "2026-09-30", from: 1, to: 2 },
     ]);
   });
 });

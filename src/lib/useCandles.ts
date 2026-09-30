@@ -11,6 +11,8 @@ const POLL_MS = 60 * 1000;
 
 export function useCandles(tf: Timeframe) {
   const [candles, setCandles] = useState<Candle[]>([]);
+  /* The timeframe the candles on hand belong to — lags `tf` until a switch has loaded. */
+  const [loadedTf, setLoadedTf] = useState<Timeframe | null>(null);
   const [source, setSource] = useState("");
   const [stale, setStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +26,7 @@ export function useCandles(tf: Timeframe) {
         .then((r) => {
           if (!live) return;
           setCandles(r.candles);
+          setLoadedTf(tf);
           setSource(r.source);
           setStale(r.stale);
           setError(null);
@@ -39,5 +42,5 @@ export function useCandles(tf: Timeframe) {
     };
   }, [tf]);
 
-  return { candles, source, stale, error, loading };
+  return { candles, tf: loadedTf, source, stale, error, loading };
 }

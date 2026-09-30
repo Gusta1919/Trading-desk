@@ -108,8 +108,9 @@ export function BiasChart({
         [
           ["levels", "Key levels"],
           ["box", "CRT box"],
-          ["sessions", prefs.tf === "1h" ? "Days" : "Sessions"],
-        ] as const
+          // On 1h the bottom axis already names the days; there's no strip to switch.
+          ...(prefs.tf === "1h" ? [] : [["sessions", "Sessions"]]),
+        ] as [keyof Layers, string][]
       ).map(([key, label]) => (
         <button
           key={key}
@@ -172,10 +173,13 @@ export function BiasChart({
       </header>
 
       <div className="px-5 pb-4 pt-3">
-        {feed.candles.length > 0 ? (
+        {feed.candles.length > 0 && feed.tf ? (
+          // Keyed by the loaded timeframe: a switch replays the opening animation once
+          // its candles arrive, while the minute-by-minute refresh doesn't.
           <PriceChart
+            key={feed.tf}
             candles={feed.candles}
-            tf={prefs.tf}
+            tf={feed.tf}
             height={height}
             plan={plan}
             zone={zone}
@@ -240,7 +244,7 @@ function Legend() {
             <span className="h-[3px] w-2 rounded-full bg-soft/45" />
             <span className="h-[3px] w-2 rounded-full bg-soft/80" />
           </span>
-          Sessions strip: Asia · London · New York (on 1h, trading days)
+          Sessions strip: Asia · London · New York (5m and 15m)
         </span>
       </div>
     </div>
