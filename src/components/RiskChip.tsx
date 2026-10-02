@@ -67,7 +67,7 @@ export function RiskChip({
       </button>
 
       {open && (
-        <div className="anim-pop absolute right-0 top-full z-40 mt-2 w-64 rounded-xl border bg-raised p-4 shadow-[var(--shadow-lift)]">
+        <div className="anim-pop absolute right-0 top-full z-40 mt-2 w-72 whitespace-normal rounded-xl border bg-raised p-4 shadow-[var(--shadow-lift)]">
           <p className="text-[12px] font-medium">Your risk lines</p>
           <p className="mt-0.5 text-[11px] text-faint">Shared by every strategy.</p>
           <div className="mt-3 space-y-2.5">
