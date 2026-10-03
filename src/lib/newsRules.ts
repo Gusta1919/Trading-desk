@@ -1,16 +1,18 @@
 /**
  * One vocabulary for news, used everywhere.
  *
- * A strategy names the kinds of release it will not trade through, and the same
- * names drive the calendar's colours, the warning in the trade form and the block
- * on the save button. Without a shared vocabulary those three disagree, which is
- * how a "rule" quietly becomes a suggestion.
+ * The rulebook names the kinds of release that make a skip day or open a release
+ * window, and the same names drive the calendar's colours, the setup check's news
+ * rule and the alerts. Without a shared vocabulary those disagree, which is how a
+ * "rule" quietly becomes a suggestion.
  *
  * Patterns are matched against Forex Factory titles, which are stable and plain —
  * "Federal Funds Rate", "Core CPI m/m", "FOMC Member Williams Speaks".
  */
 import type { CalendarEvent } from "./news";
-
+import type { NewsPair, NewsRules } from "./rulebook";
+import { deskDay, deskTime } from "./tz";
+import type { TradeNews } from "./types";
 export interface NewsCategory {
   id: string;
   label: string;
@@ -45,11 +47,16 @@ export const NEWS_CATEGORIES: NewsCategory[] = [
     hint: "Consumer and business sentiment",
     match: /\b(consumer (confidence|sentiment|climate)|business (climate|confidence)|ifo|gfk|uom|sentiment)\b/i,
   },
+  /*
+   * CPI on its own: US CPI day is a skip day, while PPI and PCE only open a release
+   * window — so the two can no longer share a kind.
+   */
+  { id: "cpi", label: "CPI", hint: "Consumer prices", match: /\bcpi\b/i },
   {
-    id: "cpi",
-    label: "Inflation",
-    hint: "CPI, PPI, PCE, HICP",
-    match: /\b(cpi|ppi|pce|hicp|inflation)\b/i,
+    id: "ppi-pce",
+    label: "Other inflation",
+    hint: "PPI, PCE, HICP",
+    match: /\b(ppi|pce|hicp|inflation)\b/i,
   },
   {
     id: "nfp",
@@ -96,56 +103,130 @@ export function categoryOf(event: CalendarEvent): string | null {
   return NEWS_CATEGORIES.find((c) => c.match.test(event.title))?.id ?? null;
 }
 
-/** What a strategy says about one event. */
-export type Stance = "forbidden" | "caution" | "holiday";
-
-/**
- * One set of rules for the whole desk. These used to hang off each strategy, but
- * they never differed between them, and two copies of a rule is one rule too many.
- */
-export interface NewsStance {
-  /** Kinds of release that stop a trade. */
-  forbidden: string[];
-  /** The no-trading rule only bites on these currencies; the rest stay "careful". */
-  blockCurrencies: string[];
-}
-
-/** The desk's own currencies: the only ones whose red news or holidays can stop a trade. */
+/** The desk's own currencies: the only ones whose red news can chime. */
 export const NEWS_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD"];
 
-/**
- * Sensible opening position: never trade through the releases that reprice a
- * currency in a single print, and only for the currencies that actually move the
- * instruments traded here. Everything else red is automatically "careful" — there
- * is no second list to keep in sync, because only red news gets this far.
- */
-export const DEFAULT_STANCE: NewsStance = {
-  forbidden: ["cpi", "adp", "nfp", "rates"],
-  blockCurrencies: ["USD", "EUR", "GBP"],
-};
+/* ── What the rulebook says about a release ──────────────────────────── */
 
 /**
- * Where an event sits. Only call this for events that pass `countsForTrading` —
- * orange and yellow releases are shown on the calendar but never judged.
- *
- * Both the no-trade kinds and the holidays are scoped to the same currency list: a
- * rate decision matters differently depending on whose rate it is, and a bank
- * holiday only empties the book for the market that is shut. Anything red that is
- * not on the no-trade list is tradeable — you simply must not be holding through it.
+ * Where a release sits:
+ *  - `skip`: the whole day is a skip day
+ *  - `window`: no new entries from a few minutes before to an hour after it
+ *  - `info`: shown, never a rule — every orange or yellow release, and the red ones
+ *    the rulebook doesn't name
  */
-export function stanceOf(event: CalendarEvent, rules: NewsStance): Stance {
-  const covered = rules.blockCurrencies.includes(event.currency);
-  if (event.impact === "Holiday") return covered ? "forbidden" : "holiday";
-  const cat = categoryOf(event);
-  return cat && covered && rules.forbidden.includes(cat) ? "forbidden" : "caution";
+export type Stance = "skip" | "window" | "info";
+
+/** A release reduced to what the rules read: from the live calendar or a trade's saved copy. */
+export interface NewsItem {
+  title: string;
+  currency: string;
+  impact: string;
+  /** Minutes since midnight, New York; null for all-day or untimed entries. */
+  minutes: number | null;
+}
+
+const hhmmToMinutes = (t: string) => {
+  const m = /^(\d{1,2}):(\d{2})/.exec(t);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+};
+
+export const fromEvent = (e: CalendarEvent): NewsItem => ({
+  title: e.title,
+  currency: e.currency,
+  impact: e.impact,
+  minutes: e.at && !e.allDay ? hhmmToMinutes(deskTime(e.at)) : null,
+});
+
+export const fromTradeNews = (n: TradeNews): NewsItem => ({
+  title: n.title,
+  currency: n.currency,
+  impact: n.impact,
+  minutes: hhmmToMinutes(n.time),
+});
+
+const hasPair = (pairs: NewsPair[], category: string | null, currency: string) =>
+  category != null && pairs.some((p) => p.category === category && p.currency === currency);
+
+export function stanceOf(item: Pick<NewsItem, "title" | "currency" | "impact">, rules: NewsRules): Stance {
+  if (item.impact === "Holiday") return rules.holidayCurrencies.includes(item.currency) ? "skip" : "info";
+  // Only red releases trigger rules; orange is information only.
+  if (item.impact !== "High") return "info";
+  const category = NEWS_CATEGORIES.find((c) => c.match.test(item.title))?.id ?? null;
+  if (hasPair(rules.skip, category, item.currency)) return "skip";
+  if (rules.windowCurrencies.includes(item.currency) || hasPair(rules.windowExtra, category, item.currency)) {
+    return "window";
+  }
+  return "info";
+}
+
+/** Whether a "YYYY-MM-DD" falls in the rulebook's fixed no-trading stretch (which may span new year). */
+export function inSkipRange(day: string, rules: NewsRules): boolean {
+  if (!rules.skipRange) return false;
+  const md = day.slice(5, 10);
+  const { from, to } = rules.skipRange;
+  return from <= to ? md >= from && md <= to : md >= from || md <= to;
+}
+
+export interface ReleaseWindow {
+  /** Minutes since midnight, New York. */
+  start: number;
+  end: number;
+  /** The release itself. */
+  at: number;
+  title: string;
+  currency: string;
+}
+
+/** What the news rules make of one New York day. */
+export interface NewsDay {
+  /** Why the day is a skip day — empty when it isn't. */
+  skip: string[];
+  windows: ReleaseWindow[];
+}
+
+export function newsDay(day: string, items: NewsItem[], rules: NewsRules): NewsDay {
+  const skip: string[] = [];
+  if (inSkipRange(day, rules)) skip.push("the year-end break");
+  const windows: ReleaseWindow[] = [];
+  for (const item of items) {
+    const stance = stanceOf(item, rules);
+    if (stance === "skip") skip.push(`${item.currency} ${item.title}`);
+    else if (stance === "window" && item.minutes != null) {
+      windows.push({
+        start: item.minutes - rules.beforeMin,
+        end: item.minutes + rules.afterMin,
+        at: item.minutes,
+        title: item.title,
+        currency: item.currency,
+      });
+    }
+  }
+  windows.sort((a, b) => a.start - b.start);
+  return { skip: [...new Set(skip)], windows };
+}
+
+/** The release window an entry time falls in, if any. Both ends count as inside. */
+export function releaseWindowAt(minutes: number, day: NewsDay): ReleaseWindow | null {
+  return day.windows.find((w) => minutes >= w.start && minutes <= w.end) ?? null;
+}
+
+/**
+ * The New York days the live calendar covers — Forex Factory publishes one week. A
+ * day outside it has no data, which is not the same as no news.
+ */
+export function coveredDays(events: CalendarEvent[]): { from: string; to: string } | null {
+  const days = events.filter((e) => e.at).map((e) => deskDay(new Date(e.at!)));
+  if (!days.length) return null;
+  days.sort();
+  return { from: days[0], to: days[days.length - 1] };
 }
 
 /**
  * Whether a release is allowed to make a sound.
  *
  * The calendar shows every folder so the day's volatility can be read at a glance,
- * but only red releases on the desk's currencies chime. Deciding what not to trade
- * through is left to you — nothing in the app blocks a trade over news.
+ * but only red releases on the desk's currencies chime.
  */
 export const countsForTrading = (e: CalendarEvent) =>
   e.impact === "High" && NEWS_CURRENCIES.includes(e.currency);

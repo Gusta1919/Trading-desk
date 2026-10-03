@@ -1,5 +1,5 @@
 /** The news the desk reads: the calendar, the wire, and what was out on a trade's day. */
-import type { NewsStance } from "./newsRules";
+import type { NewsRules } from "./rulebook";
 import { deskDay } from "./tz";
 
 export interface CalendarEvent {
@@ -49,16 +49,8 @@ async function get<T>(url: string): Promise<T> {
 export const newsApi = {
   calendar: () => get<CalendarFeed>("/api/news/calendar"),
   headlines: () => get<HeadlineFeed>("/api/news/headlines"),
-  rules: () => get<NewsStance>("/api/news/rules"),
-  saveRules: async (r: NewsStance) => {
-    const res = await fetch("/api/news/rules", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(r),
-    });
-    if (!res.ok) throw new Error("Could not save the news rules");
-    return (await res.json()) as NewsStance;
-  },
+  /** The rulebook's news rules — edited, like every rule, in the Rulebook tab. */
+  rules: () => get<NewsRules>("/api/news/rules"),
 };
 
 /* ── News on a trade's day ───────────────────────────────────────────── */

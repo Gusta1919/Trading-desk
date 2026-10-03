@@ -3,6 +3,8 @@ import express from "express";
 import { readBias } from "./bias.js";
 import { getCandles } from "./candles.js";
 import { gmailStatus, syncBias } from "./gmailBias.js";
+import { evaluateHistory } from "../src/lib/discipline.js";
+import { ALL_FLAGS, type Trade } from "../src/lib/types.js";
 import { db } from "./db.js";
 import { getCalendar, getHeadlines, startCalendarRefresh } from "./news.js";
 import {
@@ -29,7 +31,7 @@ const parseJson = <T>(raw: unknown, fallback: T): T => {
   }
 };
 
-const FLAGS = new Set(["over_risk", "non_traded_grade", "after_daily_stop"]);
+const FLAGS = new Set<string>(ALL_FLAGS);
 
 /** A nullable yes/no column, read back as true, false or null. */
 const bool = (v: unknown) => (v == null ? null : Boolean(v));
@@ -261,6 +263,46 @@ function recomputeResults() {
   return balance;
 }
 
+/**
+ * Re-judges every trade graded under the rulebook, in date order, after any write.
+ *
+ * A trade's flags depend on the trades before it — a second trade today, a stop
+ * already hit, a day off still running — so changing or deleting one trade can
+ * change the flags of every trade after it. Like the results above, they are worked
+ * out over the whole journal rather than trusted from the moment of saving.
+ */
+function recomputeFlags() {
+  const trades = (db.prepare("SELECT * FROM trades").all() as Row[]).map(rowToTrade) as unknown as Trade[];
+  const plans = (db.prepare("SELECT * FROM plans").all() as Row[]).map(rowToPlan);
+  const checkins = (db.prepare("SELECT date, verdict FROM checkins").all() as Row[]).map((r) => ({
+    date: String(r.date),
+    verdict: r.verdict as "ready" | "caution" | "sit-out",
+  }));
+  const current = currentRulebook(db);
+  const docs = new Map<string, ReturnType<typeof currentRulebook>["doc"]>();
+  const rulebookOf = (v: string | null) => {
+    if (!v) return current.doc;
+    if (!docs.has(v)) docs.set(v, getVersion(db, v)?.doc ?? current.doc);
+    return docs.get(v)!;
+  };
+  const { byId } = evaluateHistory({ trades, plans: plans as never, checkins, rulebookOf });
+  const update = db.prepare("UPDATE trades SET flags = ?, planned_risk_pct = ? WHERE id = ?");
+  db.transaction(() => {
+    for (const t of trades) {
+      const j = byId.get(t.id);
+      if (!j?.ruled) continue;
+      const flags = JSON.stringify(j.flags);
+      if (flags !== JSON.stringify(t.flags) || j.allowed !== t.plannedRiskPct) update.run(flags, j.allowed, t.id);
+    }
+  })();
+}
+
+/** Everything derived from the journal as a whole: the results, then the flags that read them. */
+function recompute() {
+  recomputeResults();
+  recomputeFlags();
+}
+
 app.get("/api/trades", (_req, res) => {
   const rows = db.prepare("SELECT * FROM trades ORDER BY date DESC").all() as Row[];
   res.json(rows.map(rowToTrade));
@@ -277,7 +319,7 @@ app.post("/api/trades", (req, res) => {
     VALUES (@id, ${COLUMNS.map((c) => "@" + c).join(", ")}, @created_at, @updated_at)
   `).run({ id, ...bodyToColumns(req.body), created_at: now, updated_at: now });
 
-  recomputeResults();
+  recompute();
   const row = db.prepare("SELECT * FROM trades WHERE id = ?").get(id) as Row;
   res.status(201).json(rowToTrade(row));
 });
@@ -297,7 +339,7 @@ app.put("/api/trades/:id", (req, res) => {
   });
   if (result.changes === 0) return void res.status(404).json({ error: "Not found" });
 
-  recomputeResults();
+  recompute();
   const row = db.prepare("SELECT * FROM trades WHERE id = ?").get(req.params.id) as Row;
   res.json(rowToTrade(row));
 });
@@ -305,7 +347,7 @@ app.put("/api/trades/:id", (req, res) => {
 app.delete("/api/trades/:id", (req, res) => {
   db.prepare("DELETE FROM trades WHERE id = ?").run(req.params.id);
   // Removing a trade changes the balance every later trade was measured against.
-  recomputeResults();
+  recompute();
   res.status(204).end();
 });
 
@@ -344,6 +386,8 @@ app.put("/api/checkins/:date", (req, res) => {
     String(reflection ?? ""),
     new Date().toISOString(),
   );
+  // The check-in decides which grades are tradable that day.
+  recomputeFlags();
   const row = db.prepare("SELECT * FROM checkins WHERE date = ?").get(req.params.date) as Row;
   res.json(rowToCheckIn(row));
 });
@@ -516,23 +560,9 @@ function rowToWeek(row: Row) {
  * News is fetched by the server, never the browser: the calendar feed sends no CORS
  * headers, and a server can cache one copy instead of every tab fetching its own.
  */
-const rowToNewsRules = (row: Row) => ({
-  forbidden: JSON.parse((row.forbidden as string) || "[]"),
-  blockCurrencies: JSON.parse((row.block_currencies as string) || "[]"),
-});
-
+/* The news rules live in the rulebook; the old news_rules row is kept, unread. */
 app.get("/api/news/rules", (_req, res) => {
-  res.json(rowToNewsRules(db.prepare("SELECT * FROM news_rules WHERE id = 1").get() as Row));
-});
-
-app.put("/api/news/rules", (req, res) => {
-  const list = (v: unknown) => JSON.stringify(Array.isArray(v) ? v.map(String) : []);
-  db.prepare(`
-    UPDATE news_rules
-    SET forbidden = ?, block_currencies = ?, updated_at = ?
-    WHERE id = 1
-  `).run(list(req.body?.forbidden), list(req.body?.blockCurrencies), new Date().toISOString());
-  res.json(rowToNewsRules(db.prepare("SELECT * FROM news_rules WHERE id = 1").get() as Row));
+  res.json(currentRulebook(db).doc.news);
 });
 
 app.get("/api/news/calendar", async (_req, res) => {
@@ -613,7 +643,7 @@ app.put("/api/limits", (req, res) => {
     return void res.status(400).json({ error: (err as Error).message, problems: (err as RulebookError).problems });
   }
   // Every percentage in the journal is measured from the opening balance.
-  recomputeResults();
+  recompute();
   res.json(currentRulebook(db).doc.limits);
 });
 
@@ -637,7 +667,7 @@ app.get("/api/rulebook/versions/:version", (req, res) => {
 app.put("/api/rulebook", (req, res) => {
   try {
     const saved = saveRulebook(db, req.body?.doc, String(req.body?.reason ?? ""), req.body?.bump === "major" ? "major" : "minor");
-    recomputeResults();
+    recompute();
     res.status(201).json(saved);
   } catch (err) {
     res.status(400).json({ error: (err as Error).message, problems: (err as RulebookError).problems ?? [] });
@@ -685,6 +715,8 @@ app.put("/api/plans/:date", (req, res) => {
     existing?.created_at ?? now,
     now,
   );
+  // A plan written (or not) decides the day's no_plan flag.
+  recomputeFlags();
   res.json(rowToPlan(db.prepare("SELECT * FROM plans WHERE date = ?").get(req.params.date) as Row));
 });
 

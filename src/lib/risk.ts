@@ -1,19 +1,20 @@
 /**
- * How much a trade may risk, and which lines it crossed.
+ * How much a trade may risk.
  *
- * Two of your own limits apply to every strategy: the most one trade may risk, and
- * the most one New York day may lose. A trade's allowed risk is the smallest of its
- * grade's risk, what is left of today's loss budget, and the per-trade cap:
+ * Three of your own limits apply: the most one trade may risk, and the most one New
+ * York day and one ISO week may lose. A trade's allowed risk is the smallest of its
+ * grade's risk, what is left of the day's and the week's loss budgets, and the
+ * per-trade cap — times the consequence multiplier (½ in a half-risk week):
  *
- *   allowed = min(grade risk, remaining daily budget, max risk per trade)
+ *   allowed = min(grade risk, day left, week left, max risk per trade) × multiplier
  *
- * The budget is the daily stop minus today's net loss so far, minus the risk still
- * sitting in any open trade — money already at stake is money already spent from
- * the budget. These are notices, never blocks: crossing a line is recorded as a
- * flag on the trade, and the saving goes ahead.
+ * A budget is its stop minus the net loss so far, minus the risk still sitting in
+ * any open trade — money already at stake is money already spent from the budget.
+ * These are notices, never blocks: crossing a line is recorded as a flag on the
+ * trade (see discipline.ts), and the saving goes ahead.
  */
 import { isClosed, tradePct } from "./stats";
-import type { Definition, Grade, GradeCard, Limits, Strategy, Trade, TradeFlag } from "./types";
+import { weekKey, type Definition, type Grade, type GradeCard, type Limits, type Strategy, type Trade, type TradeFlag } from "./types";
 
 /** Treats 0.30000000000000004 as 0.3 so a spent budget reads as exactly spent. */
 const EPS = 1e-9;
@@ -56,6 +57,36 @@ export function dayBudget(
   return { lossToday, openRisk, remaining, stopHit: remaining <= 0 };
 }
 
+/** The ISO week ("2026-W41") of a New York day, read from the date string itself. */
+export function weekOfDay(day: string): string {
+  const [y, m, d] = day.split("-").map(Number);
+  return weekKey(new Date(y, m - 1, d));
+}
+
+/**
+ * The loss budget of an ISO week — Monday to Friday on New York days — built the same
+ * way as the day's: the weekly stop, minus the week's net loss, minus open risk.
+ */
+export function weekBudget(
+  trades: Trade[],
+  day: string,
+  limits: Pick<Limits, "weeklyStopPct">,
+  opts: { excludeId?: string; before?: string } = {},
+): DayBudget {
+  const week = weekOfDay(day);
+  const mine = takenTrades(trades).filter(
+    (t) =>
+      t.id !== opts.excludeId &&
+      weekOfDay(t.date.slice(0, 10)) === week &&
+      (opts.before == null || t.date <= opts.before),
+  );
+  const net = mine.filter(isClosed).reduce((a, t) => a + tradePct(t), 0);
+  const lossToday = tidy(Math.max(0, -net));
+  const openRisk = tidy(mine.filter((t) => !isClosed(t)).reduce((a, t) => a + t.riskPct, 0));
+  const remaining = tidy(Math.max(0, limits.weeklyStopPct - lossToday - openRisk));
+  return { lossToday, openRisk, remaining, stopHit: remaining <= 0 };
+}
+
 export const gradeCard = (def: Pick<Definition, "grades"> | null, grade: Grade | string | null): GradeCard | null =>
   (def && grade && def.grades.find((g) => g.grade === grade)) || null;
 
@@ -66,14 +97,17 @@ export function gradeRisk(def: Pick<Definition, "grades"> | null, grade: Grade |
   return card.traded ? card.riskPct : 0;
 }
 
-/** min(grade risk, remaining daily budget, max risk per trade). */
+/** min(grade risk, remaining daily budget, remaining weekly budget, max risk per trade) × multiplier. */
 export function allowedRisk(
   gradeRiskPct: number | null,
   budget: Pick<DayBudget, "remaining">,
   limits: Pick<Limits, "maxRiskPct">,
+  extra: { week?: Pick<DayBudget, "remaining">; multiplier?: number } = {},
 ): number {
   const grade = gradeRiskPct ?? limits.maxRiskPct;
-  return tidy(Math.max(0, Math.min(grade, budget.remaining, limits.maxRiskPct)));
+  const week = extra.week?.remaining ?? Infinity;
+  const base = Math.max(0, Math.min(grade, budget.remaining, week, limits.maxRiskPct));
+  return tidy(base * (extra.multiplier ?? 1));
 }
 
 /**

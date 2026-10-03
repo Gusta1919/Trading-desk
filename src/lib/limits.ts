@@ -7,11 +7,11 @@
  * the firm's 5%, so while you keep it the firm's daily line is out of reach.
  *
  * FTMO states both limits against the starting balance: the daily line resets every
- * day, the overall line never does. Because the journal is percentage-based and
- * starts at zero, "10% max loss" is simply the cumulative return reaching −10%.
+ * day, the overall line never does. The journal starts at the opening balance, so
+ * "10% max loss" is the opening offset plus the cumulative return reaching −10%.
  */
 import { dayKey } from "./format";
-import { dayBudget } from "./risk";
+import { dayBudget, weekBudget } from "./risk";
 import { isClosed, tradePct } from "./stats";
 import type { Limits, Trade } from "./types";
 
@@ -53,8 +53,10 @@ export function limitState(trades: Trade[], limits: Limits, now = new Date()): L
     peak = Math.max(peak, cum);
   }
   // FTMO's overall line is measured from the starting balance, not from the peak,
-  // so what matters is how far below zero you are — never a gain given back.
-  const drawdown = Math.max(0, -cum);
+  // so what matters is how far below it you are — never a gain given back. The
+  // journal starts at the opening balance, which may already sit below the start.
+  const opening = ((limits.openingBalance - limits.startBalance) / limits.startBalance) * 100;
+  const drawdown = Math.max(0, -(opening + cum));
 
   const dailyLeft = Math.max(0, limits.dailyLossPct - todayLoss);
   const maxLeft = Math.max(0, limits.maxLossPct - drawdown);
@@ -69,7 +71,7 @@ export function limitState(trades: Trade[], limits: Limits, now = new Date()): L
     maxLeft,
     stopUsed: limits.dailyStopPct > 0 ? Math.min(1, (limits.dailyStopPct - budget.remaining) / limits.dailyStopPct) : 0,
     stopLeft: budget.remaining,
-    safeRisk: Math.min(limits.maxRiskPct, budget.remaining, dailyLeft, maxLeft),
+    safeRisk: Math.min(limits.maxRiskPct, budget.remaining, weekBudget(trades, today, limits).remaining, dailyLeft, maxLeft),
   };
 }
 

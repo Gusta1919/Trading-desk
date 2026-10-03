@@ -165,13 +165,44 @@ export const EMPTY_RULEBOOK_FIELDS = {
 
 export type TradeInput = Omit<Trade, "id" | "createdAt" | "updatedAt">;
 
-export type TradeFlag = "over_risk" | "non_traded_grade" | "after_daily_stop";
+/**
+ * A rule a trade broke. Saving is never blocked by one; it is recorded, and every
+ * flag on a taken trade feeds the consequence ladder.
+ */
+export type TradeFlag =
+  | "over_risk"
+  | "non_traded_grade"
+  | "after_daily_stop"
+  | "after_weekly_stop"
+  | "second_trade_today"
+  | "outside_entry_window"
+  | "skip_day"
+  | "in_release_window"
+  | "held_risk_through_release"
+  | "past_time_stop"
+  | "discretionary_exit"
+  | "early_stop_move"
+  | "no_plan"
+  | "during_day_off";
 
 export const FLAG_LABEL: Record<TradeFlag, string> = {
   over_risk: "Risked more than allowed",
-  non_traded_grade: "Took a grade marked Don't",
+  non_traded_grade: "Took a grade that isn't tradable",
   after_daily_stop: "Traded after the daily stop",
+  after_weekly_stop: "Traded after the weekly stop",
+  second_trade_today: "A second trade the same day",
+  outside_entry_window: "Entered outside the entry window",
+  skip_day: "Traded on a skip day",
+  in_release_window: "Entered inside a release window",
+  held_risk_through_release: "Held through a release without breakeven",
+  past_time_stop: "Held past the time stop",
+  discretionary_exit: "Closed on a discretionary exit",
+  early_stop_move: "Moved the stop before halfway",
+  no_plan: "No plan written on time",
+  during_day_off: "Traded on a day off, or above half risk",
 };
+
+export const ALL_FLAGS = Object.keys(FLAG_LABEL) as TradeFlag[];
 
 /** One release on a trade's day. "Manual" is something you typed in that the feed didn't have. */
 export interface TradeNews {

@@ -8,7 +8,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { chime, flashTitle, urgencyOf } from "./alerts";
 import { newsApi, type CalendarEvent, type Headline } from "./news";
-import { DEFAULT_STANCE, stanceOf, type NewsStance } from "./newsRules";
+import type { NewsRules } from "./rulebook";
+import { defaultRulebook } from "./rulebookText";
 
 /** The squawk is polled; the calendar barely changes and the server caches it hard. */
 const HEADLINE_POLL_MS = 5 * 60 * 1000;
@@ -17,7 +18,7 @@ const CALENDAR_POLL_MS = 30 * 60 * 1000;
 export interface NewsState {
   events: CalendarEvent[];
   headlines: Headline[];
-  rules: NewsStance;
+  rules: NewsRules;
   calendarError: string | null;
   wireError: string | null;
   stale: boolean;
@@ -25,13 +26,12 @@ export interface NewsState {
   loadingWire: boolean;
   fetchedAt: string | null;
   refresh: () => void;
-  saveRules: (r: NewsStance) => void;
 }
 
 export function useNews(): NewsState {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [headlines, setHeadlines] = useState<Headline[]>([]);
-  const [rules, setRules] = useState<NewsStance>(DEFAULT_STANCE);
+  const [rules, setRules] = useState<NewsRules>(() => defaultRulebook().news);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [wireError, setWireError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
@@ -75,11 +75,6 @@ export function useNews(): NewsState {
     };
   }, [loadCalendar, loadWire]);
 
-  const saveRules = useCallback((next: NewsStance) => {
-    setRules(next);
-    newsApi.saveRules(next).catch(() => {});
-  }, []);
-
   const refresh = useCallback(() => {
     setLoadingCalendar(true);
     setLoadingWire(true);
@@ -98,7 +93,6 @@ export function useNews(): NewsState {
     loadingWire,
     fetchedAt,
     refresh,
-    saveRules,
   };
 }
 
@@ -119,7 +113,7 @@ export interface AlertState {
 export function useNewsAlerts(
   events: CalendarEvent[],
   headlines: Headline[],
-  rules: NewsStance,
+  rules: NewsRules,
   enabled: boolean,
 ): AlertState {
   const [pulse, setPulse] = useState<AlertState["pulse"]>(null);
@@ -148,7 +142,7 @@ export function useNewsAlerts(
 
     for (const e of events) {
       if (!e.at || e.allDay) continue;
-      if (stanceOf(e, rules) === "holiday") continue;
+      if (e.impact === "Holiday") continue;
       const at = new Date(e.at).getTime();
 
       for (const [offset, label] of [
