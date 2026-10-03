@@ -1,10 +1,10 @@
-import { ArrowDownRight, ArrowUpRight, ExternalLink, Info, MoveRight, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, CircleAlert, ExternalLink, Info, MoveRight, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { toHundred, type DailyBias, type Driver, type Lean, type Scenario, type Trend } from "@/lib/dailyBias";
 import { DESK_TZ, deskDateLabel, deskDay, deskTime } from "@/lib/tz";
 import type { DailyBiasState } from "@/lib/useDailyBias";
 import { BiasChart } from "./BiasChart";
-import { Tip, cx, stagger } from "./ui";
+import { PageHeader, Panel as UiPanel, Tip, cx, stagger } from "./ui";
 
 /**
  * Daily Bias tab: the morning's gold read, drawn rather than written.
@@ -14,17 +14,28 @@ import { Tip, cx, stagger } from "./ui";
  */
 /** The desk's own stand-aside list, drawn next to the briefing's. */
 const StandAsideContext = createContext<ReactNode>(null);
+type Crt = { box: { from: string; to: string }; until: string };
+/** The rulebook's box and time stop, for the chart. */
+const CrtContext = createContext<Crt>({ box: { from: "03:00", to: "04:00" }, until: "12:00" });
 
-export function DailyBiasView({ state, standAside }: { state: DailyBiasState; standAside?: ReactNode }) {
+export function DailyBiasView({ state, standAside, crt }: { state: DailyBiasState; standAside?: ReactNode; crt: Crt }) {
   return (
+    <CrtContext.Provider value={crt}>
     <StandAsideContext.Provider value={standAside ?? null}>
-      <View state={state} standAside={standAside} />
+      <div className="space-y-6">
+        <PageHeader
+          title="Daily Bias"
+          sub="This morning's read on gold: the plan on the live chart, the scenarios and what to watch. The rulebook still decides."
+        />
+        <View state={state} standAside={standAside} />
+      </div>
     </StandAsideContext.Provider>
+    </CrtContext.Provider>
   );
 }
 
 /** Without a briefing, the desk's own list still stands — the rules never wait for the routine. */
-const OwnList = ({ node }: { node?: ReactNode }) => (node ? <div className="card px-6 py-5">{node}</div> : null);
+const OwnList = ({ node }: { node?: ReactNode }) => (node ? <div className="card anim-rise px-6 py-5">{node}</div> : null);
 
 function View({ state, standAside }: { state: DailyBiasState; standAside?: ReactNode }) {
   if (state.loading) return null;
@@ -54,7 +65,7 @@ function View({ state, standAside }: { state: DailyBiasState; standAside?: React
         </Notice>
         <OwnList node={standAside} />
         {state.fallback && (
-          <pre className="card whitespace-pre-wrap px-6 py-5 font-sans text-[13px] leading-relaxed text-soft">
+          <pre className="card whitespace-pre-wrap px-6 py-5 font-sans text-body leading-relaxed text-soft">
             {state.fallback}
           </pre>
         )}
@@ -93,6 +104,7 @@ const trendPole = (t: Trend): Lean => (t === "range" ? "neutral" : t);
 /* ── The briefing ────────────────────────────────────────────────────── */
 
 function Briefing({ b }: { b: DailyBias }) {
+  const crt = useContext(CrtContext);
   const lead = leading(b);
   // One scenario is on the chart at a time; the cards and the chart's pills share it.
   const [pick, setPick] = useState(() => Math.max(0, b.scenarios.findIndex((s) => s.kind === "primary")));
@@ -117,7 +129,7 @@ function Briefing({ b }: { b: DailyBias }) {
       }
     >
       <span className="block w-[300px]" aria-label={`Bullish ${b.bias.bullish}%, range ${b.bias.range}%, bearish ${b.bias.bearish}%`}>
-        <span className="flex items-baseline justify-between text-[12px]">
+        <span className="flex items-baseline justify-between text-small">
           {split.map((x) => (
             <span
               key={x.pole}
@@ -125,7 +137,7 @@ function Briefing({ b }: { b: DailyBias }) {
             >
               <span className="text-[9px]">{POLE[x.pole].glyph}</span>
               {x.word}
-              <span className={cx("num text-[15px]", x.pole !== lead.pole && "text-soft")}>{x.pct}%</span>
+              <span className={cx("num text-title", x.pole !== lead.pole && "text-soft")}>{x.pct}%</span>
             </span>
           ))}
         </span>
@@ -158,6 +170,7 @@ function Briefing({ b }: { b: DailyBias }) {
         headline={headline}
         day={deskDateLabel(`${b.date}T12:00:00Z`)}
         writtenAt={b.generatedAt ? `${deskTime(b.generatedAt)} NY` : null}
+        crt={crt}
         {...rise()}
       />
 
@@ -183,10 +196,10 @@ function Briefing({ b }: { b: DailyBias }) {
             title="Sessions"
             sub="How today's Asia, London and New York sessions are likely to trade: the chance each call comes true."
           >
-            <ul className="space-y-3.5 px-5 py-4">
+            <ul className="space-y-3.5 px-6 pb-5">
               {b.sessions.map((s) => (
                 <li key={s.label}>
-                  <div className="flex items-baseline justify-between gap-3 text-[13px]">
+                  <div className="flex items-baseline justify-between gap-3 text-body">
                     <Tip text={s.why}>{s.label}</Tip>
                     <span className="num text-soft">{s.prob}%</span>
                   </div>
@@ -215,16 +228,16 @@ function Briefing({ b }: { b: DailyBias }) {
       <footer {...rise()} className="anim-rise space-y-3">
         {b.markdown && (
           <details className="group">
-            <summary className="cursor-pointer list-none text-[12px] text-faint hover:text-soft">
+            <summary className="cursor-pointer list-none text-small text-faint hover:text-soft">
               <span className="group-open:hidden">Full briefing as text →</span>
               <span className="hidden group-open:inline">Full briefing as text ↓</span>
             </summary>
-            <pre className="card mt-3 whitespace-pre-wrap px-6 py-5 font-sans text-[13px] leading-relaxed text-soft">
+            <pre className="card mt-3 whitespace-pre-wrap px-6 py-5 font-sans text-body leading-relaxed text-soft">
               {b.markdown}
             </pre>
           </details>
         )}
-        <p className="text-[11px] text-faint">
+        <p className="text-caption text-faint">
           Hover any label or <Info size={10} className="inline -translate-y-px" /> for the reasoning.
           Probabilities are Claude's subjective estimates from public analysis, not a fitted model. Analysis,
           not financial advice.
@@ -246,13 +259,13 @@ function KeyLevelTile({ b, className, style }: { b: DailyBias } & Anim) {
       {k ? (
         <>
           <div className="flex items-baseline gap-2.5">
-            <span className="text-[22px] font-semibold tracking-tight">{k.price != null ? px(k.price) : "—"}</span>
-            {dist != null && <span className="num text-[12px] text-soft">{signedPts(dist)} pts</span>}
+            <span className="text-stat font-semibold tracking-tight">{k.price != null ? px(k.price) : "—"}</span>
+            {dist != null && <span className="num text-small text-soft">{signedPts(dist)} pts</span>}
           </div>
-          <div className="text-[13px] text-soft">{k.label}</div>
+          <div className="text-body text-soft">{k.label}</div>
           {match?.sweepProb != null && (
             <div className="mt-auto pt-3">
-              <div className="flex justify-between text-[11px] text-faint">
+              <div className="flex justify-between text-caption text-faint">
                 <span>Touched by 17:00 NY</span>
                 <span className="num text-soft">{match.sweepProb}%</span>
               </div>
@@ -261,7 +274,7 @@ function KeyLevelTile({ b, className, style }: { b: DailyBias } & Anim) {
           )}
         </>
       ) : (
-        <span className="text-[13px] text-faint">None named today.</span>
+        <span className="text-body text-faint">None named today.</span>
       )}
     </Tile>
   );
@@ -275,19 +288,19 @@ function EventTile({ b, className, style }: { b: DailyBias } & Anim) {
       {e ? (
         <>
           <div className="flex items-baseline gap-2.5">
-            <span className="text-[22px] font-semibold tracking-tight">
+            <span className="text-stat font-semibold tracking-tight">
               {e.at ? `${weekdayIfNotToday(e.at)}${deskTime(e.at)}` : "TBC"}
             </span>
-            {e.at && <span className="text-[12px] text-soft">NY · {countdown(e.at)}</span>}
+            {e.at && <span className="text-small text-soft">NY · {countdown(e.at)}</span>}
           </div>
-          <div className="text-[13px] text-soft">{e.title}</div>
+          <div className="text-body text-soft">{e.title}</div>
         </>
       ) : (
-        <span className="text-[13px] text-faint">No major release today.</span>
+        <span className="text-body text-faint">No major release today.</span>
       )}
       {sur && (
         <div className="mt-auto pt-3">
-          <div className="mb-1.5 text-[11px] text-faint">
+          <div className="mb-1.5 text-caption text-faint">
             <Tip text={sur.why}>Surprise{sur.event && e?.title !== sur.event ? ` · ${sur.event}` : ""}</Tip>
           </div>
           <SplitBar
@@ -345,15 +358,15 @@ function VolatilityTile({ b, className, style }: { b: DailyBias } & Anim) {
       {pct != null ? (
         <>
           <div className="flex items-baseline gap-2.5">
-            <span className="text-[22px] font-semibold tracking-tight">{pct}%</span>
-            <span className="text-[12px] text-soft">of ATR used</span>
+            <span className="text-stat font-semibold tracking-tight">{pct}%</span>
+            <span className="text-small text-soft">of ATR used</span>
           </div>
-          <div className="text-[13px] text-soft">
+          <div className="text-body text-soft">
             {Math.round(used!)} of {r.atr} pts · {Math.max(0, Math.round(r.atr! - used!))} pts left
           </div>
           <div className="mt-auto pt-3">
             <Meter value={Math.min(pct, 100)} bar={pct >= 80 ? "bg-warn" : "bg-cyan"} className="!h-1.5" />
-            <div className="mt-1.5 flex justify-between text-[11px] text-faint">
+            <div className="mt-1.5 flex justify-between text-caption text-faint">
               <span>
                 Range {px(r.dayLow!)}–{px(r.dayHigh!)}
               </span>
@@ -363,8 +376,8 @@ function VolatilityTile({ b, className, style }: { b: DailyBias } & Anim) {
         </>
       ) : (
         <>
-          <div className="text-[22px] font-semibold tracking-tight">{r.atr != null ? `ATR ${r.atr}` : "—"}</div>
-          {r.expectedRange && <div className="text-[13px] text-soft">Expected {r.expectedRange}</div>}
+          <div className="text-stat font-semibold tracking-tight">{r.atr != null ? `ATR ${r.atr}` : "—"}</div>
+          {r.expectedRange && <div className="text-body text-soft">Expected {r.expectedRange}</div>}
         </>
       )}
     </Tile>
@@ -376,7 +389,7 @@ const TREND_ICON = { bullish: TrendingUp, bearish: TrendingDown, range: MoveRigh
 /** A timeframe's direction, read in one glance: arrow, word, tinted card. The note is on hover. */
 function TrendCard({ tf, trend, note }: { tf: string; trend: Trend | null; note: string }) {
   if (!trend) {
-    return <div className="rounded-xl bg-subtle px-3 py-2.5 text-[12px] text-faint">{tf} · —</div>;
+    return <div className="rounded-xl bg-subtle px-3 py-2.5 text-small text-faint">{tf} · —</div>;
   }
   const pole = POLE[trendPole(trend)];
   const Icon = TREND_ICON[trend];
@@ -385,8 +398,8 @@ function TrendCard({ tf, trend, note }: { tf: string; trend: Trend | null; note:
       <span className={cx("flex items-center gap-2.5 rounded-xl px-3 py-2.5", pole.tint)}>
         <Icon size={22} strokeWidth={2.25} className={cx("shrink-0", pole.text)} />
         <span className="min-w-0">
-          <span className="num block text-[10px] text-faint">{tf}</span>
-          <span className="block text-[14px] font-semibold leading-tight">
+          <span className="num block text-micro text-faint">{tf}</span>
+          <span className="block text-title font-semibold leading-tight">
             {trend === "range" ? "Range" : pole.word}
           </span>
         </span>
@@ -398,8 +411,8 @@ function TrendCard({ tf, trend, note }: { tf: string; trend: Trend | null; note:
 /** Older briefings without trend fields: the note itself, one line. */
 function TrendRow({ tf, note }: { tf: string; note: string }) {
   return (
-    <div className="flex items-center gap-2.5 text-[13px]">
-      <span className="num w-6 shrink-0 text-[11px] text-faint">{tf}</span>
+    <div className="flex items-center gap-2.5 text-body">
+      <span className="num w-6 shrink-0 text-caption text-faint">{tf}</span>
       <Tip text={note} className="truncate text-soft">
         {note || "—"}
       </Tip>
@@ -419,7 +432,7 @@ function RangeGauge({ low, high, spot }: { low: number; high: number; spot: numb
   const chipAt = Math.min(86, Math.max(14, pct));
   return (
     <div>
-      <div className="mb-1 flex items-baseline justify-between text-[11px]">
+      <div className="mb-1 flex items-baseline justify-between text-caption">
         <span className="text-faint">Dealing range</span>
         <span className="flex items-center gap-1.5 text-soft">
           <span className={cx("size-1.5 rounded-full", pole.bar)} />
@@ -428,7 +441,7 @@ function RangeGauge({ low, high, spot }: { low: number; high: number; spot: numb
       </div>
       <div className="relative pt-7">
         <span
-          className="absolute top-0 -translate-x-1/2 whitespace-nowrap rounded-md bg-accent/15 px-1.5 py-0.5 text-[11px] font-semibold text-accent-2"
+          className="absolute top-0 -translate-x-1/2 whitespace-nowrap rounded-md bg-accent/15 px-1.5 py-0.5 text-caption font-semibold text-accent-2"
           style={{ left: `${chipAt}%` }}
         >
           {px(spot)}
@@ -447,12 +460,12 @@ function RangeGauge({ low, high, spot }: { low: number; high: number; spot: numb
           style={{ left: `${pct}%` }}
         />
       </div>
-      <div className="num mt-2 grid grid-cols-3 text-[11px] text-faint">
+      <div className="num mt-2 grid grid-cols-3 text-caption text-faint">
         <span>{px(low)}</span>
         <span className="text-center">EQ {px((low + high) / 2)}</span>
         <span className="text-right">{px(high)}</span>
       </div>
-      <div className="grid grid-cols-2 text-[10px] uppercase tracking-[0.08em] text-faint">
+      <div className="grid grid-cols-2 eyebrow">
         <span>Discount</span>
         <span className="text-right">Premium</span>
       </div>
@@ -481,7 +494,7 @@ function ScenarioCard({
       className={cx(
         // The card lights up in its own direction's colour, not the desk's orange accent:
         // a picked short reads red, a long green, chop grey.
-        "card relative flex h-full cursor-pointer flex-col overflow-hidden py-5 pl-6 pr-5 outline-none",
+        "card flex h-full cursor-pointer flex-col px-6 py-5 outline-none",
         "hover:-translate-y-[3px] hover:bg-raised hover:shadow-[var(--shadow-lift)] focus-visible:ring-1",
         pole.ring,
         pole.hoverEdge,
@@ -490,22 +503,21 @@ function ScenarioCard({
       )}
       style={style}
     >
-      <span className={cx("absolute inset-y-0 left-0 w-[3px]", pole.bar)} />
       <div className="flex items-baseline justify-between gap-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
+        <div className="eyebrow">
           {s.kind === "chop" ? "Chop" : s.kind} ·{" "}
           <span className={pole.text}>{pole.glyph}</span> {s.direction}
         </div>
-        <div className="text-[24px] font-semibold tracking-tight">{s.prob}%</div>
+        <div className={cx("num text-stat font-semibold tracking-tight", pole.text)}>{s.prob}%</div>
       </div>
-      <h3 className="mt-0.5 text-[14px] font-semibold">
+      <h3 className="mt-0.5 text-title font-semibold">
         <Tip text={s.why}>{s.title}</Tip>
       </h3>
-      {s.trigger && <p className="mt-1.5 line-clamp-2 text-[12px] text-soft">{s.trigger}</p>}
+      {s.trigger && <p className="mt-1.5 line-clamp-2 text-small text-soft">{s.trigger}</p>}
       {s.targets.length > 0 && (
         <ul className="mt-3 space-y-2">
           {s.targets.map((t, n) => (
-            <li key={t.price} className="flex items-center gap-2.5 text-[12px]">
+            <li key={t.price} className="flex items-center gap-2.5 text-small">
               <span className="w-7 text-faint">TP{n + 1}</span>
               <span className="num w-14">{px(t.price)}</span>
               {t.prob != null && (
@@ -519,7 +531,7 @@ function ScenarioCard({
         </ul>
       )}
       {s.invalidation != null && (
-        <p className="num mt-auto pt-3 text-[12px] text-faint">
+        <p className="num mt-auto pt-3 text-small text-faint">
           ✕ invalid beyond <span className="text-soft">{px(s.invalidation)}</span>
         </p>
       )}
@@ -547,12 +559,12 @@ function Macro({ b, className, style }: { b: DailyBias } & Anim) {
     <Panel title="Macro & intermarket" why={b.macro.flow} className={className} style={style}>
       {d.length > 0 ? (
         <>
-          <div className={cx("grid grid-cols-2 gap-3 p-4 sm:grid-cols-3", DRIVER_COLS[Math.min(Math.max(d.length, 3), 6)])}>
+          <div className={cx("grid grid-cols-2 gap-3 px-6 pb-5 sm:grid-cols-3", DRIVER_COLS[Math.min(Math.max(d.length, 3), 6)])}>
             {d.map((x) => (
               <DriverCard key={x.name} x={x} />
             ))}
           </div>
-          <div className="border-t px-5 py-4">
+          <div className="border-t px-6 py-4">
             <SidesBar
               title="Net for gold"
               verdict={net > 0 ? "Net tailwind" : net < 0 ? "Net headwind" : "Balanced"}
@@ -564,7 +576,7 @@ function Macro({ b, className, style }: { b: DailyBias } & Anim) {
         </>
       ) : (
         // An older briefing without driver cards: its two short lines.
-        <dl className="space-y-2.5 px-5 py-4 text-[13px]">
+        <dl className="space-y-2.5 px-6 pb-5 text-body">
           <Fact term="DXY">{b.macro.dxy}</Fact>
           <Fact term="Yields">{b.macro.yields}</Fact>
         </dl>
@@ -581,22 +593,21 @@ function moveOf(change: string): "up" | "down" | null {
 
 /**
  * One instrument: its level and move up top, and — the part that matters for the
- * trade — whether it pushes gold up or down today, as the card's edge colour and chip.
+ * trade — whether it pushes gold up or down today, as the chip.
  */
 function DriverCard({ x }: { x: Driver }) {
   const pole = POLE[x.gold];
   const move = moveOf(x.change);
   return (
-    <div className="relative overflow-hidden rounded-xl border bg-raised py-3 pl-4 pr-3">
-      <span className={cx("absolute inset-y-0 left-0 w-[3px]", pole.bar)} />
+    <div className="well px-4 py-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-[11px] font-medium uppercase tracking-[0.08em] text-faint">{x.name}</span>
+        <span className="truncate eyebrow">{x.name}</span>
         {move === "up" && <ArrowUpRight size={14} className="shrink-0 text-soft" />}
         {move === "down" && <ArrowDownRight size={14} className="shrink-0 text-soft" />}
       </div>
-      <div className="mt-1 truncate text-[20px] font-semibold tracking-tight">{x.value || "—"}</div>
-      <div className="num truncate text-[11px] text-faint">{x.change || " "}</div>
-      <span className={cx("mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium", pole.tint)}>
+      <div className="mt-1 truncate text-heading font-semibold tracking-tight">{x.value || "—"}</div>
+      <div className="num truncate text-caption text-faint">{x.change || " "}</div>
+      <span className={cx("mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-caption font-medium", pole.tint)}>
         <span className={cx("text-[9px]", pole.text)}>{pole.glyph}</span>
         Gold {GOLD_WORD[x.gold]}
       </span>
@@ -623,7 +634,7 @@ function Consensus({ b, className, style }: { b: DailyBias } & Anim) {
 
   return (
     <Panel title="Pro-trader consensus" note={`${n} views · ${fresh} from the last 24h`} className={className} style={style}>
-      <div className="px-5 pt-4">
+      <div className="px-6">
         <SidesBar
           verdict={verdict}
           bear={{ value: bear, shown: `${bear}% bearish` }}
@@ -631,10 +642,10 @@ function Consensus({ b, className, style }: { b: DailyBias } & Anim) {
           bull={{ value: bull, shown: `${bull}% bullish` }}
         />
       </div>
-      <div className="grid grid-cols-3 gap-4 px-5 py-4">
+      <div className="grid grid-cols-3 gap-4 px-6 py-5">
         {(["bearish", "neutral", "bullish"] as const).map((p) => (
           <div key={p}>
-            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">
+            <div className="mb-2 flex items-center gap-1.5 eyebrow">
               <span className={POLE[p].text}>{POLE[p].glyph}</span>
               {POLE[p].word} · {col(p).length}
             </div>
@@ -656,8 +667,8 @@ function Consensus({ b, className, style }: { b: DailyBias } & Anim) {
                       <span className="flex items-center gap-2 rounded-lg border bg-raised px-2.5 py-1.5">
                         <span className={cx("size-1.5 shrink-0 rounded-full", POLE[p].bar)} />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[12px] font-medium">{shortName(a.name)}</span>
-                          <span className="block truncate text-[11px] text-faint">
+                          <span className="block truncate text-small font-medium">{shortName(a.name)}</span>
+                          <span className="block truncate text-caption text-faint">
                             {a.source}
                             {" · "}
                             <span className={stale ? "text-warn" : undefined}>{hours == null ? "undated" : `${hours}h`}</span>
@@ -684,7 +695,7 @@ function Consensus({ b, className, style }: { b: DailyBias } & Anim) {
         ))}
       </div>
       {b.consensus?.take && (
-        <p className="border-t px-5 py-3 text-[12px] text-soft">
+        <p className="border-t px-6 py-3.5 text-small text-soft">
           <span className="font-semibold text-ink">Claude's read · </span>
           {b.consensus.take}
         </p>
@@ -718,7 +729,7 @@ function SidesBar({
   ];
   return (
     <div>
-      <div className="mb-2 flex items-baseline justify-between text-[11px]">
+      <div className="mb-2 flex items-baseline justify-between text-caption">
         <span className="text-faint">{title}</span>
         <span className="font-semibold uppercase tracking-[0.08em] text-ink">{verdict}</span>
       </div>
@@ -737,18 +748,18 @@ function SidesBar({
         </div>
         <span className="absolute -inset-y-1 left-1/2 w-px bg-ink/50" />
       </div>
-      <div className="mt-2 grid grid-cols-3 text-[12px]">
+      <div className="mt-2 grid grid-cols-3 text-small">
         <span className="flex items-baseline gap-1.5">
-          <span className="text-[10px] text-down">▼</span>
+          <span className="text-micro text-down">▼</span>
           <span className="font-semibold">{bear.shown}</span>
         </span>
         <span className="flex items-baseline justify-center gap-1.5 text-soft">
-          <span className="text-[10px]">◆</span>
+          <span className="text-micro">◆</span>
           {neutral.shown}
         </span>
         <span className="flex items-baseline justify-end gap-1.5">
           <span className="font-semibold">{bull.shown}</span>
-          <span className="text-[10px] text-up">▲</span>
+          <span className="text-micro text-up">▲</span>
         </span>
       </div>
     </div>
@@ -774,18 +785,18 @@ function Risk({ b, className, style }: { b: DailyBias } & Anim) {
 
   return (
     <Panel title="Risk & timing" sub="Scheduled releases on New York time, and when to keep your hands off." className={className} style={style}>
-      <div className="grid grid-cols-1 gap-6 px-5 py-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 px-6 pb-5 md:grid-cols-2">
         <div>
-          <div className="label">Releases</div>
+          <div className="eyebrow mb-2 block">Releases</div>
           <div className="space-y-2.5">
             {[...days].map(([day, list]) => (
               <div key={day}>
-                <div className="text-[11px] text-faint">
+                <div className="text-caption text-faint">
                   {day === deskDay() ? "Today" : day === "TBC" ? "Time TBC" : deskDateLabel(`${day}T12:00:00Z`)}
                 </div>
                 <ul className="mt-1 space-y-1">
                   {list.map((e) => (
-                    <li key={e.title + e.at} className="flex items-center gap-2.5 text-[13px]">
+                    <li key={e.title + e.at} className="flex items-center gap-2.5 text-body">
                       <span className="num w-11 shrink-0 text-soft">{e.at ? deskTime(e.at) : "—"}</span>
                       <span
                         className={cx(
@@ -796,20 +807,20 @@ function Risk({ b, className, style }: { b: DailyBias } & Anim) {
                       />
                       <span className="truncate">{e.title}</span>
                       {e.at && Date.parse(e.at) > Date.now() && Date.parse(e.at) - Date.now() < 24 * 3_600_000 && (
-                        <span className="num ml-auto shrink-0 text-[11px] text-faint">{countdown(e.at)}</span>
+                        <span className="num ml-auto shrink-0 text-caption text-faint">{countdown(e.at)}</span>
                       )}
                     </li>
                   ))}
                 </ul>
               </div>
             ))}
-            {!r.events.length && <p className="text-[13px] text-faint">Nothing scheduled.</p>}
+            {!r.events.length && <p className="text-body text-faint">Nothing scheduled.</p>}
           </div>
         </div>
 
         <div>
-          <div className="label">Stand aside if</div>
-          <ul className="space-y-1.5 text-[13px] text-soft">
+          <div className="eyebrow mb-2 block">Stand aside if</div>
+          <ul className="space-y-1.5 text-body text-soft">
             {r.standAside.map((x) => (
               <li key={x} className="flex gap-2">
                 <span className="text-faint">✕</span>
@@ -905,11 +916,11 @@ function SplitBar({ parts, compact = false, why }: { parts: Part[]; compact?: bo
   return (
     <div>
       {why ? <Tip text={why} className="block">{bar}</Tip> : bar}
-      <div className={cx("mt-2 flex flex-wrap gap-x-6 gap-y-1", compact ? "text-[12px]" : "text-[13px]")}>
+      <div className={cx("mt-2 flex flex-wrap gap-x-6 gap-y-1", compact ? "text-small" : "text-body")}>
         {parts.map((p) => (
           <span key={p.label} className="flex items-baseline gap-1.5">
-            <span className={cx("text-[10px]", POLE[p.pole].text)}>{POLE[p.pole].glyph}</span>
-            <span className={cx("font-semibold", !compact && "text-[20px] tracking-tight")}>
+            <span className={cx("text-micro", POLE[p.pole].text)}>{POLE[p.pole].glyph}</span>
+            <span className={cx("font-semibold", !compact && "text-heading tracking-tight")}>
               {p.raw ? p.value : `${p.value}%`}
             </span>
             <span className="text-faint">{p.label}</span>
@@ -933,7 +944,7 @@ function Meter({ value, className, bar = "bg-accent" }: { value: number; classNa
 function ZoneStrip({ zone }: { zone: "premium" | "discount" | "equilibrium" }) {
   const zones = ["discount", "equilibrium", "premium"] as const;
   return (
-    <div className="grid grid-cols-3 gap-1 text-center text-[10px] uppercase tracking-[0.08em]">
+    <div className="grid grid-cols-3 gap-1 text-center text-micro uppercase tracking-[0.08em]">
       {zones.map((z) => (
         <div
           key={z}
@@ -964,9 +975,9 @@ function Tile({
   style,
 }: { label: string; tone: string; why?: string; children: ReactNode } & Anim) {
   return (
-    <article className={cx("card relative flex h-full flex-col gap-1 overflow-hidden py-5 pl-6 pr-5", className)} style={style}>
-      <span className={cx("absolute inset-y-0 left-0 w-[3px]", tone)} />
-      <div className="label flex items-center gap-1.5">
+    <article className={cx("card flex h-full flex-col gap-1 px-6 py-5", className)} style={style}>
+      <div className="eyebrow mb-2 flex items-center gap-1.5">
+        <span className={cx("size-1.5 rounded-full", tone)} />
         {label}
         {why && (
           <Tip text={why}>
@@ -979,6 +990,7 @@ function Tile({
   );
 }
 
+/** The desk's Panel, with the reasoning one hover away and a quiet note on the right. */
 function Panel({
   title,
   sub,
@@ -989,23 +1001,27 @@ function Panel({
   style,
 }: { title: string; sub?: string; note?: string; why?: string; children: ReactNode } & Anim) {
   return (
-    <section className={cx("card overflow-hidden", className)} style={style}>
-      <header className="flex items-baseline justify-between gap-4 border-b px-5 py-3.5">
-        <div>
-          <h3 className="flex items-center gap-1.5 text-[14px] font-semibold">
+    <UiPanel
+      flush
+      className={className}
+      style={style}
+      title={
+        why ? (
+          <span className="flex items-center gap-1.5">
             {title}
-            {why && (
-              <Tip text={why} className="text-faint">
-                <Info size={12} />
-              </Tip>
-            )}
-          </h3>
-          {sub && <p className="mt-0.5 text-[11px] leading-snug text-faint">{sub}</p>}
-        </div>
-        {note && <span className="text-right text-[11px] text-faint">{note}</span>}
-      </header>
+            <Tip text={why} className="text-faint">
+              <Info size={12} />
+            </Tip>
+          </span>
+        ) : (
+          title
+        )
+      }
+      sub={sub}
+      action={note && <span className="text-caption text-faint">{note}</span>}
+    >
       {children}
-    </section>
+    </UiPanel>
   );
 }
 
@@ -1020,16 +1036,17 @@ function Fact({ term, children }: { term: string; children: ReactNode }) {
 }
 
 function Notice({ tone, title, children }: { tone: "info" | "warn" | "down"; title: string; children: ReactNode }) {
+  const look = tone === "warn" ? "bg-warn/10 text-warn" : tone === "down" ? "bg-down/10 text-down" : "bg-accent/10 text-accent-2";
+  const Icon = tone === "info" ? Sparkles : CircleAlert;
   return (
-    <section className="card anim-rise relative overflow-hidden py-5 pl-6 pr-5">
-      <span
-        className={cx(
-          "absolute inset-y-0 left-0 w-[3px]",
-          tone === "warn" ? "bg-warn" : tone === "down" ? "bg-down" : "bg-accent",
-        )}
-      />
-      <h3 className="text-[14px] font-semibold">{title}</h3>
-      <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-soft">{children}</p>
+    <section className="card anim-rise flex gap-4 px-6 py-5">
+      <span className={cx("anim-stamp grid size-9 shrink-0 place-items-center rounded-full", look)}>
+        <Icon size={17} />
+      </span>
+      <div>
+        <h3 className="text-title font-semibold">{title}</h3>
+        <p className="mt-1 max-w-2xl text-body leading-relaxed text-soft">{children}</p>
+      </div>
     </section>
   );
 }

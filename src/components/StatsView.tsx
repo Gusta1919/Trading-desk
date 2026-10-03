@@ -1,72 +1,16 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { fmtNum, fmtPct, fmtR, fmtRate, tone } from "@/lib/format";
-import { WEEKDAYS, groupBy, summarize, weekdayOf, type GroupRow } from "@/lib/stats";
-import {
-  EMOTIONS,
-  ENTRY_MODELS,
-  GRADES,
-  HTFS,
-  SESSIONS,
-  checklistComplete,
-  checklistRecorded,
-  type Trade,
-} from "@/lib/types";
+import { useMemo, useState } from "react";
+import type { CheckIn } from "@/lib/checkin";
+import { fmtNum, fmtPct, fmtR, fmtRate, fmtUsd as money, fmtUsdSigned as signed, tone } from "@/lib/format";
+import { accountState, ledger } from "@/lib/limits";
 import type { Rulebook } from "@/lib/rulebook";
-import { QUESTIONS, VERDICTS, type CheckIn } from "@/lib/checkin";
+import { summarize } from "@/lib/stats";
+import type { Trade } from "@/lib/types";
+import { Compare } from "./Compare";
 import { EquityChart } from "./EquityChart";
 import { DriversCard, HabitsCard } from "./Insights";
-import { Compare } from "./Compare";
-import { Segmented, cx } from "./ui";
+import { Empty, PageHeader, Panel, Segmented, Stat, cx, stagger, useCountUp } from "./ui";
 
 type Range = "30" | "90" | "ytd" | "all";
-
-/** Groups with fewer trades than this are shown faded — too few to trust. */
-const MIN_SAMPLE = 5;
-
-const DIMENSIONS: {
-  id: string;
-  label: string;
-  key: (t: Trade) => string | string[] | null;
-  order?: string[];
-}[] = [
-  {
-    id: "checklist",
-    label: "Checklist",
-    key: (t) =>
-      !checklistRecorded(t)
-        ? "Checklist not recorded"
-        : checklistComplete(t)
-          ? "Checklist complete"
-          : "Checklist incomplete",
-    order: ["Checklist complete", "Checklist incomplete"],
-  },
-  // Legacy fields: only offered while some trade in the period still has them.
-  { id: "entry", label: "Entry (legacy)", key: (t) => t.entryModel || null, order: ENTRY_MODELS },
-  { id: "htf", label: "HTF (legacy)", key: (t) => t.htf || null, order: HTFS },
-  { id: "setup", label: "Setup (legacy)", key: (t) => t.setup || null },
-  { id: "session", label: "Session", key: (t) => t.session || null, order: SESSIONS },
-  { id: "weekday", label: "Weekday", key: weekdayOf, order: WEEKDAYS },
-  { id: "symbol", label: "Symbol", key: (t) => t.symbol },
-  {
-    id: "direction",
-    label: "Long / Short",
-    key: (t) => (t.direction === "long" ? "Long" : "Short"),
-    order: ["Long", "Short"],
-  },
-  {
-    id: "plan",
-    label: "Plan",
-    key: (t) => (t.followedPlan == null ? null : t.followedPlan ? "Followed plan" : "Broke plan"),
-    order: ["Followed plan", "Broke plan"],
-  },
-  { id: "grade", label: "Grade", key: (t) => t.grade || null, order: GRADES },
-  {
-    id: "emotion",
-    label: "State of mind",
-    key: (t) => (t.emotion ? EMOTIONS[t.emotion - 1] : null),
-    order: EMOTIONS,
-  },
-];
 
 function inRange(t: Trade, range: Range) {
   if (range === "all") return true;
@@ -76,318 +20,126 @@ function inRange(t: Trade, range: Range) {
   return now.getTime() - d.getTime() <= Number(range) * 86_400_000;
 }
 
-export function StatsView({
-  trades,
-  checkins,
-  doc,
-}: {
-  trades: Trade[];
-  checkins: CheckIn[];
-  doc: Rulebook;
-}) {
+
+/**
+ * The review: how the account is doing, how you trade, and how every rule and every
+ * logged field has paid. One period selector drives the whole page.
+ */
+export function StatsView({ trades, checkins, doc }: { trades: Trade[]; checkins: CheckIn[]; doc: Rulebook }) {
   const [range, setRange] = useState<Range>("all");
-  const [dim, setDim] = useState("checklist");
-  const [wellDim, setWellDim] = useState("readiness");
-
-  // Skipped setups are kept aside: they were never traded.
   const inPeriod = useMemo(() => trades.filter((t) => inRange(t, range)), [trades, range]);
-  const filtered = useMemo(() => inPeriod.filter((t) => !t.skipped), [inPeriod]);
-  const s = useMemo(() => summarize(filtered), [filtered]);
-
-  // Well-being: each trade is joined to the check-in you did that same day.
-  const wellDimensions = useMemo(() => {
-    const byDate = new Map(checkins.map((c) => [c.date, c]));
-    const checkinOf = (t: Trade) => byDate.get(t.date.slice(0, 10));
-    return [
-      {
-        id: "readiness",
-        label: "Readiness",
-        key: (t: Trade) => {
-          const c = checkinOf(t);
-          return c ? VERDICTS[c.verdict].label : "No check-in";
-        },
-        order: [...Object.values(VERDICTS).map((v) => v.label), "No check-in"],
-      },
-      ...QUESTIONS.map((q) => ({
-        id: q.id,
-        label: q.short,
-        key: (t: Trade) => {
-          const answer = checkinOf(t)?.answers[q.id];
-          return answer == null ? null : q.options[answer]?.label ?? null;
-        },
-        order: q.options.map((o) => o.label),
-      })),
-    ];
-  }, [checkins]);
-
-  const wellDimension = wellDimensions.find((d) => d.id === wellDim)!;
-  const wellRows = useMemo(
-    () => groupBy(filtered, wellDimension.key, wellDimension.order),
-    [filtered, wellDimension],
-  );
-
-  /*
-   * Box size is a number, so it only means something next to your other boxes.
-   * It is split into thirds of what you have actually logged, with the real
-   * figures in the labels so the table answers "how big is too big" directly.
-   */
-  const boxDimension = useMemo(() => {
-    const sizes = trades
-      .map((t) => t.boxSize)
-      .filter((v): v is number => v != null)
-      .sort((a, b) => a - b);
-    if (sizes.length < 6) return null;
-
-    const at = (p: number) => sizes[Math.min(sizes.length - 1, Math.floor(p * sizes.length))];
-    const lo = at(1 / 3);
-    const hi = at(2 / 3);
-    if (lo >= hi) return null; // every box the same size — nothing to compare
-
-    const small = `Small · $${lo} or less`;
-    const mid = `Medium · $${lo}–${hi}`;
-    const large = `Large · $${hi} or more`;
-
-    return {
-      id: "box",
-      label: "Box size",
-      key: (t: Trade) =>
-        t.boxSize == null ? null : t.boxSize <= lo ? small : t.boxSize >= hi ? large : mid,
-      order: [small, mid, large],
-    };
-  }, [trades]);
-
-  const dimensions = useMemo(() => {
-    const withData = DIMENSIONS.filter(
-      (d) => !["entry", "htf", "setup"].includes(d.id) || filtered.some((t) => d.key(t)),
-    );
-    return boxDimension ? [...withData, boxDimension] : withData;
-  }, [boxDimension, filtered]);
-
-  const dimension = dimensions.find((d) => d.id === dim) ?? dimensions[0];
-  const rows = useMemo(
-    () => groupBy(filtered, dimension.key, dimension.order),
-    [filtered, dimension],
-  );
-  const mistakeRows = useMemo(() => {
-    const clean = groupBy(filtered, (t) => (t.mistakes.length ? null : "No mistakes"));
-    return [...clean, ...groupBy(filtered, (t) => t.mistakes)];
-  }, [filtered]);
+  // Setups not taken are kept aside: they were never traded.
+  const taken = useMemo(() => inPeriod.filter((t) => !t.skipped), [inPeriod]);
+  const s = useMemo(() => summarize(taken), [taken]);
+  const account = useMemo(() => accountState(trades, doc.limits), [trades, doc.limits]);
+  const money$ = useMemo(() => ledger(trades, doc.limits), [trades, doc.limits]);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <Segmented
-          size="sm"
-          value={range}
-          onChange={(v) => v && setRange(v)}
-          options={[
-            { value: "30", label: "30 days" },
-            { value: "90", label: "90 days" },
-            { value: "ytd", label: "This year" },
-            { value: "all", label: "All time" },
-          ]}
-        />
-        <span className="num text-[12px] text-faint">
-          {s.closed} closed trade{s.closed === 1 ? "" : "s"}
-        </span>
-      </div>
+      <PageHeader
+        title="Stats"
+        sub="How your accounts are doing, how you trade, and how every rule and logged field has actually paid."
+        actions={
+          <Segmented
+            size="sm"
+            value={range}
+            onChange={(v) => v && setRange(v)}
+            options={[
+              { value: "30", label: "30 days" },
+              { value: "90", label: "90 days" },
+              { value: "ytd", label: "This year" },
+              { value: "all", label: "All time" },
+            ]}
+          />
+        }
+      />
 
       {s.closed === 0 ? (
-        <div className="card px-6 py-20 text-center text-soft">
-          No closed trades in this period yet.
+        <div className="card">
+          <Empty title="No closed trades in this period" body="Results, edges and comparisons appear as soon as trades close." />
         </div>
       ) : (
         <>
-          {/* Headline numbers */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi label="Net return" value={fmtPct(s.netPct)} cls={tone(s.netPct)} sub={`${fmtR(s.totalR)} total`} />
-            <Kpi
-              label="Win rate"
-              value={fmtRate(s.winRate)}
-              sub={`${s.wins}W · ${s.losses}L${s.breakeven ? ` · ${s.breakeven} BE` : ""}`}
-            />
-            <Kpi
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <Headline i={0} label="Net return" value={s.netPct} format={fmtPct} tone={tone(s.netPct)} sub={`${fmtR(s.totalR)} in total`} />
+            <Headline i={1} label="Win rate" value={s.winRate == null ? null : s.winRate * 100} format={(v) => fmtRate(v == null ? null : v / 100)} sub={`${s.wins} won · ${s.losses} lost${s.breakeven ? ` · ${s.breakeven} breakeven` : ""}`} />
+            <Headline i={2} label="Expectancy" value={s.expectancyR} format={fmtR} tone={tone(s.expectancyR)} sub={`${fmtPct(s.expectancyPct)} per trade`} />
+            <Headline
+              i={3}
               label="Profit factor"
-              value={s.profitFactor === Infinity ? "∞" : fmtNum(s.profitFactor)}
-              sub="gross win ÷ gross loss"
-            />
-            <Kpi
-              label="Expectancy"
-              value={fmtR(s.expectancyR)}
-              cls={tone(s.expectancyR)}
-              sub={`${fmtPct(s.expectancyPct)} per trade`}
+              value={s.profitFactor === Infinity ? null : s.profitFactor}
+              format={(v) => (s.profitFactor === Infinity ? "∞" : fmtNum(v))}
+              sub="gross won ÷ gross lost"
             />
           </div>
 
-          <Card id="sec-equity" title="Equity curve" note="Cumulative % return, trade by trade">
-            <EquityChart points={s.equity} />
-          </Card>
-
-          {/* Secondary numbers */}
-          <div className="card grid grid-cols-2 gap-x-8 gap-y-4 px-6 py-5 sm:grid-cols-3 lg:grid-cols-4">
-            <Mini label="Avg win" value={fmtR(s.avgWinR)} cls={tone(s.avgWinR)} />
-            <Mini label="Avg loss" value={fmtR(s.avgLossR)} cls={tone(s.avgLossR)} />
-            <Mini label="Avg planned R:R" value={s.avgPlannedRR == null ? "—" : `${fmtNum(s.avgPlannedRR)}R`} />
-            <Mini label="Avg risk" value={s.avgRiskPct == null ? "—" : `${fmtNum(s.avgRiskPct)}%`} />
-            <Mini label="Max drawdown" value={fmtPct(s.maxDrawdownPct)} cls={tone(s.maxDrawdownPct)} />
-            <Mini label="Current drawdown" value={fmtPct(s.currentDrawdownPct)} cls={tone(s.currentDrawdownPct)} />
-            <Mini label="Best trade" value={fmtPct(s.bestPct)} cls={tone(s.bestPct)} />
-            <Mini label="Worst trade" value={fmtPct(s.worstPct)} cls={tone(s.worstPct)} />
-            <Mini label="Longest win streak" value={String(s.maxWinStreak)} />
-            <Mini label="Longest loss streak" value={String(s.maxLossStreak)} />
-            <Mini
-              label="Current streak"
-              value={s.currentStreak.outcome ? `${s.currentStreak.count} ${s.currentStreak.outcome === "win" ? "W" : "L"}` : "—"}
-            />
-            <Mini label="Followed plan" value={fmtRate(s.planAdherence)} />
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+            <Panel index={4} title="Equity curve" sub="Cumulative % return, trade by trade">
+              <EquityChart points={s.equity} />
+            </Panel>
+            <Panel index={5} title="Your accounts" sub="Counted from the day the journal started">
+              <div className="space-y-5">
+                <Stat
+                  label="Since you started · all accounts"
+                  value={signed(money$.total.pnl)}
+                  size="display"
+                  tone={tone(money$.total.pnl)}
+                  sub={`${fmtPct(money$.total.pnlPct)} · together ${money(money$.total.balance)}`}
+                />
+                <ul className="divide-y rounded-xl border">
+                  {money$.accounts.map((a, i) => (
+                    <li key={a.name} className="anim-rise flex items-baseline justify-between gap-4 px-4 py-3" style={stagger(i + 2, 80)}>
+                      <span className="min-w-0">
+                        <span className="block text-body font-medium">{a.name}</span>
+                        <span className="num block text-caption text-faint">{money(a.balance)}</span>
+                      </span>
+                      <span className="num text-right">
+                        <span className={cx("block text-title font-medium", tone(a.pnl))}>{signed(a.pnl)}</span>
+                        <span className="block text-caption text-faint">{fmtPct(a.pnlPct)}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <Stat label="Safe risk now" value={`${account.safeRisk.toFixed(2)}%`} size="title" sub="cap, budgets and firm lines" />
+              </div>
+            </Panel>
           </div>
 
-          <DriversCard trades={filtered} checkins={checkins} doc={doc} />
-          <HabitsCard trades={filtered} checkins={checkins} />
+          <Panel index={6} title="The details">
+            <div className="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
+              <Stat size="title" label="Avg win" value={fmtR(s.avgWinR)} tone={tone(s.avgWinR)} />
+              <Stat size="title" label="Avg loss" value={fmtR(s.avgLossR)} tone={tone(s.avgLossR)} />
+              <Stat size="title" label="Avg planned R:R" value={s.avgPlannedRR == null ? "—" : `${fmtNum(s.avgPlannedRR)}R`} />
+              <Stat size="title" label="Avg risk" value={s.avgRiskPct == null ? "—" : `${fmtNum(s.avgRiskPct)}%`} />
+              <Stat size="title" label="Max drawdown" value={fmtPct(s.maxDrawdownPct)} tone={tone(s.maxDrawdownPct)} />
+              <Stat size="title" label="Drawdown now" value={fmtPct(s.currentDrawdownPct)} tone={tone(s.currentDrawdownPct)} />
+              <Stat size="title" label="Best trade" value={fmtPct(s.bestPct)} tone={tone(s.bestPct)} />
+              <Stat size="title" label="Worst trade" value={fmtPct(s.worstPct)} tone={tone(s.worstPct)} />
+              <Stat size="title" label="Longest win run" value={String(s.maxWinStreak)} />
+              <Stat size="title" label="Longest loss run" value={String(s.maxLossStreak)} />
+              <Stat size="title" label="Rules kept" value={fmtRate(s.ruleAdherence)} tone={s.ruleAdherence == null ? "" : s.ruleAdherence >= 1 ? "text-up" : "text-down"} />
+              <Stat size="title" label="Not taken" value={String(inPeriod.length - taken.length)} sub="setups logged, passed on" />
+            </div>
+          </Panel>
 
-          {/* Comparison */}
-          <Card
-            id="sec-compare"
-            title="Compare"
-            note="Which conditions make you money — and which cost you"
-            action={
-              <Segmented
-                size="sm"
-                value={dim}
-                onChange={(v) => v && setDim(v)}
-                options={dimensions.map((d) => ({ value: d.id, label: d.label }))}
-              />
-            }
-          >
-            <GroupTable rows={rows} empty={`No ${dimension.label.toLowerCase()} recorded yet.`} />
-          </Card>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <DriversCard index={7} trades={taken} checkins={checkins} doc={doc} />
+            <HabitsCard index={8} trades={taken} checkins={checkins} />
+          </div>
 
-          <Compare trades={inPeriod} doc={doc} />
-
-          <Card
-            id="sec-wellbeing"
-            title="Well-being"
-            note="How your daily check-in answers relate to that day's trades"
-            action={
-              <Segmented
-                size="sm"
-                value={wellDim}
-                onChange={(v) => v && setWellDim(v)}
-                options={wellDimensions.map((d) => ({ value: d.id, label: d.label }))}
-              />
-            }
-          >
-            <GroupTable rows={wellRows} empty="No check-ins on your trading days yet." />
-          </Card>
-
-          <Card id="sec-mistakes" title="Cost of mistakes" note="Trades with a mistake vs. clean trades">
-            <GroupTable rows={mistakeRows} empty="No mistakes tagged yet." />
-          </Card>
-
-          <p className="text-[12px] text-faint">
-            Faded rows have fewer than {MIN_SAMPLE} trades — too few to draw conclusions.
-            Win rate excludes breakeven trades. Returns are summed, not compounded.
-          </p>
+          <Compare index={9} trades={inPeriod} checkins={checkins} doc={doc} />
         </>
       )}
     </div>
   );
 }
 
-function GroupTable({ rows, empty }: { rows: GroupRow[]; empty: string }) {
-  if (rows.length === 0) return <p className="py-6 text-center text-soft">{empty}</p>;
-  const maxAbs = Math.max(...rows.map((r) => Math.abs(r.netPct)), 0.0001);
-
+/** One of the four numbers the page is about: a card of its own, counting up when it appears. */
+function Headline({ i, label, value, format, tone: cls, sub }: { i: number; label: string; value: number | null; format: (v: number | null) => string; tone?: string; sub: string }) {
+  const shown = useCountUp(value);
   return (
-    <div className="-mx-6 overflow-x-auto">
-      <table className="w-full text-[13px]">
-        <thead>
-          <tr className="border-b text-[11px] uppercase tracking-[0.06em] text-faint">
-            <th className="px-6 py-2.5 text-left font-medium">Group</th>
-            <th className="px-3 py-2.5 text-right font-medium">Trades</th>
-            <th className="px-3 py-2.5 text-right font-medium">Win rate</th>
-            <th className="px-3 py-2.5 text-right font-medium">Avg R</th>
-            <th className="px-3 py-2.5 text-right font-medium">Net</th>
-            <th className="w-[32%] px-6 py-2.5" />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.key} className={cx("border-b last:border-0", r.count < MIN_SAMPLE && "opacity-50")}>
-              <td className="px-6 py-2.5 font-medium">{r.key}</td>
-              <td className="num px-3 py-2.5 text-right text-soft">{r.count}</td>
-              <td className="num px-3 py-2.5 text-right">{fmtRate(r.winRate)}</td>
-              <td className={cx("num px-3 py-2.5 text-right", tone(r.avgR))}>{fmtR(r.avgR)}</td>
-              <td className={cx("num px-3 py-2.5 text-right font-medium", tone(r.netPct))}>
-                {fmtPct(r.netPct)}
-              </td>
-              <td className="px-6 py-2.5">
-                <DivergingBar value={r.netPct} max={maxAbs} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** Bar growing right (gain) or left (loss) from a centre line. */
-function DivergingBar({ value, max }: { value: number; max: number }) {
-  const w = (Math.abs(value) / max) * 50;
-  return (
-    <div className="relative h-2">
-      <div className="absolute left-1/2 top-[-3px] h-[14px] w-px bg-line" />
-      <div
-        className={cx("absolute top-0 h-2", value >= 0 ? "rounded-r bg-up" : "rounded-l bg-down")}
-        style={value >= 0 ? { left: "50%", width: `${w}%` } : { right: "50%", width: `${w}%` }}
-      />
-    </div>
-  );
-}
-
-function Card({
-  id,
-  title,
-  note,
-  action,
-  children,
-}: {
-  id?: string;
-  title: string;
-  note?: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section id={id} className="card scroll-mt-24 px-6 py-5">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-[14px] font-semibold">{title}</h2>
-          {note && <p className="text-[12px] text-faint">{note}</p>}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Kpi({ label, value, sub, cls }: { label: string; value: string; sub?: string; cls?: string }) {
-  return (
-    <div className="card px-5 py-4">
-      <div className="text-[12px] text-soft">{label}</div>
-      <div className={cx("num mt-1 text-[26px] font-semibold tracking-tight", cls)}>{value}</div>
-      {sub && <div className="num text-[12px] text-faint">{sub}</div>}
-    </div>
-  );
-}
-
-function Mini({ label, value, cls }: { label: string; value: string; cls?: string }) {
-  return (
-    <div>
-      <div className="text-[12px] text-faint">{label}</div>
-      <div className={cx("num text-[15px] font-medium", cls)}>{value}</div>
+    <div className="card anim-rise px-6 py-5" style={stagger(i, 60)}>
+      <Stat label={label} value={format(shown)} tone={cls} size="display" sub={sub} />
     </div>
   );
 }

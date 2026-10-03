@@ -1,8 +1,9 @@
+/** The desk's local API, as the page calls it. */
 import type { CheckIn } from "./checkin";
 import type { Candle, Timeframe } from "./chart";
 import type { BiasFile } from "./dailyBias";
-import type { Rulebook, RulebookVersion, VersionRow } from "./rulebook";
-import type { Limits, Trade, TradeInput } from "./types";
+import type { Rulebook, RulebookVersion } from "./rulebook";
+import type { Trade, TradeInput } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -18,37 +19,21 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   list: () => request<Trade[]>("/api/trades"),
-  create: (t: TradeInput) =>
-    request<Trade>("/api/trades", { method: "POST", body: JSON.stringify(t) }),
-  update: (id: string, t: TradeInput) =>
-    request<Trade>(`/api/trades/${id}`, { method: "PUT", body: JSON.stringify(t) }),
+  create: (t: TradeInput) => request<Trade>("/api/trades", { method: "POST", body: JSON.stringify(t) }),
+  update: (id: string, t: TradeInput) => request<Trade>(`/api/trades/${id}`, { method: "PUT", body: JSON.stringify(t) }),
   remove: (id: string) => request<void>(`/api/trades/${id}`, { method: "DELETE" }),
-  limits: () => request<Limits>("/api/limits"),
-  /** A limit is a rule: changing one writes a new rulebook version, so it needs a reason. */
-  saveLimits: (l: Limits, reason: string) =>
-    request<Limits>("/api/limits", { method: "PUT", body: JSON.stringify({ ...l, reason }) }),
-  rulebook: () => request<RulebookVersion>("/api/rulebook"),
-  versions: () => request<VersionRow[]>("/api/rulebook/versions"),
-  version: (v: string) => request<RulebookVersion>(`/api/rulebook/versions/${encodeURIComponent(v)}`),
-  saveRulebook: (doc: Rulebook, reason: string, bump: "minor" | "major") =>
-    request<RulebookVersion>("/api/rulebook", { method: "PUT", body: JSON.stringify({ doc, reason, bump }) }),
-  openItems: () => request<OpenItem[]>("/api/open-items"),
-  setOpenItem: (id: string, done: boolean) =>
-    request<OpenItem>(`/api/open-items/${id}`, { method: "PUT", body: JSON.stringify({ done }) }),
-  bias: () => request<BiasFile>("/api/bias"),
-  candles: (tf: Timeframe) =>
-    request<{ tf: string; source: string; candles: Candle[]; fetchedAt: number; stale: boolean }>(
-      `/api/candles?tf=${tf}`,
-    ),
+
+  /** The version in force and every version, with their documents. */
+  rulebook: () => request<{ current: RulebookVersion; versions: RulebookVersion[] }>("/api/rulebook"),
+  /** A change is saved as the next version; it needs a one-line reason for the changelog. */
+  saveRulebook: (doc: Rulebook, reason: string) =>
+    request<RulebookVersion>("/api/rulebook", { method: "PUT", body: JSON.stringify({ doc, reason }) }),
+
   checkins: () => request<CheckIn[]>("/api/checkins"),
   saveCheckIn: (c: Omit<CheckIn, "createdAt">) =>
     request<CheckIn>(`/api/checkins/${c.date}`, { method: "PUT", body: JSON.stringify(c) }),
-};
 
-/** One tickable open item from the rulebook. */
-export interface OpenItem {
-  id: string;
-  text: string;
-  done: boolean;
-  doneAt: string | null;
-}
+  bias: () => request<BiasFile>("/api/bias"),
+  candles: (tf: Timeframe) =>
+    request<{ tf: string; source: string; candles: Candle[]; fetchedAt: number; stale: boolean }>(`/api/candles?tf=${tf}`),
+};

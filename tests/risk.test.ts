@@ -5,7 +5,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { allowedRisk, dayBudget, gradeRisk, replayDay, replayDayDetailed } from "../src/lib/risk";
-import { EMPTY_RULEBOOK_FIELDS, type Definition, type GradeCard, type Trade } from "../src/lib/types";
+import type { Definition, GradeCard, Trade } from "../src/lib/types";
+import { ruledTrade } from "./fixtures";
 
 /** The ladder these tests reason with: A+ 1 · A 0.5 · B 0.25 · C not traded. */
 const DEFAULT_GRADES: GradeCard[] = [
@@ -23,41 +24,7 @@ let n = 0;
 /** A trade on DAY: risk in %, result in R (null = still open). */
 function trade(riskPct: number, resultR: number | null, extra: Partial<Trade> = {}): Trade {
   n++;
-  return {
-    id: `t${n}`,
-    date: `${DAY}T0${Math.min(n, 9)}:00`,
-    symbol: "XAUUSD",
-    direction: "long",
-    session: "",
-    setup: "",
-    htf: "",
-    entryModel: "",
-    riskPct,
-    plannedRiskPct: null,
-    plannedRR: null,
-    resultR,
-    followedPlan: null,
-    grade: "",
-    emotion: null,
-    mistakes: [],
-    checklist: [],
-    checklistTotal: 0,
-    setupSnapshot: null,
-    flags: [],
-    flagNote: "",
-    skipped: false,
-    hypotheticalR: null,
-    costPct: null,
-    boxSize: null,
-    pnlUsd: null,
-    news: [],
-    notes: "",
-    screenshot: "",
-    ...EMPTY_RULEBOOK_FIELDS,
-    createdAt: "",
-    updatedAt: "",
-    ...extra,
-  };
+  return ruledTrade(`${DAY}T0${Math.min(n, 9)}:00`, { riskPct, resultR, grade: "", session: "", ...extra });
 }
 
 const allowedFor = (trades: Trade[], grade: string) =>

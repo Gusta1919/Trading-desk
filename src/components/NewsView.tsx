@@ -1,4 +1,4 @@
-import { ChevronDown, ExternalLink, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { Ban, ChevronDown, ExternalLink, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { highlight, isImportant } from "@/lib/alerts";
 import {
@@ -34,9 +34,9 @@ import {
   stanceOf,
   type NewsDay,
 } from "@/lib/newsRules";
-import type { NewsRules } from "@/lib/rulebook";
+import type { NewsRules, TimeWindow } from "@/lib/rulebook";
 import { DESK_LABEL, deskDateLabel, deskDay, deskStamp, deskTime } from "@/lib/tz";
-import { Chips, cx, stagger } from "./ui";
+import { Button, Chips, Empty, PageHeader, cx, stagger } from "./ui";
 
 /** Everything is shown on the desk's clock, whatever timezone the feed used. */
 const time = (iso: string) => deskTime(iso);
@@ -57,33 +57,24 @@ const ago = (iso: string | null) => {
   return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 };
 
-export function NewsView({ news }: { news: NewsState }) {
+/**
+ * The news, the way a day trader reads it: today first, on New York time — when the day
+ * will move, what already printed — then the rest of the week, with the days the rulebook
+ * closes marked. The raw wire underneath.
+ */
+export function NewsView({ news, rules, entryWindows }: { news: NewsState; rules: NewsRules; entryWindows: TimeWindow[] }) {
   return (
-    <div className="w-full space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-semibold">News</h2>
-          <p className="text-[12px] text-faint">
-            Today first, on {DESK_LABEL} time — when the day will move, what already
-            printed, then the rest of the week. The raw wire underneath.
-          </p>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={news.refresh}
-            disabled={news.loadingCalendar || news.loadingWire}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink disabled:opacity-50"
-          >
-            <RefreshCw
-              size={13}
-              className={news.loadingWire ? "animate-spin" : undefined}
-            />{" "}
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      <Calendar news={news} />
+    <div className="w-full space-y-6">
+      <PageHeader
+        title="News"
+        sub={`Today first, then the rest of the week, on ${DESK_LABEL} time. Only red releases count for the rules.`}
+        actions={
+          <Button variant="ghost" size="sm" onClick={news.refresh} disabled={news.loadingCalendar || news.loadingWire}>
+            <RefreshCw size={13} className={news.loadingWire ? "animate-spin" : undefined} /> Refresh
+          </Button>
+        }
+      />
+      <Calendar news={news} rules={rules} entryWindows={entryWindows} />
       <Wire news={news} />
     </div>
   );
@@ -105,7 +96,7 @@ function useNow(everyMs = 30_000) {
  * Built for a day trader: today on top, answering "when will it move?", and the
  * rest of the week folded away underneath.
  */
-function Calendar({ news }: { news: NewsState }) {
+function Calendar({ news, rules, entryWindows }: { news: NewsState; rules: NewsRules; entryWindows: TimeWindow[] }) {
   const [filters, setFilters] = useState<CalendarFilters>(loadFilters);
   /* Closed by default: the map and the day are what you come for, not the knobs. */
   const [filtersOpen, setFiltersOpen] = useState(loadFiltersOpen);
@@ -126,9 +117,12 @@ function Calendar({ news }: { news: NewsState }) {
   /* What the rulebook makes of today — judged on every release, not only the ones the filters show. */
   const todayRules = useMemo(() => {
     const today = deskDay(new Date(now));
-    return newsDay(today, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === today).map(fromEvent), news.rules);
-  }, [news.events, news.rules, now]);
+    return newsDay(today, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === today).map(fromEvent), rules);
+  }, [news.events, rules, now]);
   const windows = useMemo(() => volatilityWindows(split.today), [split.today]);
+  /** Why the rulebook closes a day, judged on every release that day, not only the ones shown. */
+  const skipOf = (day: string) =>
+    newsDay(day, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === day).map(fromEvent), rules).skip;
   const upcoming = split.today.filter((e) => Date.parse(e.at!) >= now);
   const done = split.today.filter((e) => Date.parse(e.at!) < now);
 
@@ -148,13 +142,13 @@ function Calendar({ news }: { news: NewsState }) {
   );
 
   return (
-    <section className="card overflow-hidden">
-      <header className="flex items-baseline justify-between border-b px-5 py-3.5">
-        <h3 className="flex items-center gap-2.5 text-[14px] font-semibold">
+    <section className="card anim-rise overflow-hidden" style={stagger(1, 70)}>
+      <header className="flex items-baseline justify-between border-b px-6 py-4">
+        <h3 className="flex items-center gap-2.5 text-title font-semibold">
           Today · {deskDateLabel(new Date(now))}
           {todayRules.skip.length > 0 && <SkipBadge reasons={todayRules.skip} />}
         </h3>
-        <div className="flex items-center gap-3 text-[11px] text-faint">
+        <div className="flex items-center gap-3 text-caption text-faint">
           <span>
             {loading ? (
               "loading"
@@ -169,7 +163,7 @@ function Calendar({ news }: { news: NewsState }) {
             onClick={() => setFiltersOpen((v) => !v)}
             aria-expanded={filtersOpen}
             className={cx(
-              "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] transition-colors duration-200",
+              "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-small transition-colors duration-200",
               filtersOpen ? "border-soft text-ink" : "text-soft hover:text-ink",
             )}
           >
@@ -195,17 +189,17 @@ function Calendar({ news }: { news: NewsState }) {
         <SkeletonRows rows={7} />
       ) : (
         <div>
-          <DayMap events={split.today} now={now} rules={todayRules} />
+          <DayMap events={split.today} now={now} rules={todayRules} entryWindows={entryWindows} />
           {/* Wide screens: "when will it move" on the left, the releases on the right. */}
+          {/* The week is listed once, on the right; the left column stays in view beside it. */}
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(340px,2fr)_5fr]">
-            <div className="border-b xl:border-b-0 xl:border-r">
+            <div className="border-b xl:sticky xl:top-0 xl:self-start xl:border-b-0">
               <NextUp nextRed={nextRed} windows={windows} now={now} />
-              <WeekAhead days={split.later} now={now} />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 xl:border-l">
               <Section title="Still to come today" count={upcoming.length}>
                 {upcoming.length ? (
-                  upcoming.map((e, i) => <Row key={e.id} event={e} now={now} index={i} countdown rules={news.rules} />)
+                  upcoming.map((e, i) => <Row key={e.id} event={e} now={now} index={i} countdown rules={rules} />)
                 ) : (
                   <Quiet>Nothing left today with these filters.</Quiet>
                 )}
@@ -214,7 +208,7 @@ function Calendar({ news }: { news: NewsState }) {
               {!filters.hidePast && done.length > 0 && (
                 <Section title="Already happened today" count={done.length}>
                   {done.map((e, i) => (
-                    <Row key={e.id} event={e} now={now} index={upcoming.length + i} rules={news.rules} />
+                    <Row key={e.id} event={e} now={now} index={upcoming.length + i} rules={rules} />
                   ))}
                 </Section>
               )}
@@ -227,12 +221,12 @@ function Calendar({ news }: { news: NewsState }) {
                   events={d.events}
                   now={now}
                   index={i}
-                  rules={news.rules}
-                  skip={newsDay(d.day, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === d.day).map(fromEvent), news.rules).skip}
+                  rules={rules}
+                  skip={skipOf(d.day)}
                 />
               ))}
               {split.undated.length > 0 && (
-                <DaySection label="No set time" events={split.undated} now={now} index={split.later.length} rules={news.rules} skip={[]} />
+                <DaySection label="No set time" events={split.undated} now={now} index={split.later.length} rules={rules} skip={[]} />
               )}
             </div>
           </div>
@@ -290,7 +284,7 @@ function FilterBar({
                   })
                 }
                 className={cx(
-                  "flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] transition-[color,opacity,border-color] duration-200 active:scale-[0.97]",
+                  "flex items-center gap-1.5 rounded-full border px-3 py-1 text-small transition-[color,opacity,border-color] duration-200 active:scale-[0.97]",
                   on ? "border-soft text-ink" : "text-faint opacity-55 hover:opacity-100",
                 )}
               >
@@ -348,7 +342,7 @@ function FilterBar({
         />
       </FilterRow>
 
-      <div className="flex items-center gap-4 pt-0.5 text-[11px] text-faint">
+      <div className="flex items-center gap-4 pt-0.5 text-caption text-faint">
         <button onClick={() => onChange(DEFAULT_FILTERS)} className="hover:text-ink">
           reset filters
         </button>
@@ -367,7 +361,7 @@ const FilterRow = ({
   children: React.ReactNode;
 }) => (
   <div className="flex items-start gap-3">
-    <span className="w-16 shrink-0 pt-1.5 text-[11px] uppercase tracking-[0.08em] text-faint">
+    <span className="w-16 shrink-0 pt-1.5 eyebrow">
       {label}
     </span>
     <div className="min-w-0 flex-1">{children}</div>
@@ -376,7 +370,7 @@ const FilterRow = ({
 );
 
 const QuickPicks = ({ picks }: { picks: [string, () => void][] }) => (
-  <div className="flex shrink-0 gap-2 pt-1.5 text-[11px] text-faint">
+  <div className="flex shrink-0 gap-2 pt-1.5 text-caption text-faint">
     {picks.map(([label, onClick]) => (
       <button key={label} onClick={onClick} className="hover:text-ink">
         {label}
@@ -397,23 +391,38 @@ const DOT_SIZE: Record<Impact, number> = { High: 10, Medium: 8, Low: 6, Holiday:
 const STRENGTH: Record<Impact, number> = { High: 0, Medium: 1, Low: 2, Holiday: 3 };
 const pct = (minutes: number) => `${(minutes / 1440) * 100}%`;
 
-/**
- * One strip for the whole New York day. The sessions are shaded bands, every release
- * is a dot in its folder colour, and where the dots pile up is where price will move.
- */
-/** "Skip day" — the rulebook's word that nothing is traded today, with the reasons on hover. */
+/** A skip day, said the way the Calendar says it: no trading, and why. */
 function SkipBadge({ reasons }: { reasons: string[] }) {
   return (
     <span
       title={`No trading at all: ${reasons.join(", ")}`}
-      className="rounded-full border border-down/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-down"
+      className="anim-fade inline-flex min-w-0 items-center gap-1.5 rounded-full bg-down/12 px-2.5 py-0.5 text-caption font-semibold text-down"
     >
-      Skip day
+      <Ban size={11} className="shrink-0" />
+      No trading
+      <span className="truncate font-normal text-soft">· {reasons[0]}</span>
     </span>
   );
 }
 
-function DayMap({ events, now, rules }: { events: CalendarEvent[]; now: number; rules: NewsDay }) {
+const minutesOfDay = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
+/**
+ * One strip for the whole New York day: the sessions as soft bands, your entry windows
+ * along the bottom edge, the rulebook's no-entry spans hatched, and every release a dot in
+ * its folder colour — where the dots pile up is where price will move.
+ */
+function DayMap({
+  events,
+  now,
+  rules,
+  entryWindows,
+}: {
+  events: CalendarEvent[];
+  now: number;
+  rules: NewsDay;
+  entryWindows: TimeWindow[];
+}) {
   const nowMin = deskMinutes(new Date(now).toISOString());
 
   // Releases in the same minute stack, strongest at the bottom.
@@ -433,20 +442,51 @@ function DayMap({ events, now, rules }: { events: CalendarEvent[]; now: number; 
 
   return (
     <div className="border-b px-5 pb-3 pt-4">
-      <div className="mb-2.5 flex items-baseline justify-between text-[11px] text-faint">
+      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-caption text-faint">
         <span className="font-medium uppercase tracking-[0.08em]">Volatility map</span>
-        <span>{DESK_LABEL} time</span>
+        {/* The key, so every mark on the strip reads without a hover. */}
+        <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
+          {SESSIONS.map((s) => (
+            <span key={s.label} className="flex items-center gap-1.5">
+              <span className="h-2 w-3 rounded-sm" style={{ background: `color-mix(in oklab, ${s.colour} 35%, transparent)` }} />
+              {s.label}
+            </span>
+          ))}
+          {entryWindows.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              <span className="h-1 w-3 rounded-full bg-up" />
+              Your entries
+            </span>
+          )}
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-3 rounded-sm" style={{ background: HATCH }} />
+            No new entries
+          </span>
+          <span>{DESK_LABEL} time</span>
+        </span>
       </div>
 
-      <div className="relative h-[92px] overflow-hidden rounded-md">
+      <div className="relative h-[96px] overflow-hidden rounded-xl border bg-surface/30">
         {Array.from({ length: 23 }, (_, i) => (
-          <div
-            key={i}
-            className="absolute inset-y-0 w-px bg-line"
-            style={{ left: pct((i + 1) * 60) }}
-          />
+          <div key={i} className="absolute inset-y-0 w-px bg-line" style={{ left: pct((i + 1) * 60) }} />
         ))}
         <div className="absolute inset-y-0 left-0 bg-subtle" style={{ width: pct(nowMin) }} />
+        {SESSIONS.map((s) => (
+          <div
+            key={s.label}
+            className="anim-grow absolute inset-y-0"
+            style={{
+              left: pct(s.from),
+              width: pct(s.to - s.from),
+              background: `linear-gradient(to bottom, color-mix(in oklab, ${s.colour} 16%, transparent), color-mix(in oklab, ${s.colour} 4%, transparent))`,
+              animationDelay: s.label === "London" ? "0ms" : "180ms",
+            }}
+          >
+            <span className="absolute left-1.5 top-1 z-10 rounded bg-surface/80 px-1 text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ color: s.colour }}>
+              {s.label}
+            </span>
+          </div>
+        ))}
         {/* The rulebook's release windows: no new entries from just before to an hour after. */}
         {rules.windows.map((w) => (
           <div
@@ -456,43 +496,36 @@ function DayMap({ events, now, rules }: { events: CalendarEvent[]; now: number; 
             style={{
               left: pct(Math.max(0, w.start)),
               width: pct(Math.min(24 * 60, w.end) - Math.max(0, w.start)),
-              background:
-                "repeating-linear-gradient(135deg, color-mix(in oklab, var(--color-down) 16%, transparent) 0 4px, transparent 4px 8px)",
+              background: HATCH,
+              animationDelay: "320ms",
+            }}
+          />
+        ))}
+        {/* Your entry windows, along the bottom edge. */}
+        {entryWindows.map((w, i) => (
+          <div
+            key={`${w.from}${w.to}`}
+            title={`Entries ${w.from}–${w.to}`}
+            className="anim-grow absolute bottom-0 h-1 rounded-t-full bg-up/80"
+            style={{
+              left: pct(minutesOfDay(w.from)),
+              width: pct(minutesOfDay(w.to) - minutesOfDay(w.from)),
+              animationDelay: `${420 + i * 120}ms`,
             }}
           />
         ))}
         {rules.skip.length > 0 && (
-          <div className="absolute inset-0 flex items-center justify-center bg-down/[0.06]">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-down">Skip day — no trading</span>
-          </div>
-        )}
-        {SESSIONS.map((s) => (
-          <div
-            key={s.label}
-            className="anim-grow absolute inset-y-0"
-            style={{
-              left: pct(s.from),
-              width: pct(s.to - s.from),
-              background: `color-mix(in oklab, ${s.colour} 9%, transparent)`,
-              animationDelay: s.label === "London" ? "0ms" : "180ms",
-            }}
-          >
-            <span
-              className="absolute left-1 top-0.5 text-[9px] font-medium uppercase tracking-[0.08em]"
-              style={{ color: s.colour }}
-            >
-              {s.label}
+          <div className="absolute inset-0 flex items-center justify-center bg-down/[0.07]">
+            <span className="flex items-center gap-1.5 rounded-full bg-raised/80 px-3 py-1 text-caption font-semibold text-down backdrop-blur-sm">
+              <Ban size={12} /> No trading today · {rules.skip[0]}
             </span>
           </div>
-        ))}
+        )}
 
         {stacks.map(({ minute, events: list }, si) => (
           <div
             key={minute}
-            className={cx(
-              "absolute bottom-1.5 flex -translate-x-1/2 flex-col-reverse items-center gap-[3px]",
-              minute < nowMin && "opacity-40",
-            )}
+            className={cx("absolute bottom-2.5 flex -translate-x-1/2 flex-col-reverse items-center gap-[3px]", minute < nowMin && "opacity-40")}
             style={{ left: pct(minute) }}
           >
             {list.map((e, di) => (
@@ -504,7 +537,7 @@ function DayMap({ events, now, rules }: { events: CalendarEvent[]; now: number; 
                   width: DOT_SIZE[e.impact],
                   height: DOT_SIZE[e.impact],
                   backgroundColor: impactColour(e.impact),
-                  boxShadow: e.impact === "High" ? `0 0 8px ${impactColour(e.impact)}` : undefined,
+                  boxShadow: e.impact === "High" ? `0 0 10px ${impactColour(e.impact)}` : undefined,
                   // After the session bands, left to right across the day.
                   animationDelay: `${Math.min(300 + (si * 2 + di) * 60, 1400)}ms`,
                 }}
@@ -513,32 +546,35 @@ function DayMap({ events, now, rules }: { events: CalendarEvent[]; now: number; 
           </div>
         ))}
 
-        <div className="absolute inset-y-0 w-px bg-ink" style={{ left: pct(nowMin) }}>
-          <span className="absolute right-1 top-0.5 text-[9px] font-medium uppercase text-ink">
-            now
-          </span>
-        </div>
+        <div className="absolute inset-y-0 w-px bg-ink" style={{ left: pct(nowMin) }} />
       </div>
 
-      <div className="num relative mt-1 h-4 text-[10px] text-faint">
+      {/* The hours — and "now" as a tag under its line, clear of the session names. */}
+      <div className="num relative mt-1.5 h-5 text-micro text-faint">
         {TICKS.map((h) => (
           <span
             key={h}
-            className="absolute"
-            style={{
-              left: pct(h * 60),
-              transform: h === 0 ? undefined : h === 24 ? "translateX(-100%)" : "translateX(-50%)",
-            }}
+            className={cx("absolute top-0.5", Math.abs(h * 60 - nowMin) < 50 && "opacity-0")}
+            style={{ left: pct(h * 60), transform: h === 0 ? undefined : h === 24 ? "translateX(-100%)" : "translateX(-50%)" }}
           >
             {String(h).padStart(2, "0")}
           </span>
         ))}
+        <span
+          className="absolute top-0 -translate-x-1/2 rounded-full bg-ink px-1.5 py-px text-micro font-semibold text-bg"
+          style={{ left: `clamp(1.5rem, ${pct(nowMin)}, calc(100% - 1.5rem))` }}
+        >
+          {deskTime(new Date(now))}
+        </span>
       </div>
     </div>
   );
 }
 
-/** The next red release, then today's volatile stretches with how far away each is. */
+const HATCH =
+  "repeating-linear-gradient(135deg, color-mix(in oklab, var(--color-down) 20%, transparent) 0 4px, transparent 4px 8px)";
+
+/** The next red release as its own card, then today's volatile stretches with how far away each is. */
 function NextUp({
   nextRed,
   windows,
@@ -549,80 +585,49 @@ function NextUp({
   now: number;
 }) {
   return (
-    <div className="space-y-4 px-5 py-4">
-      {/* The release gets its own line: in this narrow column a name sharing the row
-          with the time and countdown was always cut off. */}
-      <div className="text-[13px]">
-        <div className="flex items-baseline gap-3">
-          <span className="w-16 shrink-0 text-[11px] uppercase tracking-[0.08em] text-faint">
-            Next red
-          </span>
-          {nextRed ? (
-            <>
-              <span className="num shrink-0 text-soft">
-                {deskDay(new Date(nextRed.at!)) === deskDay(new Date(now))
-                  ? time(nextRed.at!)
-                  : `${dayLabel(nextRed.at!, new Date(now))} ${time(nextRed.at!)}`}
-              </span>
-              <span className="num ml-auto shrink-0 font-medium text-down">
-                {untilLabel(Date.parse(nextRed.at!) - now)}
-              </span>
-            </>
-          ) : (
-            <span className="text-soft">No more red releases in the feed</span>
-          )}
-        </div>
-        {nextRed && (
-          <div className="mt-1 pl-[76px] font-medium leading-snug">
-            {nextRed.currency} {nextRed.title}
+    <div className="space-y-5 px-5 py-4">
+      {nextRed ? (
+        <div className="anim-rise relative overflow-hidden rounded-xl border border-down/25 bg-down/[0.06] px-4 py-3">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-micro font-semibold uppercase tracking-[0.14em] text-down">Next red</span>
+            <span className="num text-title font-semibold text-down">{untilLabel(Date.parse(nextRed.at!) - now)}</span>
           </div>
-        )}
-      </div>
+          <p className="mt-1 text-title font-medium leading-snug text-ink">
+            <span className="num mr-1.5 text-soft">{nextRed.currency}</span>
+            {nextRed.title}
+          </p>
+          <p className="num mt-0.5 text-small text-soft">
+            {deskDay(new Date(nextRed.at!)) === deskDay(new Date(now))
+              ? `Today ${time(nextRed.at!)}`
+              : `${dayLabel(nextRed.at!, new Date(now))} ${time(nextRed.at!)}`}
+          </p>
+        </div>
+      ) : (
+        <p className="text-small text-soft">No more red releases in the feed.</p>
+      )}
 
       <div>
-        <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-faint">
-          Volatile windows today
-        </div>
+        <div className="mb-1.5 eyebrow">Volatile windows today</div>
         {windows.length === 0 ? (
-          <p className="text-[12px] text-soft">No red or orange releases today with these filters.</p>
+          <p className="text-small text-soft">No red or orange releases today with these filters.</p>
         ) : (
           windows.map((w, wi) => {
             const phase = windowPhase(w, now);
-            const count = (i: Impact) => w.events.filter((e) => e.impact === i).length;
             return (
-              <div key={w.start} className="anim-rise" style={stagger(wi, 70)}>
-              <div className={cx("flex items-center gap-3 py-1 text-[12px]", phase === "done" && "opacity-45")}>
-                <span className="num w-[88px] shrink-0 text-soft">
+              <div
+                key={w.start}
+                className={cx("anim-rise flex items-center gap-3 rounded-lg px-2 py-1.5 text-small", phase === "live" && "bg-down/10", phase === "done" && "opacity-45")}
+                style={stagger(wi, 70)}
+              >
+                <span className="num w-[88px] shrink-0 text-ink">
                   {deskTime(new Date(w.start))}
                   {w.end > w.start && `–${deskTime(new Date(w.end))}`}
                 </span>
-                <span className="flex shrink-0 items-center gap-2">
-                  {(["High", "Medium"] as const).map(
-                    (i) =>
-                      count(i) > 0 && (
-                        <span key={i} className="num flex items-center gap-1 text-soft">
-                          <span className="size-2 rounded-full" style={{ backgroundColor: impactColour(i) }} />
-                          {count(i)}
-                        </span>
-                      ),
-                  )}
+                <ImpactCounts events={w.events} impacts={["High", "Medium"]} />
+                <span className="min-w-0 truncate text-soft">{[...new Set(w.events.map((e) => e.currency))].join(", ")}</span>
+                <span className={cx("num ml-auto shrink-0", phase === "live" ? "font-semibold text-down" : "text-faint")}>
+                  {phase === "ahead" ? untilLabel(w.start - now) : phase === "live" ? "volatile now" : "done"}
                 </span>
-                <span className="min-w-0 truncate text-soft">
-                  {[...new Set(w.events.map((e) => e.currency))].join(", ")}
-                </span>
-                <span
-                  className={cx(
-                    "num ml-auto shrink-0",
-                    phase === "live" ? "font-medium text-down" : "text-faint",
-                  )}
-                >
-                  {phase === "ahead"
-                    ? untilLabel(w.start - now)
-                    : phase === "live"
-                      ? "volatile now"
-                      : "done"}
-                </span>
-              </div>
               </div>
             );
           })
@@ -632,44 +637,23 @@ function NextUp({
   );
 }
 
-/**
- * The rest of the week in a few lines — which days carry red news, and when each is
- * busiest — so the week's shape is readable before scrolling the list beside it.
- */
-function WeekAhead({ days, now }: { days: { day: string; events: CalendarEvent[] }[]; now: number }) {
-  if (!days.length) return null;
+/** Red, orange, yellow and holiday counts as small dots with numbers. */
+function ImpactCounts({ events, impacts }: { events: CalendarEvent[]; impacts: Impact[] }) {
   return (
-    <div className="border-t px-5 py-4">
-      <div className="mb-1.5 text-[11px] uppercase tracking-[0.08em] text-faint">Week ahead</div>
-      {days.map((d, i) => {
-        const count = (x: Impact) => d.events.filter((e) => e.impact === x).length;
-        const busiest = volatilityWindows(d.events).sort(
-          (a, b) => b.events.length - a.events.length || a.start - b.start,
-        )[0];
-        return (
-          <div key={d.day} className="anim-rise flex items-center gap-3 py-1 text-[12px]" style={stagger(i, 70)}>
-            <span className="w-[120px] shrink-0 truncate text-soft">{dayLabel(d.events[0].at!, new Date(now))}</span>
-            <span className="flex w-20 shrink-0 items-center gap-2.5">
-              {(["High", "Medium"] as const).map(
-                (x) =>
-                  count(x) > 0 && (
-                    <span key={x} className="num flex items-center gap-1 text-soft">
-                      <span className="size-2 rounded-full" style={{ backgroundColor: impactColour(x) }} />
-                      {count(x)}
-                    </span>
-                  ),
-              )}
-            </span>
-            <span className="min-w-0 truncate text-faint">
-              {[...new Set(d.events.map((e) => e.currency))].join(", ")}
-            </span>
-            <span className="num ml-auto shrink-0 text-faint">
-              {busiest ? `busiest ${deskTime(new Date(busiest.start))}` : "quiet"}
-            </span>
-          </div>
-        );
+    <span className="flex shrink-0 items-center gap-2.5">
+      {impacts.map((i) => {
+        const n = events.filter((e) => e.impact === i).length;
+        return n > 0 ? (
+          <span key={i} className="num flex items-center gap-1 text-caption text-soft">
+            <span
+              className="size-2 rounded-full"
+              style={{ backgroundColor: impactColour(i), boxShadow: i === "High" ? `0 0 6px ${impactColour(i)}` : undefined }}
+            />
+            {n}
+          </span>
+        ) : null;
       })}
-    </div>
+    </span>
   );
 }
 
@@ -685,7 +669,7 @@ const Section = ({
   children: React.ReactNode;
 }) => (
   <div>
-    <div className="flex justify-between border-b bg-subtle px-5 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-faint">
+    <div className="flex justify-between border-b bg-subtle px-5 py-2 eyebrow">
       <span>{title}</span>
       <span className="num">{count}</span>
     </div>
@@ -694,7 +678,7 @@ const Section = ({
 );
 
 const Quiet = ({ children }: { children: React.ReactNode }) => (
-  <p className="border-b px-5 py-4 text-[12px] text-soft">{children}</p>
+  <p className="border-b px-5 py-4 text-small text-soft">{children}</p>
 );
 
 /** "Tomorrow · Thursday 1 Oct", or just the date further out. */
@@ -704,8 +688,8 @@ const weekDayLabel = (iso: string, now: Date) => {
 };
 
 /**
- * One later day of the week, open. The header gives the day at a glance — how many
- * red and orange releases, and when it is busiest — before any row is read.
+ * One later day of the week, open. The header gives the day at a glance — closed by the
+ * rulebook or not, how many red and orange releases, when it is busiest — before any row.
  */
 function DaySection({
   label,
@@ -723,29 +707,21 @@ function DaySection({
   /** Why the rulebook skips this day, if it does. */
   skip: string[];
 }) {
-  const count = (i: Impact) => events.filter((e) => e.impact === i).length;
-  const busiest = volatilityWindows(events).sort(
-    (a, b) => b.events.length - a.events.length || a.start - b.start,
-  )[0];
+  const busiest = volatilityWindows(events).sort((a, b) => b.events.length - a.events.length || a.start - b.start)[0];
 
   return (
     <div className="anim-rise" style={stagger(index, 90)}>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-y bg-subtle px-5 py-2.5">
-        <span className="text-[12px] font-semibold text-ink">{label}</span>
+      <div
+        className={cx(
+          "flex flex-wrap items-center gap-x-4 gap-y-1.5 border-y px-5 py-2.5",
+          skip.length ? "bg-down/[0.08]" : "bg-subtle",
+        )}
+      >
+        <span className="text-small font-semibold text-ink">{label}</span>
         {skip.length > 0 && <SkipBadge reasons={skip} />}
-        <span className="flex items-center gap-3 text-[11px] text-soft">
-          {(["High", "Medium", "Low", "Holiday"] as const).map(
-            (i) =>
-              count(i) > 0 && (
-                <span key={i} className="num flex items-center gap-1">
-                  <span className="size-1.5 rounded-full" style={{ backgroundColor: impactColour(i) }} />
-                  {count(i)}
-                </span>
-              ),
-          )}
-        </span>
+        <ImpactCounts events={events} impacts={["High", "Medium", "Low", "Holiday"]} />
         {busiest && (
-          <span className="num ml-auto text-[11px] text-faint">
+          <span className="num ml-auto text-caption text-faint">
             busiest {deskTime(new Date(busiest.start))}
             {busiest.end > busiest.start && `–${deskTime(new Date(busiest.end))}`}
           </span>
@@ -758,6 +734,10 @@ function DaySection({
   );
 }
 
+/**
+ * One release on one line, in fixed columns: time, folder, currency, the release with what
+ * the rulebook makes of it right beside the name, then forecast and previous lined up.
+ */
 function Row({
   event: e,
   now,
@@ -778,51 +758,52 @@ function Row({
 
   return (
     <div className="anim-rise border-b last:border-0" style={stagger(index)}>
-    <div
-      title={[
-        IMPACTS.find((i) => i.id === e.impact)?.hint,
-        cat && categoryLabel(cat),
-      ]
-        .filter(Boolean)
-        .join(" · ")}
-      className={cx(
-        "flex items-center gap-3 px-5 py-2.5 transition-colors duration-300 hover:bg-raised",
-        past && "opacity-45",
-      )}
-    >
-      <span className="num w-12 shrink-0 text-[12px] text-soft">{e.at ? time(e.at) : "—"}</span>
-      <span
-        className="size-2 shrink-0 rounded-full"
-        style={{
-          backgroundColor: impactColour(e.impact),
-          boxShadow: e.impact === "High" ? `0 0 8px ${impactColour(e.impact)}` : undefined,
-        }}
-      />
-      <span className="num w-9 shrink-0 text-[12px] font-medium text-ink">{e.currency}</span>
-      <span className="min-w-0 flex-1 truncate text-[13px]">{e.title}</span>
-      {stance === "skip" && (
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-down" title="The rulebook skips this day">
-          skip day
+      <div
+        title={[IMPACTS.find((i) => i.id === e.impact)?.hint, cat && categoryLabel(cat)].filter(Boolean).join(" · ")}
+        className={cx("flex items-center gap-3 px-5 py-2.5 transition-colors duration-300 hover:bg-raised", past && "opacity-45")}
+      >
+        <span className="num w-11 shrink-0 text-small text-soft">{e.at ? time(e.at) : "—"}</span>
+        <span
+          className="size-2 shrink-0 rounded-full"
+          style={{
+            backgroundColor: impactColour(e.impact),
+            boxShadow: e.impact === "High" ? `0 0 8px ${impactColour(e.impact)}` : undefined,
+          }}
+        />
+        <span className="num w-9 shrink-0 text-small font-medium text-ink">{e.currency}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="truncate text-body text-ink">{e.title}</span>
+          {stance === "skip" && (
+            <span className="shrink-0 rounded-full bg-down/12 px-2 py-0.5 text-micro font-semibold text-down" title="The rulebook skips this day">
+              No trading
+            </span>
+          )}
+          {stance === "window" && at != null && (
+            <span className="num shrink-0 rounded-full bg-warn/12 px-2 py-0.5 text-micro font-medium text-warn" title="No new entries in this window">
+              no entries {deskTime(new Date(at - rules.beforeMin * 60_000))}–{deskTime(new Date(at + rules.afterMin * 60_000))}
+            </span>
+          )}
         </span>
-      )}
-      {stance === "window" && at != null && (
-        <span className="num shrink-0 text-[10px] font-medium text-warn" title="No new entries in this window">
-          no entries {deskTime(new Date(at - rules.beforeMin * 60_000))}–{deskTime(new Date(at + rules.afterMin * 60_000))}
+        <span className="num hidden w-[76px] shrink-0 text-right text-caption sm:block">
+          {e.forecast && (
+            <>
+              <span className="text-faint">f/c </span>
+              <span className="text-soft">{e.forecast}</span>
+            </>
+          )}
         </span>
-      )}
-      {(e.forecast || e.previous) && (
-        <span className="num hidden shrink-0 text-[11px] text-faint sm:block">
-          {e.forecast && <>f/c {e.forecast}</>}
-          {e.forecast && e.previous && " · "}
-          {e.previous && <>prev {e.previous}</>}
+        <span className="num hidden w-[84px] shrink-0 text-right text-caption sm:block">
+          {e.previous && (
+            <>
+              <span className="text-faint">prev </span>
+              <span className="text-soft">{e.previous}</span>
+            </>
+          )}
         </span>
-      )}
-      {countdown && at != null && (
-        <span className="num w-[62px] shrink-0 text-right text-[11px] text-soft">
-          {untilLabel(at - now)}
-        </span>
-      )}
-    </div>
+        {countdown && at != null && (
+          <span className="num w-[62px] shrink-0 text-right text-caption font-medium text-soft">{untilLabel(at - now)}</span>
+        )}
+      </div>
     </div>
   );
 }
@@ -840,8 +821,8 @@ function Wire({ news }: { news: NewsState }) {
   return (
     <section className="card flex flex-col overflow-hidden">
       <header className="flex items-baseline justify-between border-b px-5 py-3.5">
-        <h3 className="text-[14px] font-semibold">Wire</h3>
-        <div className="flex items-center gap-3 text-[11px] text-faint">
+        <h3 className="text-title font-semibold">Wire</h3>
+        <div className="flex items-center gap-3 text-caption text-faint">
           <button
             onClick={() => setShowAll((v) => !v)}
             title={showAll ? "Only what matters" : "Include routine prints and broker notes"}
@@ -877,7 +858,7 @@ function Wire({ news }: { news: NewsState }) {
             return (
               <div key={h.id}>
                 {newDay && (
-                  <div className="glass sticky top-0 z-10 border-b px-5 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-faint">
+                  <div className="glass sticky top-0 z-10 border-b px-5 py-2 eyebrow">
                     {h.at ? wireDayLabel(h.at) : "Undated"}
                   </div>
                 )}
@@ -912,10 +893,10 @@ function Flash({ flash, index }: { flash: Headline; index: number }) {
       className="anim-rise group flex gap-3 border-b px-5 py-2.5 transition-colors duration-300 last:border-0 hover:bg-raised"
       style={{ animationDelay: `${Math.min(index * 35, 700)}ms` }}
     >
-      <span className="num shrink-0 pt-px text-[11px] tabular-nums text-faint">
+      <span className="num shrink-0 pt-px text-caption tabular-nums text-faint">
         {stamp(flash.at)}
       </span>
-      <span className="min-w-0 text-[13px] leading-snug text-ink">
+      <span className="min-w-0 text-body leading-snug text-ink">
         {parts.map((p, i) =>
           p.tone ? (
             <b
@@ -969,15 +950,6 @@ const SkeletonCards = ({ cards }: { cards: number }) => (
 
 /** A pulsing bar, not a spinner — it shows the shape of what is coming. */
 const Bar = ({ className, delay }: { className?: string; delay: number }) => (
-  <div
-    className={cx("h-3 rounded bg-subtle", className)}
-    style={{ animation: `skeleton 1.8s ${delay}ms ease-in-out infinite` }}
-  />
+  <div className={cx("anim-skeleton h-3 rounded bg-subtle", className)} style={{ animationDelay: `${delay}ms` }} />
 );
 
-const Empty = ({ title, body }: { title: string; body: string }) => (
-  <div className="px-5 py-12 text-center">
-    <p className="text-[14px] font-medium">{title}</p>
-    <p className="mx-auto mt-1.5 max-w-sm text-[12px] leading-relaxed text-soft">{body}</p>
-  </div>
-);

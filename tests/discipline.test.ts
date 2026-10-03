@@ -1,6 +1,7 @@
 /**
- * Discipline: every flag in the rulebook, the weekly budget, and the consequence
- * ladder worked out over the history — including how it heals when a trade is deleted.
+ * Discipline: every flag in the rulebook, the weekly budget, and the one consequence —
+ * the rest of the day and the next trading day off — worked out over the history,
+ * including how it heals when a trade is deleted.
  *
  * October 2026 is EDT (UTC−4): 03:30 New York is 07:30Z, 04:30 New York is 08:30Z.
  */
@@ -19,7 +20,7 @@ const FRI = "2026-10-09";
 const NEXT_MON = "2026-10-12";
 const LATE = new Date("2026-10-20T12:00:00Z");
 
-function judge(trades: Trade[], extra: { checkins?: { date: string; verdict: "ready" | "caution" | "sit-out" }[]; now?: Date } = {}) {
+function judge(trades: Trade[], extra: { checkins?: { date: string; verdict: "ready" | "careful" | "sit-out" }[]; now?: Date } = {}) {
   return evaluateHistory({ trades, checkins: extra.checkins ?? [], rulebookOf, now: extra.now ?? LATE });
 }
 const flagsOf = (trades: Trade[], t: Trade, extra = {}) => judge(trades, extra).byId.get(t.id)!.flags;
@@ -38,16 +39,9 @@ describe("flags", () => {
     assert.deepEqual(flagsOf([a, b], b), ["second_trade_today"]);
   });
 
-  it("outside the entry window, at its edges", () => {
-    const at = (time: string) => {
-      const t = ruledTrade(`${MON}T${time}`);
-      return flagsOf([t], t).includes("outside_entry_window");
-    };
-    assert.equal(at("08:24"), false);
-    assert.equal(at("08:25"), true);
-    assert.equal(at("09:30"), false);
-    assert.equal(at("11:00"), false);
-    assert.equal(at("11:01"), true);
+  it("an entry in the pause: the window rule unticked makes it a C, which isn't tradable", () => {
+    const t = ruledTrade(`${MON}T08:40`, { grade: "C" });
+    assert.deepEqual(flagsOf([t], t), ["non_traded_grade"]);
   });
 
   it("a skip day and a release window, from the trade's own saved news", () => {
@@ -87,15 +81,19 @@ describe("flags", () => {
     );
   });
 
-  it("B and C are never tradable; the check-in narrows A+ and A further", () => {
+  it("B and C are never tradable", () => {
     const b = ruledTrade(`${MON}T04:30`, { grade: "B" });
-    assert.ok(flagsOf([b], b).includes("non_traded_grade"));
+    assert.deepEqual(flagsOf([b], b), ["non_traded_grade"]);
     const a = ruledTrade(`${MON}T04:30`, { grade: "A" });
-    assert.ok(!flagsOf([a], a).includes("non_traded_grade"));
-    assert.ok(flagsOf([a], a, { checkins: [{ date: MON, verdict: "caution" }] }).includes("non_traded_grade"));
+    assert.deepEqual(flagsOf([a], a), []);
+  });
+
+  it("the check-in only advises: trading on a 'leave the charts' day breaks no rule", () => {
     const top = ruledTrade(`${MON}T04:30`, { grade: "A+" });
-    assert.ok(!flagsOf([top], top, { checkins: [{ date: MON, verdict: "caution" }] }).includes("non_traded_grade"));
-    assert.ok(flagsOf([top], top, { checkins: [{ date: MON, verdict: "sit-out" }] }).includes("non_traded_grade"));
+    for (const verdict of ["sit-out", "careful", "ready"] as const) {
+      assert.deepEqual(flagsOf([top], top, { checkins: [{ date: MON, verdict }] }), []);
+      assert.equal(judge([top], { checkins: [{ date: MON, verdict }] }).byId.get(top.id)!.allowed, 0.5);
+    }
   });
 
   it("over risk: above the 0.5% cap", () => {
@@ -103,9 +101,9 @@ describe("flags", () => {
     assert.ok(flagsOf([t], t).includes("over_risk"));
   });
 
-  it("leaves a trade from before the rulebook with the flags it was saved with", () => {
-    const old = ruledTrade(`${MON}T13:30`, { rulebookVersion: null, flags: ["over_risk"] });
-    assert.deepEqual(flagsOf([old], old), ["over_risk"]);
+  it("re-derives every flag from the trade itself, whatever it was saved with", () => {
+    const t = ruledTrade(`${MON}T04:30`, { flags: ["over_risk"] });
+    assert.deepEqual(flagsOf([t], t), []);
   });
 });
 
@@ -125,41 +123,49 @@ describe("the weekly budget", () => {
     const j = judge([...losses, fri]);
     assert.ok(j.byId.get(fri.id)!.flags.includes("after_weekly_stop"));
     assert.equal(j.byId.get(fri.id)!.allowed, 0);
-    // A loss limit broken: the next two trading days off.
-    assert.equal(j.timeline.dayOff.get(NEXT_MON)?.reason, "days-off");
-    assert.equal(j.timeline.dayOff.get("2026-10-13")?.until, "2026-10-13");
+    // Trading past the stop is a break: the rest of Friday, and the next trading day.
+    assert.deepEqual(j.timeline.dayOff.get(NEXT_MON), { reason: "days-off", from: FRI, until: NEXT_MON });
+    assert.equal(j.timeline.dayOff.get("2026-10-13"), undefined);
   });
 });
 
-describe("the consequence ladder", () => {
+describe("the consequence", () => {
   it("any rule break: the rest of the day off", () => {
     const a = ruledTrade(`${MON}T04:30`, { exitReason: "other" });
     const j = judge([a]);
     assert.equal(j.timeline.dayOff.get(MON)?.reason, "rule-break");
   });
 
-  it("a second trade: the next two trading days off, skipping the weekend", () => {
-    assert.deepEqual(nextTradingDays(FRI, 2), [NEXT_MON, "2026-10-13"]);
+  it("then the next trading day, skipping the weekend", () => {
+    assert.deepEqual(nextTradingDays(FRI, 1), [NEXT_MON]);
     const a = ruledTrade(`${MON}T04:30`);
     const b = ruledTrade(`${MON}T09:45`);
     const c = ruledTrade(`${TUE}T04:30`);
     const j = judge([a, b, c]);
     assert.ok(j.byId.get(b.id)!.flags.includes("second_trade_today"));
-    assert.deepEqual(j.timeline.dayOff.get(TUE), { reason: "days-off", from: MON, until: WED });
+    assert.deepEqual(j.timeline.dayOff.get(TUE), { reason: "days-off", from: MON, until: TUE });
     assert.ok(j.byId.get(c.id)!.flags.includes("during_day_off"));
     assert.equal(j.byId.get(c.id)!.allowed, 0);
+    // Trading on the day off is a break of its own: it costs the day after it too.
+    assert.deepEqual(j.timeline.dayOff.get(WED), { reason: "days-off", from: TUE, until: WED });
+    assert.equal(judge([a, b]).timeline.dayOff.get(WED), undefined);
   });
 
-  it("two breaks in a week: the next week at half risk", () => {
+  it("takes as many days as the rulebook says", () => {
+    const two = { ...doc, daysOff: 2 };
+    const a = ruledTrade(`${MON}T04:30`, { exitReason: "other" });
+    const j = evaluateHistory({ trades: [a], checkins: [], rulebookOf: () => two, now: LATE });
+    assert.deepEqual(j.timeline.dayOff.get(TUE), { reason: "days-off", from: MON, until: WED });
+    assert.deepEqual(j.timeline.dayOff.get(WED), { reason: "days-off", from: MON, until: WED });
+  });
+
+  it("never halves a later week: risk is back to normal after the day off", () => {
     const a = ruledTrade(`${MON}T04:30`, { exitReason: "other" });
     const b = ruledTrade(`${WED}T04:30`, { exitReason: "other" });
     const full = ruledTrade(`${NEXT_MON}T04:30`, { riskPct: 0.5, resultR: 1 });
-    const halved = ruledTrade(`${NEXT_MON}T04:30`, { riskPct: 0.25, resultR: 1 });
-    const j1 = judge([a, b, full]);
-    assert.ok(j1.timeline.halfWeeks.has("2026-W42"));
-    assert.equal(j1.byId.get(full.id)!.allowed, 0.25);
-    assert.deepEqual(j1.byId.get(full.id)!.flags, ["during_day_off"]);
-    assert.deepEqual(judge([a, b, halved]).byId.get(halved.id)!.flags, []);
+    const j = judge([a, b, full]);
+    assert.deepEqual(j.byId.get(full.id)!.flags, []);
+    assert.equal(j.byId.get(full.id)!.allowed, 0.5);
   });
 
   it("heals when the trade that caused it is deleted", () => {
@@ -171,7 +177,7 @@ describe("the consequence ladder", () => {
     assert.ok(judge([a, b, c]).byId.get(c.id)!.flags.length > 0);
   });
 
-  it("ignores skipped setups entirely", () => {
+  it("ignores setups that were not taken", () => {
     const skipped = ruledTrade(`${MON}T04:30`, { skipped: true, riskPct: 0, grade: "B" });
     const real = ruledTrade(`${MON}T05:30`);
     const j = judge([skipped, real]);
@@ -199,28 +205,26 @@ describe("today's status", () => {
     assert.deepEqual(s.allowedByGrade, { "A+": 0.5, A: 0.5, B: 0, C: 0 });
     assert.equal(s.blocked, null);
   });
-  it("says why nothing is allowed: the weekend, a taken trade, a sit-out check-in", () => {
+  it("says why nothing is allowed: the weekend, a taken trade — never the check-in", () => {
     const sat = deskStatus({ trades: [], checkins: [], rulebookOf, doc, now: new Date("2026-10-10T14:00:00Z") });
     assert.equal(sat.blocked, "it's the weekend");
     assert.deepEqual(sat.allowedByGrade, { "A+": 0, A: 0, B: 0, C: 0 });
     const taken = deskStatus({ trades: [ruledTrade(`${TUE}T04:30`)], checkins: [], rulebookOf, doc, now });
     assert.equal(taken.blocked, "today's trade is taken");
     const sit = deskStatus({ trades: [], checkins: [{ date: TUE, verdict: "sit-out" }], rulebookOf, doc, now });
-    assert.equal(sit.blocked, "the check-in says sit out");
+    assert.equal(sit.blocked, null);
+    assert.equal(sit.verdict, "sit-out");
+    assert.deepEqual(sit.allowedByGrade, { "A+": 0.5, A: 0.5, B: 0, C: 0 });
   });
-  it("on Caution only A+ is allowed", () => {
-    const s = deskStatus({ trades: [], checkins: [{ date: TUE, verdict: "caution" }], rulebookOf, doc, now });
-    assert.deepEqual(s.allowedByGrade, { "A+": 0.5, A: 0, B: 0, C: 0 });
+  it("names the day off after a broken rule", () => {
+    const s = deskStatus({ trades: [ruledTrade(`${MON}T04:30`, { exitReason: "other" })], checkins: [], rulebookOf, doc, now });
+    assert.equal(s.blocked, "a day off after a broken rule");
+    assert.equal(s.dayOff?.until, TUE);
   });
 });
 
 describe("automatic base rules", () => {
   const ctx = (date: string, extra = {}) => ({ doc, date, trades: [] as Trade[], news: [], ...extra });
-  it("knows the entry window; the retired v1.2 plan rule reads as held", () => {
-    assert.equal(autoRuleState("entry-window", ctx(`${MON}T04:30`)), true);
-    assert.equal(autoRuleState("entry-window", ctx(`${MON}T08:30`)), false);
-    assert.equal(autoRuleState("plan", ctx(`${MON}T04:30`)), true);
-  });
   it("answers the news rule, or hands it back when there is no data", () => {
     assert.equal(autoRuleState("news", ctx(`${MON}T04:30`)), true);
     assert.equal(autoRuleState("news", ctx(`${MON}T04:30`, { news: null })), null);

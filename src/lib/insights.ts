@@ -15,9 +15,8 @@ import {
   EMOTIONS,
   FLAG_LABEL,
   POI_TESTS,
-  checklistComplete,
-  checklistOf,
-  checklistRecorded,
+  htfTfLabel,
+  topHtf,
   exitReasonLabel,
   type Trade,
 } from "./types";
@@ -61,8 +60,6 @@ export interface Insight {
 
 export interface TradeContext {
   trade: Trade;
-  /** The base rules this trade was measured against — its own frozen copy. */
-  checklist: { id: string; label: string }[];
   prev: Trade | null; // previous closed trade (any day)
   indexInDay: number; // 0 = first trade of the day
   daysSincePrev: number | null;
@@ -85,7 +82,6 @@ export function contexts(trades: Trade[], checkins: CheckIn[]): TradeContext[] {
     const prev = i > 0 ? closed[i - 1] : null;
     return {
       trade: t,
-      checklist: checklistOf(t),
       prev,
       indexInDay: closed.slice(0, i).filter((x) => dateOf(x) === dateOf(t)).length,
       daysSincePrev: prev ? days(dateOf(t), dateOf(prev)) : null,
@@ -95,12 +91,8 @@ export function contexts(trades: Trade[], checkins: CheckIn[]): TradeContext[] {
   });
 }
 
-/** A trade that broke a rule: a missing base rule, a mistake, a broken plan, or a line crossed. */
-export const brokeRules = (t: Trade) =>
-  (checklistRecorded(t) && !checklistComplete(t)) ||
-  t.mistakes.length > 0 ||
-  t.followedPlan === false ||
-  t.flags.length > 0;
+/** A trade that broke a rule (the desk flagged it) or carried a mistake you tagged. */
+export const brokeRules = (t: Trade) => t.mistakes.length > 0 || t.flags.length > 0;
 
 const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -153,19 +145,17 @@ function factorsOf(c: TradeContext, doc?: Rulebook): [string, string, string][] 
     if (value) f.push([dim, value, label ?? `${dim}: ${value}`]);
   };
 
-  add("Entry", t.entryModel);
-  add("HTF", t.htf);
   add("Session", t.session);
-  add("Setup", t.setup);
   if (c.boxBucket) add("Box size", c.boxBucket, `Box of ${c.boxBucket}`);
 
   /* The rulebook's journal fields. */
-  if (t.entryType) add("Entry type", t.entryType, t.entryType === "limit" ? "Limit entries" : "Market entries");
+  const htf = topHtf(t.htfReasons);
+  if (htf) add("HTF timeframe", htf.tf, `A ${htfTfLabel(htf.tf)} HTF reason`);
   if (t.exitReason) add("Exit reason", t.exitReason, `Exit: ${exitReasonLabel(t.exitReason).toLowerCase()}`);
   if (t.took15mSwing != null) add("15m swing", t.took15mSwing ? "yes" : "no", t.took15mSwing ? "Sweep took a 15m swing" : "Sweep took no 15m swing");
   if (t.poiTests) add("POI", t.poiTests, `POI ${POI_TESTS.find((p) => p.value === t.poiTests)?.label.toLowerCase()}`);
   if (t.levelSweep != null) add("Level sweep", t.levelSweep ? "yes" : "no", t.levelSweep ? "Swept an important level" : "No important-level sweep");
-  if (t.deskAgreed === "yes" || t.deskAgreed === "no") add("Desk", t.deskAgreed, t.deskAgreed === "yes" ? "The desk agreed" : "The desk disagreed");
+  if (t.biasMatch != null) add("Bias vs briefing", t.biasMatch ? "yes" : "no", t.biasMatch ? "Bias matched the briefing" : "Bias differed from the briefing");
   const depth = depthBucket(t.sweepDepth, doc);
   if (depth) add("Sweep depth", depth, `Sweep depth ${depth}`);
   if (doc && t.news.length) {
@@ -173,21 +163,14 @@ function factorsOf(c: TradeContext, doc?: Rulebook): [string, string, string][] 
     add("Release day", nd.windows.length ? "yes" : "no", nd.windows.length ? "A red release that day" : "No red release that day");
   }
   if (t.releaseAtBe != null) add("Held through release", t.releaseAtBe ? "at BE" : "not at BE", t.releaseAtBe ? "Held through a release at breakeven" : "Held through a release, not at breakeven");
-  add("Symbol", t.symbol);
   add("Direction", t.direction === "long" ? "Long" : "Short", t.direction === "long" ? "Long trades" : "Short trades");
   const wd = (new Date(t.date).getDay() + 6) % 7;
   add("Weekday", WEEKDAYS[wd], `${DAY_NAMES[wd]}s`);
   add("Time", hourBucket(t), `Entries ${hourBucket(t)}`);
   add("Grade", t.grade, `Grade ${t.grade}`);
   if (t.emotion) add("State of mind", EMOTIONS[t.emotion - 1], `Feeling ${EMOTIONS[t.emotion - 1].toLowerCase()} in the trade`);
-  if (t.followedPlan != null) add("Plan", t.followedPlan ? "followed" : "broken", t.followedPlan ? "Followed the plan" : "Broke the plan");
   add("Planned R:R", rrBucket(t.plannedRR), `Planned R:R ${rrBucket(t.plannedRR)}`);
 
-  for (const item of c.checklist) {
-    if (!t.checklist.includes(item.id)) {
-      add("Checklist", `skip-${item.label}`, `Skipped “${item.label}”`);
-    }
-  }
   for (const m of t.mistakes) add("Mistake", m, `Mistake: ${m}`);
 
   /*

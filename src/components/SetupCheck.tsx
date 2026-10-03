@@ -3,11 +3,11 @@ import { answerLabel, factorCap, rangeIndex, rangeLabel, rangeValue, withUnit } 
 import type { DayBudget } from "@/lib/risk";
 import { Check, X } from "lucide-react";
 import type { Verdict } from "@/lib/checkin";
-import type { DayOff } from "@/lib/discipline";
-import type { BaseRule, Definition, Factor, Grade, GradeCard, Limits } from "@/lib/types";
+import { dayOffLine, type DayOff } from "@/lib/discipline";
+import { autoLast, type BaseRule, type Definition, type Factor, type Grade, type GradeCard, type Limits } from "@/lib/types";
 import { GRADE_COLOUR, GradeBadge } from "./GradeBadge";
 import { Glossed } from "./Glossed";
-import { DecimalInput, cx, stagger } from "./ui";
+import { cx, stagger } from "./ui";
 
 /**
  * What the desk knows about an automatic rule: true or false, with the reason shown
@@ -18,17 +18,9 @@ export interface AutoState {
   note: string;
 }
 
-/** The two raw inputs the displacement multiple is worked out from. */
-export interface DisplacementInputs {
-  mssBeyond: number | null;
-  atr: number | null;
-  onChange: (patch: { mssBeyond?: number | null; atr?: number | null }) => void;
-}
-
 /**
- * The rulebook's base rules and grade factors — and the grade they add up to, with
- * what it may risk right now. Rules the desk can check answer themselves; factors
- * the desk can fill in (Compass, displacement) do too.
+ * The rulebook's base rules and grade factors. Rules the desk can check (the news, the
+ * day's budget) answer themselves; you tick the rest and answer every factor.
  */
 export function SetupCheck({
   definition,
@@ -37,24 +29,18 @@ export function SetupCheck({
   onToggle,
   onAnswer,
   auto,
-  autoAnswers = {},
-  displacement,
   fill = (t) => t,
   side = false,
 }: {
   definition: Pick<Definition, "baseRules" | "factors">;
   /** Hand-ticked rule ids. */
   ticked: string[];
-  /** Every answer, the desk's own included. */
   answers: Record<string, string | number>;
   /** Flips one rule. The parent applies it to its latest list, so fast clicks never undo each other. */
   onToggle: (id: string) => void;
   onAnswer: (factorId: string, value: string | number | null) => void;
   /** The state of each automatic rule, by rule id. */
   auto: Record<string, AutoState>;
-  /** Factors the desk answered, by factor id, with what it read them from. */
-  autoAnswers?: Record<string, { note: string; locked: boolean }>;
-  displacement?: DisplacementInputs;
   /** Fills the rulebook's {{tokens}} in rule texts and hints. */
   fill?: (text: string) => string;
   /** Rules and factors side by side, so the whole check fits without scrolling. */
@@ -64,7 +50,7 @@ export function SetupCheck({
   const autoOf = (r: BaseRule) => (r.auto ? auto[r.id] : undefined);
   const isAuto = (r: BaseRule) => autoOf(r)?.holds != null;
   const holds = (r: BaseRule) => (isAuto(r) ? Boolean(autoOf(r)!.holds) : ticked.includes(r.id));
-  const rules = definition.baseRules;
+  const rules = autoLast(definition.baseRules);
   const done = rules.filter(holds).length;
   const answered = definition.factors.filter((f) => factorCap(f, answers[f.id]) != null).length;
 
@@ -92,19 +78,19 @@ export function SetupCheck({
                       auto ? "cursor-default" : "hover:bg-subtle",
                     )}
                   >
-                    <span className="num w-4 shrink-0 text-right text-[12px] text-faint">{i + 1}</span>
+                    <span className="num w-4 shrink-0 text-right text-small text-faint">{i + 1}</span>
                     <span className="min-w-0 flex-1">
-                      <span className={cx("block text-[13px] leading-snug transition-colors", on ? "text-ink" : "text-soft")}>
+                      <span className={cx("block text-body leading-snug transition-colors", on ? "text-ink" : "text-soft")}>
                         <Glossed text={fill(r.text)} />
                       </span>
                       {(r.hint || state) && (
-                        <span className="mt-0.5 block text-[11px] text-faint">
+                        <span className="mt-0.5 block text-caption text-faint">
                           {state ? state.note : fill(r.hint)}
                         </span>
                       )}
                     </span>
                     {auto && (
-                      <span className="shrink-0 rounded-full bg-subtle px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
+                      <span className="shrink-0 rounded-full bg-subtle px-2 py-0.5 eyebrow">
                         auto
                       </span>
                     )}
@@ -141,7 +127,7 @@ export function SetupCheck({
           </ol>
           <p
             className={cx(
-              "border-t px-4 py-2 text-[12px]",
+              "border-t px-4 py-2 text-small",
               done === rules.length ? "text-up" : "text-faint",
             )}
           >
@@ -164,13 +150,7 @@ export function SetupCheck({
           <div className="divide-y">
             {definition.factors.map((f, i) => (
               <div key={f.id} className="anim-rise px-4 py-2.5" style={stagger(rules.length + i, 45)}>
-                <FactorInput
-                  factor={f}
-                  value={answers[f.id]}
-                  onChange={(v) => onAnswer(f.id, v)}
-                  auto={autoAnswers[f.id]}
-                  displacement={f.auto === "displacement" ? displacement : undefined}
-                />
+                <FactorInput factor={f} value={answers[f.id]} onChange={(v) => onAnswer(f.id, v)} />
               </div>
             ))}
           </div>
@@ -178,7 +158,7 @@ export function SetupCheck({
       )}
 
       {rules.length === 0 && definition.factors.length === 0 && (
-        <p className="text-[13px] text-soft">
+        <p className="text-body text-soft">
           The rulebook has no base rules or grade factors yet, so every setup grades A+. Add them in
           the Rulebook tab to make the grade mean something.
         </p>
@@ -206,8 +186,8 @@ function Panel({
   return (
     <section className="overflow-hidden rounded-2xl border bg-surface/40">
       <header className="flex items-center gap-3 border-b bg-subtle px-4 py-3">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-soft">{title}</h3>
-        <span className="text-[11px] text-faint">{note}</span>
+        <h3 className="eyebrow text-soft">{title}</h3>
+        <span className="text-caption text-faint">{note}</span>
         <span className="ml-auto flex items-center gap-2">
           <span className="h-1.5 w-20 overflow-hidden rounded-full bg-line">
             <span
@@ -219,7 +199,7 @@ function Panel({
               }}
             />
           </span>
-          <span className={cx("num text-[12px]", complete ? "text-up" : "text-soft")}>
+          <span className={cx("num text-small", complete ? "text-up" : "text-soft")}>
             {progress.done}/{progress.total}
           </span>
         </span>
@@ -233,91 +213,31 @@ function FactorInput({
   factor: f,
   value,
   onChange,
-  auto,
-  displacement,
 }: {
   factor: Factor;
   value: string | number | undefined;
   onChange: (v: string | number | null) => void;
-  /** Answered by the desk: locked (Compass from the snapshot) or a suggestion (bias from the plan). */
-  auto?: { note: string; locked: boolean };
-  displacement?: DisplacementInputs;
 }) {
   // Every factor reads the same way: the answer allowing the best grade on the left, the
-  // worst on the right. A number factor whose best range is its highest (e.g. ≥65%) is
+  // worst on the right. A number factor whose best range is its highest (e.g. ≥60%) is
   // therefore shown high-to-low; ties keep their natural order.
   const best = <T,>(xs: T[], cap: (x: T) => Grade) =>
     xs.map((x, i) => ({ x, i })).sort((a, b) => RANK[cap(a.x)] - RANK[cap(b.x)] || a.i - b.i);
   const picked = f.kind === "number" && typeof value === "number" ? rangeIndex(f, value) : null;
-  const cap = factorCap(f, value);
-  const label = (
-    <div>
-      <p className="text-[13px] font-medium">
-        <Glossed text={f.name} />
-      </p>
-      {(auto?.note || f.hint) && <p className="text-[11px] text-faint">{auto?.note || f.hint}</p>}
-    </div>
-  );
-
-  // Worked out from two numbers you read off the MSS candle; the multiple sets the cap.
-  if (displacement) {
-    return (
-      <div className="grid items-center gap-x-4 gap-y-2 sm:grid-cols-[8.5rem_1fr]">
-        {label}
-        <div className="flex flex-wrap items-center gap-2">
-          <DecimalInput
-            className="w-28"
-            value={displacement.mssBeyond}
-            onChange={(v) => displacement.onChange({ mssBeyond: v })}
-            placeholder="beyond"
-            suffix="$"
-          />
-          <span className="text-[12px] text-faint">÷</span>
-          <DecimalInput
-            className="w-28"
-            value={displacement.atr}
-            onChange={(v) => displacement.onChange({ atr: v })}
-            placeholder="ATR"
-            suffix="$"
-          />
-          <span className="text-[12px] text-faint">=</span>
-          {typeof value === "number" && cap ? (
-            <AnswerButton label={withUnit(value.toFixed(2), f.kind === "number" ? f.unit : "")} cap={cap} on mono onClick={() => {}} />
-          ) : (
-            <span className="text-[12px] text-faint">both numbers give the multiple</span>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Read from the frozen snapshot: shown, not chosen. Changing it means editing the rulebook.
-  if (auto?.locked && f.kind === "number" && typeof value === "number" && cap) {
-    return (
-      <div className="grid items-center gap-x-4 gap-y-2 sm:grid-cols-[8.5rem_1fr]">
-        {label}
-        <div className="flex flex-wrap items-center gap-2">
-          <AnswerButton label={withUnit(String(value), f.unit)} cap={cap} on mono onClick={() => {}} />
-          <span className="text-[11px] text-faint">{rangeLabel(f, rangeIndex(f, value))}{f.unit}</span>
-        </div>
-      </div>
-    );
-  }
 
   // A fixed label column: long answer lists wrap inside their own column, never under the name.
   return (
-    <div className="grid items-center gap-x-4 gap-y-2 sm:grid-cols-[8.5rem_1fr]">
-      {label}
+    <div className="grid items-center gap-x-4 gap-y-2 sm:grid-cols-[9rem_1fr]">
+      <div>
+        <p className="text-body font-medium">
+          <Glossed text={f.name} />
+        </p>
+        {f.hint && <p className="text-caption text-faint">{f.hint}</p>}
+      </div>
       <div className="flex flex-wrap gap-1.5">
         {f.kind === "choice"
           ? best(f.options, (o) => o.cap).map(({ x: o }) => (
-              <AnswerButton
-                key={o.id}
-                label={o.label}
-                cap={o.cap}
-                on={value === o.id}
-                onClick={() => onChange(value === o.id ? null : o.id)}
-              />
+              <AnswerButton key={o.id} label={o.label} cap={o.cap} on={value === o.id} onClick={() => onChange(value === o.id ? null : o.id)} />
             ))
           : best(f.caps, (c) => c).map(({ x: cap, i }) => (
               <AnswerButton
@@ -353,7 +273,7 @@ function AnswerButton({
       type="button"
       onClick={onClick}
       className={cx(
-        "flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[12.5px] transition-[color,background-color,border-color,transform] duration-200 active:scale-[0.97]",
+        "flex items-center gap-2 rounded-lg border px-2.5 py-1 text-small transition-[color,background-color,border-color,transform] duration-200 active:scale-[0.97]",
         mono && "num",
         on ? "border-transparent text-ink" : "text-soft hover:border-soft hover:text-ink",
       )}
@@ -367,7 +287,7 @@ function AnswerButton({
       }
     >
       {label}
-      <span className="num text-[10px] font-semibold" style={{ color: GRADE_COLOUR[cap] }}>
+      <span className="num text-micro font-semibold" style={{ color: GRADE_COLOUR[cap] }}>
         {cap}
       </span>
     </button>
@@ -377,7 +297,7 @@ function AnswerButton({
 /**
  * The grade, what it may risk today, and why — the capping answers, what the next
  * rung up would need, and anything that takes today's allowance away: a grade the
- * desk doesn't trade, the check-in, a day off, a half-risk week, a spent budget.
+ * desk doesn't trade, the check-in, a day off, a spent budget.
  */
 export function GradePanel({
   result,
@@ -389,8 +309,8 @@ export function GradePanel({
   limits,
   verdict,
   dayOff,
-  halfRisk,
   doneToday,
+  day,
 }: {
   result: GradeResult;
   card: GradeCard | null;
@@ -401,9 +321,10 @@ export function GradePanel({
   limits: Pick<Limits, "maxRiskPct" | "dailyStopPct" | "weeklyStopPct">;
   verdict?: Verdict;
   dayOff?: DayOff | null;
-  halfRisk?: boolean;
   /** Today's one trade is already taken. */
   doneToday?: boolean;
+  /** The trade's day, so a run of days off reads right on it. */
+  day?: string;
 }) {
   const grade: Grade = result.grade;
   const colour = GRADE_COLOUR[grade];
@@ -419,32 +340,25 @@ export function GradePanel({
     ? [...(missing ? ["all base rules"] : []), ...result.next.needs.filter((n) => !ruleTexts.has(n))]
     : [];
   const notTraded = Boolean(card && !card.traded);
-  const checkinBlocks =
-    !notTraded && ((verdict === "caution" && grade !== "A+") || verdict === "sit-out");
 
   /** Why today's allowance is 0 or reduced, most serious first. */
   const reasons: { text: string; tone: "down" | "warn" }[] = [];
-  if (notTraded) reasons.push({ text: `Not tradable — don't take it. ${capLine.length ? `Capped by ${capLine.join(" · ")}.` : ""}`, tone: "down" });
-  if (verdict === "sit-out") reasons.push({ text: "Check-in says sit out — nothing is tradable today.", tone: "down" });
-  else if (checkinBlocks) reasons.push({ text: "Check-in says caution — only A+ is tradable today.", tone: "down" });
+  if (notTraded) reasons.push({ text: `Not tradable — log it as not taken. ${capLine.length ? `Capped by ${capLine.join(" · ")}.` : ""}`, tone: "down" });
   if (dayOff) {
-    reasons.push({
-      text: dayOff.reason === "rule-break" ? "Day off — a rule was broken today." : `Days off until ${dayOff.until} — after a limit was broken.`,
-      tone: "down",
-    });
+    reasons.push({ text: dayOffLine(dayOff, day ?? ""), tone: "down" });
   }
   if (doneToday) reasons.push({ text: "Done for today — the day's one trade is taken.", tone: "down" });
   if (budget.stopHit) reasons.push({ text: "Daily stop hit — no more trades today.", tone: "down" });
   if (week.stopHit) reasons.push({ text: "Weekly stop hit — no more trades this week.", tone: "down" });
-  if (halfRisk && !reasons.length) reasons.push({ text: "Half-risk week — two rule breaks last week.", tone: "warn" });
+  // The check-in only advises: a warning, never a block.
+  if (verdict === "sit-out") reasons.push({ text: "This morning's check-in said better to leave the charts today. Your call — make it knowingly.", tone: "warn" });
+  if (verdict === "careful") reasons.push({ text: "This morning's check-in said trade with care: only the cleanest setup.", tone: "warn" });
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl border bg-surface py-4 pl-6 pr-5 transition-[background-image] duration-500"
-      style={{ backgroundImage: `radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, ${colour} 12%, transparent), transparent 55%)` }}
+      className="relative overflow-hidden rounded-2xl border bg-surface px-6 py-4 transition-[background-image] duration-500"
+      style={{ backgroundImage: `radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, ${colour} 11%, transparent), transparent 55%)` }}
     >
-      {/* The grade's colour lives on the left edge only — the same accent the Coach cards use. */}
-      <span className="absolute inset-y-0 left-0 w-[3px] transition-colors duration-300" style={{ backgroundColor: colour }} />
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex items-center gap-3">
           {/* Keyed on the grade: a new grade lands with a stamp. */}
@@ -452,10 +366,10 @@ export function GradePanel({
             <GradeBadge grade={grade} size="lg" />
           </span>
           <div>
-            <p className="text-[11px] uppercase tracking-[0.08em] text-faint">
+            <p className="eyebrow">
               {result.complete ? "Grade" : "Grade so far"}
             </p>
-            <p className={cx("text-[13px]", notTraded ? "font-medium text-down" : "text-soft")}>
+            <p className={cx("text-body", notTraded ? "font-medium text-down" : "text-soft")}>
               {notTraded ? "Not tradable" : `${gradeRiskPct ?? limits.maxRiskPct}% for this grade`}
             </p>
           </div>
@@ -466,7 +380,7 @@ export function GradePanel({
             <span
               key={g}
               className={cx(
-                "num flex h-7 w-9 items-center justify-center rounded-md text-[11px] font-semibold transition-all duration-300",
+                "num flex h-7 w-9 items-center justify-center rounded-md text-caption font-semibold transition-all duration-300",
                 g === grade ? "scale-110" : "bg-subtle text-faint",
               )}
               style={
@@ -484,16 +398,16 @@ export function GradePanel({
           ))}
         </div>
         <div className="ml-auto text-right">
-          <p className="text-[11px] uppercase tracking-[0.08em] text-faint">Allowed today</p>
+          <p className="eyebrow">Allowed today</p>
           <p
             key={allowed}
-            className={cx("anim-fade num text-[26px] font-semibold leading-tight", allowed > 0 ? "text-ink" : "text-down")}
+            className={cx("anim-fade num text-stat font-semibold leading-tight", allowed > 0 ? "text-ink" : "text-down")}
           >
             {allowed}%
           </p>
-          <p className="num text-[11px] text-faint">
+          <p className="num text-caption text-faint">
             day {+budget.remaining.toFixed(2)}% of {limits.dailyStopPct}% · week {+week.remaining.toFixed(2)}% of {limits.weeklyStopPct}% · cap{" "}
-            {limits.maxRiskPct}%{halfRisk ? " · ×½" : ""}
+            {limits.maxRiskPct}%
           </p>
         </div>
       </div>
@@ -504,7 +418,7 @@ export function GradePanel({
             <p
               key={r.text}
               className={cx(
-                "rounded-lg px-3 py-2 text-[13px] font-medium",
+                "rounded-lg px-3 py-2 text-body font-medium",
                 r.tone === "down" ? "bg-down/10 text-down" : "bg-warn/10 text-warn",
               )}
             >
@@ -514,7 +428,7 @@ export function GradePanel({
         </div>
       )}
 
-      <div className="mt-3 space-y-1 text-[12px]">
+      <div className="mt-3 space-y-1 text-small">
         {capLine.length > 0 && !notTraded && (
           <p className="text-soft">
             <span className="text-faint">Capped at {grade} by: </span>

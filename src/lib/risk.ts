@@ -4,9 +4,9 @@
  * Three of your own limits apply: the most one trade may risk, and the most one New
  * York day and one ISO week may lose. A trade's allowed risk is the smallest of its
  * grade's risk, what is left of the day's and the week's loss budgets, and the
- * per-trade cap — times the consequence multiplier (½ in a half-risk week):
+ * per-trade cap:
  *
- *   allowed = min(grade risk, day left, week left, max risk per trade) × multiplier
+ *   allowed = min(grade risk, day left, week left, max risk per trade)
  *
  * A budget is its stop minus the net loss so far, minus the risk still sitting in
  * any open trade — money already at stake is money already spent from the budget.
@@ -30,7 +30,7 @@ export interface DayBudget {
   stopHit: boolean;
 }
 
-/** Trades that happened — skipped setups are logged for study, not traded. */
+/** Trades that happened — setups logged as not taken are kept for study, never traded. */
 export const takenTrades = (trades: Trade[]) => trades.filter((t) => !t.skipped);
 
 /**
@@ -97,17 +97,16 @@ export function gradeRisk(def: Pick<Definition, "grades"> | null, grade: Grade |
   return card.traded ? card.riskPct : 0;
 }
 
-/** min(grade risk, remaining daily budget, remaining weekly budget, max risk per trade) × multiplier. */
+/** min(grade risk, remaining daily budget, remaining weekly budget, max risk per trade). */
 export function allowedRisk(
   gradeRiskPct: number | null,
   budget: Pick<DayBudget, "remaining">,
   limits: Pick<Limits, "maxRiskPct">,
-  extra: { week?: Pick<DayBudget, "remaining">; multiplier?: number } = {},
+  extra: { week?: Pick<DayBudget, "remaining"> } = {},
 ): number {
   const grade = gradeRiskPct ?? limits.maxRiskPct;
   const week = extra.week?.remaining ?? Infinity;
-  const base = Math.max(0, Math.min(grade, budget.remaining, week, limits.maxRiskPct));
-  return tidy(base * (extra.multiplier ?? 1));
+  return tidy(Math.max(0, Math.min(grade, budget.remaining, week, limits.maxRiskPct)));
 }
 
 /* ── Replaying history under today's rules (the Risk lab) ────────────── */

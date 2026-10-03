@@ -4,9 +4,7 @@ import { describe, it } from "node:test";
 import { exitLab } from "../src/lib/exitLab";
 import { ruledTrade } from "./fixtures";
 
-// Entry 2000, stop 1996: 1R = $4. MFE price 2000 + 4×mfe.
-const t = (resultR: number, mfeR: number, extra = {}) =>
-  ruledTrade("2026-10-05T04:30", { resultR, mfePrice: 2000 + 4 * mfeR, ...extra });
+const t = (resultR: number, mfeR: number, extra = {}) => ruledTrade("2026-10-05T04:30", { resultR, mfeR, ...extra });
 
 describe("exit lab", () => {
   it("scores a smaller target as reached when MFE got there", () => {
@@ -18,7 +16,7 @@ describe("exit lab", () => {
 
   it("leaves a bigger target unknown unless the furthest price was logged", () => {
     const hit2 = t(2, 2, { exitReason: "target" });
-    const ran = t(2, 2, { exitReason: "target", maxFavPrice: 2000 + 4 * 3.4 });
+    const ran = t(2, 2, { exitReason: "target", maxFavR: 3.4 });
     const lab = exitLab([hit2, ran], 1);
     const r3 = lab.rows.find((r) => r.id === "target-3")!;
     assert.deepEqual([r3.n, r3.unknown, r3.avgR], [1, 1, 3]);
@@ -36,6 +34,10 @@ describe("exit lab", () => {
 
   it("needs enough trades with MFE before it answers", () => {
     assert.equal(exitLab([t(1, 1)], 30).enough, false);
-    assert.equal(exitLab([ruledTrade("2026-10-05T04:30", { mfePrice: null })], 1).n, 0);
+    assert.equal(exitLab([ruledTrade("2026-10-05T04:30", { mfeR: null })], 1).n, 0);
+  });
+
+  it("leaves setups that were not taken out", () => {
+    assert.equal(exitLab([t(1, 1.2, { skipped: true, hypotheticalR: 1 })], 1).n, 0);
   });
 });

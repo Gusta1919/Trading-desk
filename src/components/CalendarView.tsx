@@ -1,97 +1,86 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Ban, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
-import { evaluateHistory, type DayOff } from "@/lib/discipline";
-import { dayKey, fmtPct, fmtR, fmtTime, tone } from "@/lib/format";
+import { QUESTIONS, VERDICTS, type CheckIn } from "@/lib/checkin";
+import { dayOffLine, evaluateHistory, type DayOff } from "@/lib/discipline";
+import { fmtPct, fmtR, fmtTime, fmtUsdSigned, tone } from "@/lib/format";
+import { ledger } from "@/lib/limits";
 import type { CalendarEvent } from "@/lib/news";
-import { coveredDays, fromEvent, fromTradeNews, newsDay, inSkipRange, type NewsItem } from "@/lib/newsRules";
-import { weekOfDay } from "@/lib/risk";
+import { coveredDays, fromEvent, fromTradeNews, inSkipRange, newsDay, type NewsItem } from "@/lib/newsRules";
 import type { Rulebook } from "@/lib/rulebook";
 import { WEEKDAYS, isClosed, tradePct } from "@/lib/stats";
-import { QUESTIONS, VERDICTS, type CheckIn } from "@/lib/checkin";
 import { deskDay } from "@/lib/tz";
 import { FLAG_LABEL, isGrade, type Trade, type TradeFlag } from "@/lib/types";
-import { verdictColor } from "./CheckIn";
 import { GradeBadge } from "./GradeBadge";
+import { verdictColor } from "./ReadinessMeter";
 import { setupOf } from "./TradeList";
-import { Button, cx } from "./ui";
+import { Button, Panel, cx, stagger } from "./ui";
 
 /** What the rules made of one day: its flags, and whether it was off or skipped. */
 interface DayRules {
   flags: TradeFlag[];
   dayOff: DayOff | null;
   skip: string[];
-  /** More than one taken trade: always a violation. */
-  overTrades: boolean;
 }
 
 interface Day {
   key: string;
   date: Date;
   inMonth: boolean;
+  /** Taken trades; setups not taken are counted apart. */
   trades: Trade[];
+  passed: Trade[];
   pct: number;
 }
 
 /** How strongly a day is lit: scaled against the month's biggest move. */
-function heat(pct: number, peak: number) {
-  return Math.min(1, Math.abs(pct) / (peak || 1));
-}
+const heat = (pct: number, peak: number) => Math.min(1, Math.abs(pct) / (peak || 1));
 
-/** "YYYY-MM-DD" of a calendar cell, read from its own date parts. */
-const cellKey = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** "YYYY-MM-DD" of a calendar cell, read from its own date parts — never through a timezone. */
+const cellKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
+/**
+ * The month at a glance: every day's result, the days the rules close (skip days, days
+ * off) said inside the tile, and the check-in's colour. Click a day for its trades.
+ */
 export function CalendarView({
   trades,
   checkins,
   doc,
   rulebookOf,
-  calendar = [],
+  calendar,
   onOpen,
-  compact = false,
 }: {
-  /** Taken trades only. */
+  /** Every trade, setups not taken included. */
   trades: Trade[];
   checkins: CheckIn[];
-  doc?: Rulebook;
-  rulebookOf?: (v: string | null) => Rulebook;
-  calendar?: CalendarEvent[];
+  doc: Rulebook;
+  rulebookOf: (v: string | null) => Rulebook;
+  calendar: CalendarEvent[];
   onOpen: (t: Trade) => void;
-  /** Board mode: fits a small panel — no week column, no day panel, smaller cells. */
-  compact?: boolean;
 }) {
-  /* The rules over the whole history: flags, days off, half-risk weeks. */
-  const judged = useMemo(
-    () => (rulebookOf ? evaluateHistory({ trades, checkins, rulebookOf }) : null),
-    [trades, checkins, rulebookOf],
-  );
+  /* The rules over the whole history: flags and days off. */
+  const judged = useMemo(() => evaluateHistory({ trades, checkins, rulebookOf }), [trades, checkins, rulebookOf]);
   const covered = useMemo(() => coveredDays(calendar), [calendar]);
   const today = deskDay();
-  /** A day's rules, worked out only for weekdays up to today — the future has broken nothing yet. */
+
+  /** A day's rules: for weekdays up to today, and ahead of it what is already scheduled. */
   const rulesOf = (key: string, dayTrades: Trade[], weekday: boolean): DayRules | null => {
-    if (!doc || !weekday) return null;
-    const off = judged?.timeline.dayOff.get(key) ?? null;
-    // Ahead of today only a scheduled day off is known.
-    if (key > today) return off ? { flags: [], dayOff: off, skip: [], overTrades: false } : null;
-    const items: NewsItem[] | null =
-      covered && key >= covered.from && key <= covered.to
-        ? calendar.filter((e) => e.at && deskDay(new Date(e.at)) === key).map(fromEvent)
-        : dayTrades.length
-          ? dayTrades.flatMap((t) => t.news).map(fromTradeNews)
-          : null;
+    if (!weekday) return null;
+    const off = judged.timeline.dayOff.get(key) ?? null;
+    const known = covered != null && key >= covered.from && key <= covered.to;
+    const calendarItems = () => calendar.filter((e) => e.at && deskDay(new Date(e.at)) === key).map(fromEvent);
+    if (key > today) {
+      const ahead = known ? newsDay(key, calendarItems(), doc.news).skip : inSkipRange(key, doc.news) ? ["the year-end break"] : [];
+      return off || ahead.length ? { flags: [], dayOff: off, skip: ahead } : null;
+    }
+    const items: NewsItem[] | null = known ? calendarItems() : dayTrades.length ? dayTrades.flatMap((t) => t.news).map(fromTradeNews) : null;
     const skip = items ? newsDay(key, items, doc.news).skip : inSkipRange(key, doc.news) ? ["the year-end break"] : [];
-    return {
-      flags: [...new Set(dayTrades.flatMap((t) => judged?.byId.get(t.id)?.flags ?? t.flags))],
-      dayOff: off,
-      skip,
-      overTrades: dayTrades.filter((t) => !t.skipped).length > doc.maxTradesPerDay,
-    };
+    return { flags: [...new Set(dayTrades.flatMap((t) => judged.byId.get(t.id)?.flags ?? t.flags))], dayOff: off, skip };
   };
-  // "Today" is New York's date, like every date a trade carries.
-  const todayKey = dayKey(new Date());
-  const thisMonth = () => new Date(Number(todayKey.slice(0, 4)), Number(todayKey.slice(5, 7)) - 1, 1);
+
+  const thisMonth = () => new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, 1);
   const [month, setMonth] = useState(thisMonth);
-  const [selected, setSelected] = useState<string | null>(todayKey);
+  const [selected, setSelected] = useState<string>(today);
 
   const byDay = useMemo(() => {
     const map = new Map<string, Trade[]>();
@@ -102,29 +91,18 @@ export function CalendarView({
     return map;
   }, [trades]);
 
-  // 6 rows × 7 days, starting on the Monday on/before the 1st of the month.
+  // Monday-first rows, starting on the Monday on or before the 1st.
   const weeks = useMemo(() => {
     const start = new Date(month);
     start.setDate(1 - ((month.getDay() + 6) % 7));
     const days: Day[] = Array.from({ length: 42 }, (_, i) => {
       const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
-      /*
-       * A cell is a calendar date, not a moment in time: its key comes straight from
-       * the year, month and day. Converting it through a timezone would move midnight
-       * here to the evening before in New York and shift every trade a day later.
-       */
       const key = cellKey(date);
-      const ts = byDay.get(key) ?? [];
-      return {
-        key,
-        date,
-        inMonth: date.getMonth() === month.getMonth(),
-        trades: ts,
-        pct: ts.filter(isClosed).reduce((a, t) => a + tradePct(t), 0),
-      };
+      const all = byDay.get(key) ?? [];
+      const taken = all.filter((t) => !t.skipped);
+      return { key, date, inMonth: date.getMonth() === month.getMonth(), trades: taken, passed: all.filter((t) => t.skipped), pct: taken.filter(isClosed).reduce((a, t) => a + tradePct(t), 0) };
     });
     const rows = Array.from({ length: 6 }, (_, w) => days.slice(w * 7, w * 7 + 7));
-    // Drop a trailing week that belongs entirely to the next month.
     return rows.filter((row) => row.some((d) => d.inMonth));
   }, [month, byDay]);
 
@@ -135,74 +113,56 @@ export function CalendarView({
   const redDays = monthDays.filter((d) => d.pct < 0).length;
   const monthTrades = monthDays.reduce((a, d) => a + d.trades.length, 0);
 
-  const shift = (n: number) =>
-    setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
-
-  const selectedTrades = selected ? byDay.get(selected) ?? [] : [];
+  const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
+  const selectedAll = byDay.get(selected) ?? [];
   const selectedCheckIn = checkins.find((c) => c.date === selected);
+  const book = useMemo(() => ledger(trades, doc.limits), [trades, doc.limits]);
+  const usdOf = (t: Trade) => book.byTrade.get(t.id)?.reduce((a, b) => a + b, 0) ?? null;
+  const selectedUsd = selectedAll.reduce((a, t) => a + (usdOf(t) ?? 0), 0);
+  const selectedRules = rulesOf(selected, selectedAll.filter((t) => !t.skipped), ![0, 6].includes(new Date(`${selected}T12:00`).getDay()));
 
   return (
-    <div className={cx(compact ? "flex h-full min-h-0 flex-col gap-2" : "space-y-4")}>
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <div className="space-y-5">
+      <div className="anim-rise flex flex-wrap items-center gap-x-6 gap-y-3" style={stagger(1, 70)}>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" className="px-2" onClick={() => shift(-1)} aria-label="Previous month">
+          <Button variant="ghost" size="sm" className="px-2" onClick={() => shift(-1)} aria-label="Previous month">
             <ChevronLeft size={16} />
           </Button>
-          <h2 className="w-40 text-center text-[15px] font-semibold">
+          <h2 key={month.toISOString()} className="anim-fade w-44 text-center text-title font-semibold">
             {month.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
           </h2>
-          <Button variant="ghost" className="px-2" onClick={() => shift(1)} aria-label="Next month">
+          <Button variant="ghost" size="sm" className="px-2" onClick={() => shift(1)} aria-label="Next month">
             <ChevronRight size={16} />
           </Button>
           <Button
             variant="ghost"
-            className="text-[12px]"
+            size="sm"
             onClick={() => {
               setMonth(thisMonth());
-              setSelected(todayKey);
+              setSelected(today);
             }}
           >
             Today
           </Button>
         </div>
-        <div className={cx("num flex gap-5 text-soft", compact ? "text-[12px]" : "text-[13px]")}>
+        <div className="num flex gap-5 text-small text-soft">
           <span>
-            Month <b className="font-medium text-ink">{fmtPct(monthPct)}</b>
+            month <b className={cx("font-medium text-ink", tone(monthPct))}>{fmtPct(monthPct)}</b>
           </span>
-          <span>{monthTrades} trade{monthTrades === 1 ? "" : "s"}</span>
-          {!compact && (
-            <span>
-              {greenDays} green · {redDays} red days
-            </span>
-          )}
+          <span>
+            {monthTrades} trade{monthTrades === 1 ? "" : "s"}
+          </span>
+          <span>
+            {greenDays} green · {redDays} red days
+          </span>
         </div>
       </div>
 
-      <div
-        className={cx(
-          compact
-            ? "min-h-0 flex-1 overflow-hidden rounded-lg border"
-            : "card overflow-x-auto",
-        )}
-      >
-        <div
-          className={cx(
-            "grid",
-            compact
-              ? "h-full grid-cols-7 grid-rows-[auto_repeat(var(--weeks),minmax(0,1fr))]"
-              : "min-w-[720px] grid-cols-[repeat(7,1fr)_0.9fr]",
-          )}
-          style={compact ? ({ "--weeks": weeks.length } as React.CSSProperties) : undefined}
-        >
-          {(compact ? WEEKDAYS : [...WEEKDAYS, "Week"]).map((d) => (
-            <div
-              key={d}
-              className={cx(
-                "border-b text-[10px] font-medium uppercase tracking-[0.1em] text-faint",
-                compact ? "px-2 py-1.5" : "px-4 py-3",
-              )}
-            >
-              {compact ? d[0] + d[1] : d}
+      <div className="card anim-rise overflow-x-auto" style={stagger(2, 70)}>
+        <div key={month.toISOString()} className="grid min-w-[720px] grid-cols-[repeat(7,1fr)_0.9fr]">
+          {[...WEEKDAYS, "Week"].map((d) => (
+            <div key={d} className="eyebrow border-b px-4 py-3">
+              {d}
             </div>
           ))}
 
@@ -210,137 +170,108 @@ export function CalendarView({
             const weekDays = week.filter((d) => d.inMonth);
             const weekPct = weekDays.reduce((a, d) => a + d.pct, 0);
             const weekTrades = weekDays.reduce((a, d) => a + d.trades.length, 0);
-            const weekKey = weekOfDay(week[0].key);
-            const half = judged?.timeline.halfWeeks.has(weekKey);
             return [
               ...week.map((d, i) => (
                 <DayCell
                   key={d.key}
+                  index={w * 7 + i}
                   day={d}
                   peak={peak}
                   checkin={checkins.find((c) => c.date === d.key)}
-                  rules={compact ? null : rulesOf(d.key, d.trades, i < 5)}
-                  compact={compact}
-                  isToday={d.key === todayKey}
+                  rules={rulesOf(d.key, d.trades, i < 5)}
+                  isToday={d.key === today}
                   isSelected={d.key === selected}
-                  onClick={() => {
-                    setSelected(d.key);
-                    // On the board there's no day panel, so a day with trades opens the
-                    // first one directly — one click from calendar to the trade itself.
-                    if (compact && d.trades.length) onOpen(d.trades[0]);
-                  }}
+                  onClick={() => setSelected(d.key)}
                 />
               )),
-              compact ? null : (
-              <div
-                key={`w${w}`}
-                className="group/week flex min-h-[88px] flex-col justify-center gap-0.5 border-b px-3 py-2 last:border-b-0"
-              >
+              <div key={`w${w}`} className="flex min-h-[96px] flex-col justify-center gap-0.5 border-b px-4 py-2 last:border-b-0">
                 {weekTrades > 0 && (
                   <>
-                    <span className="num text-[14px] font-medium text-soft">{fmtPct(weekPct)}</span>
-                    <span className="num text-[11px] text-faint">
+                    <span className={cx("num text-title font-medium", tone(weekPct))}>{fmtPct(weekPct)}</span>
+                    <span className="num text-caption text-faint">
                       {weekTrades} trade{weekTrades === 1 ? "" : "s"}
                     </span>
                   </>
                 )}
-                {half && <span className="text-[10px] font-medium text-warn">half risk</span>}
-              </div>
-              ),
+              </div>,
             ];
           })}
         </div>
       </div>
 
-      {selected && !compact && (
-        <div className="card px-6 py-5">
-          <h3 className="mb-3 text-[14px] font-semibold">
-            {new Date(`${selected}T00:00`).toLocaleDateString("en-GB", {
-              weekday: "long",
-              day: "numeric",
-              month: "long",
-            })}
-          </h3>
-          {selectedCheckIn && <DayCheckIn checkin={selectedCheckIn} />}
-          {(() => {
-            const r = rulesOf(selected, selectedTrades, ![0, 6].includes(new Date(`${selected}T12:00`).getDay()));
-            if (!r) return null;
-            if (!r.skip.length && !r.dayOff && !r.overTrades && !r.flags.length) return null;
-            return (
-              <div className="mb-4 space-y-1 text-[12px]">
-                {r.skip.length > 0 && <p className="text-down">Skip day: {r.skip.join(", ")}</p>}
-                {r.dayOff && (
-                  <p className="text-down">
-                    {r.dayOff.reason === "rule-break" ? "Day off after a rule break" : `Day off — after a limit broken on ${r.dayOff.from}`}
-                  </p>
-                )}
-                {r.overTrades && <p className="font-medium text-down">More than one trade — the one-trade rule was broken.</p>}
-                {r.flags.length > 0 && <p className="text-warn">Flags: {r.flags.map((f) => FLAG_LABEL[f].toLowerCase()).join(", ")}</p>}
-              </div>
-            );
-          })()}
-          {selectedTrades.length === 0 ? (
-            <p className="text-soft">No trades on this day.</p>
-          ) : (
-            <ul className="-mx-2">
-              {selectedTrades.map((t) => (
-                <li key={t.id}>
-                  <button
-                    onClick={() => onOpen(t)}
-                    className="num flex w-full items-center gap-4 rounded-lg px-2 py-2 text-left text-[13px] hover:bg-subtle"
-                  >
-                    <span className="w-12 text-faint">{fmtTime(t.date)}</span>
-                    <span className="w-24 font-medium">{t.symbol}</span>
-                    <span className="w-14 text-soft">{t.direction === "long" ? "Long" : "Short"}</span>
-                    <span className="w-10 shrink-0">{isGrade(t.grade) && <GradeBadge grade={t.grade} size="sm" />}</span>
-                    <span className="min-w-0 max-w-xl flex-1 truncate text-soft">{setupOf(t)}</span>
-                    <span className={cx("w-16 text-right font-medium", tone(t.resultR))}>
-                      {t.resultR == null ? "open" : fmtR(t.resultR)}
-                    </span>
-                    <span className={cx("w-16 text-right font-medium", tone(isClosed(t) ? tradePct(t) : null))}>
-                      {isClosed(t) ? fmtPct(tradePct(t)) : "—"}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
+      <Panel
+        key={selected}
+        index={3}
+        title={new Date(`${selected}T00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+        sub={[selected === today ? "Today" : "", selectedUsd ? `${fmtUsdSigned(selectedUsd)} across all accounts` : ""].filter(Boolean).join(" · ") || undefined}
+      >
+        {selectedCheckIn && <DayCheckIn checkin={selectedCheckIn} />}
+        {selectedRules && (selectedRules.skip.length > 0 || selectedRules.dayOff || selectedRules.flags.length > 0) && (
+          <div className="mb-4 space-y-1 text-small">
+            {selectedRules.skip.length > 0 && <p className="text-down">No trading: {selectedRules.skip.join(", ")}.</p>}
+            {selectedRules.dayOff && (
+              <p className="text-down">{dayOffLine(selectedRules.dayOff, selected)}</p>
+            )}
+            {selectedRules.flags.length > 0 && <p className="text-down">Broken: {selectedRules.flags.map((f) => FLAG_LABEL[f].toLowerCase()).join(", ")}.</p>}
+          </div>
+        )}
+        {selectedAll.length === 0 ? (
+          <p className="text-body text-soft">Nothing logged on this day.</p>
+        ) : (
+          <ul className="-mx-2">
+            {selectedAll.map((t, i) => (
+              <li key={t.id} className="anim-rise" style={stagger(i, 50)}>
+                <button onClick={() => onOpen(t)} className="num flex w-full items-center gap-4 rounded-lg px-2 py-2 text-left text-body transition-colors hover:bg-subtle">
+                  <span className="w-12 text-faint">{fmtTime(t.date)}</span>
+                  <span className={cx("w-14 font-sans font-medium", t.direction === "long" ? "text-up" : "text-down")}>{t.direction === "long" ? "Long" : "Short"}</span>
+                  <span className="w-10 shrink-0">{isGrade(t.grade) && <GradeBadge grade={t.grade} size="sm" muted={t.skipped} />}</span>
+                  <span className="min-w-0 flex-1 truncate font-sans text-soft">{setupOf(t)}</span>
+                  {t.skipped ? (
+                    <span className="w-40 text-right text-faint">not taken {t.hypotheticalR != null ? `(${fmtR(t.hypotheticalR)})` : ""}</span>
+                  ) : (
+                    <>
+                      <span className={cx("w-16 text-right font-medium", tone(t.resultR))}>{t.resultR == null ? "open" : fmtR(t.resultR)}</span>
+                      <span className={cx("w-20 text-right font-medium", tone(isClosed(t) ? tradePct(t) : null))}>{isClosed(t) ? fmtPct(tradePct(t)) : "—"}</span>
+                      <span className={cx("w-24 text-right font-medium", tone(usdOf(t)))}>{usdOf(t) == null ? "—" : fmtUsdSigned(usdOf(t)!)}</span>
+                    </>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
     </div>
   );
 }
 
-/** Compact view of the day's check-in: verdict, score, every answer and the note. */
+/** The day's check-in: verdict, score, every answer and the note. */
 function DayCheckIn({ checkin }: { checkin: CheckIn }) {
   return (
-    <div className="mb-4 rounded-lg bg-subtle px-4 py-3">
-      <div className={cx("flex items-center gap-2 text-[13px] font-medium", verdictColor[checkin.verdict])}>
+    <div className="well mb-4 px-4 py-3">
+      <div className={cx("flex items-center gap-2 text-body font-medium", verdictColor[checkin.verdict])}>
         <span className="size-2 rounded-full bg-current" />
         {VERDICTS[checkin.verdict].label}
         <span className="num font-normal text-faint">{checkin.score}/100</span>
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12px]">
+      <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-small">
         {QUESTIONS.map((q) => {
           const o = q.options[checkin.answers[q.id]];
           if (!o) return null;
           return (
             <span key={q.id}>
-              <span className="text-faint">{q.short}:</span>{" "}
-              <span className={cx(o.risk === 2 ? "text-down" : o.risk === 1 ? "text-warn" : "text-soft")}>
-                {o.label}
-              </span>
+              <span className="text-faint">{q.short}:</span> <span className={cx(o.risk === 2 ? "text-down" : o.risk === 1 ? "text-warn" : "text-soft")}>{o.label}</span>
             </span>
           );
         })}
       </div>
-      {checkin.note && <p className="mt-2 text-[12px] italic text-soft">“{checkin.note}”</p>}
+      {checkin.note && <p className="mt-2 text-small italic text-soft">“{checkin.note}”</p>}
     </div>
   );
 }
 
 function DayCell({
+  index,
   day,
   peak,
   checkin,
@@ -348,114 +279,71 @@ function DayCell({
   isToday,
   isSelected,
   onClick,
-  compact,
 }: {
+  index: number;
   day: Day;
   peak: number;
   checkin?: CheckIn;
-  rules?: DayRules | null;
+  rules: DayRules | null;
   isToday: boolean;
   isSelected: boolean;
   onClick: () => void;
-  compact?: boolean;
 }) {
   const n = day.trades.length;
   const hasClosed = day.trades.some(isClosed);
   const intensity = hasClosed ? heat(day.pct, peak) : 0;
-  /* Green and red live in the text and a thin edge — the cell itself stays dark. */
   const hue = day.pct >= 0 ? "var(--color-up)" : "var(--color-down)";
+  // A day the rules close: said inside the tile, so the month shows them at a glance.
+  const skip = rules?.skip.length ? rules.skip : null;
+  const closed = skip ? { title: "No trading", why: skip[0], all: skip.join(", ") } : rules?.dayOff && !n ? { title: "Day off", why: "after a broken rule", all: "" } : null;
 
   return (
     <button
       onClick={onClick}
-      style={
-        intensity
-          ? {
-              backgroundColor: `color-mix(in oklab, ${hue} ${2 + intensity * 6}%, var(--color-surface))`,
-              boxShadow: `inset 2px 0 0 color-mix(in oklab, ${hue} ${34 + intensity * 56}%, transparent)`,
-            }
-          : undefined
-      }
+      style={{
+        ...stagger(index, 12, 500),
+        ...(intensity
+          ? { backgroundColor: `color-mix(in oklab, ${hue} ${3 + intensity * 9}%, var(--color-surface))` }
+          : closed
+            ? { backgroundColor: "color-mix(in oklab, var(--color-down) 8%, var(--color-surface))" }
+            : {}),
+      }}
       className={cx(
-        "group relative flex overflow-hidden border-b border-r text-left transition-[transform,background-color] duration-200",
-        compact
-          ? "min-h-0 flex-row items-baseline justify-between gap-1 px-2 py-1"
-          : "min-h-[104px] flex-col items-start gap-1.5 px-4 py-3",
+        "anim-fade group relative flex min-h-[104px] flex-col items-start gap-1.5 overflow-hidden border-b border-r px-4 py-3 text-left transition-[background-color,box-shadow] duration-300",
         !day.inMonth && "opacity-25",
         "hover:bg-raised",
-        isSelected && "ring-1 ring-inset ring-line",
+        isSelected && "shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-ink)_30%,transparent)]",
       )}
     >
-      {n > 0 && !compact && (
-        <span className="pointer-events-none absolute left-1/2 top-full z-20 hidden -translate-x-1/2 translate-y-1 group-hover:block">
-          <span className="glass block min-w-[190px] rounded-xl border px-3 py-2 text-[12px] shadow-xl">
-            <span className="num block text-faint">
-              {day.date.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
-            </span>
-            {day.trades.map((t) => (
-              <span key={t.id} className="num mt-1 flex justify-between gap-3">
-                <span className="text-soft">{t.symbol}</span>
-                <span className={tone(t.resultR)}>
-                  {t.resultR == null ? "open" : fmtR(t.resultR)}
-                </span>
-              </span>
-            ))}
-            {checkin && (
-              <span className="mt-1.5 block border-t pt-1.5 text-[11px] text-faint">
-                Check-in {checkin.score}/100
-              </span>
-            )}
+      <span className={cx("num flex size-6 items-center justify-center rounded-full text-small", isToday ? "bg-ink font-semibold text-bg" : "text-soft")}>{day.date.getDate()}</span>
+      {closed && (
+        <span className="anim-fade min-w-0 max-w-full" title={closed.all || undefined}>
+          <span className="flex items-center gap-1.5 text-body font-semibold text-down">
+            <Ban size={13} className="shrink-0" /> {closed.title}
           </span>
+          <span className="mt-0.5 block truncate text-caption text-soft">{closed.why}</span>
         </span>
       )}
-      <span
-        className={cx(
-          "num flex items-center justify-center rounded-full",
-          compact ? "size-5 text-[11px]" : "size-6 text-[12px]",
-          isToday ? "bg-ink font-semibold text-bg" : "text-soft",
-        )}
-      >
-        {day.date.getDate()}
-      </span>
       {n > 0 && (
-        <span className={cx(compact ? "flex items-baseline gap-1" : "contents")}>
-          <span
-            className={cx(
-              "num font-medium",
-              compact ? "text-[11px]" : "text-[14px]",
-              hasClosed ? tone(day.pct) : "text-faint",
-              hasClosed && (day.pct >= 0 ? "glow-up" : "glow-down"),
-            )}
-          >
-            {hasClosed ? fmtPct(day.pct, compact ? 1 : 2) : "open"}
+        <>
+          <span className={cx("num text-title font-medium", hasClosed ? tone(day.pct) : "text-accent-2", hasClosed && (day.pct >= 0 ? "glow-up" : "glow-down"))}>
+            {hasClosed ? fmtPct(day.pct) : "open"}
           </span>
-          {!compact && (
-            <span className={cx("num text-[10px]", rules?.overTrades ? "font-medium text-down" : "text-faint")}>
-              {n} trade{n > 1 ? "s" : ""}
-              {rules?.overTrades && " ⚠ one-trade rule"}
-            </span>
-          )}
-          {compact && n > 1 && <span className="num text-[10px] text-down">⚠{n}</span>}
-        </span>
+          <span className="num text-caption text-faint">
+            {n} trade{n > 1 ? "s" : ""}
+          </span>
+        </>
       )}
-      {/* The rules' read of the day, in one quiet line at the bottom. */}
-      {rules && !compact && (
-        <span className="mt-auto flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
-          {checkin && (
-            <span
-              className={cx("size-1.5 rounded-full bg-current", verdictColor[checkin.verdict])}
-              title={`Check-in: ${VERDICTS[checkin.verdict].label} (${checkin.score})`}
-            />
-          )}
-          {rules.skip.length > 0 && (
-            <span className="text-down" title={rules.skip.join(", ")}>skip day</span>
-          )}
-          {rules.dayOff && <span className="font-medium text-down">day off</span>}
-          {rules.flags.length > 0 && (
-            <span className="text-warn" title={rules.flags.map((f) => FLAG_LABEL[f]).join(", ")}>
-              ⚠ {rules.flags.length}
+      {/* The rest of the day, in one quiet line at the bottom. */}
+      {(checkin || day.passed.length > 0 || (rules && (rules.flags.length > 0 || (rules.dayOff && n > 0)))) && (
+        <span className="mt-auto flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-caption">
+          {checkin && <span className={cx("size-1.5 rounded-full bg-current", verdictColor[checkin.verdict])} title={`Check-in: ${VERDICTS[checkin.verdict].label} (${checkin.score})`} />}
+          {day.passed.length > 0 && <span className="text-faint">{day.passed.length} not taken</span>}
+          {rules?.flags.length ? (
+            <span className="font-medium text-down" title={rules.flags.map((f) => FLAG_LABEL[f]).join(", ")}>
+              ⚑ {rules.flags.length}
             </span>
-          )}
+          ) : null}
         </span>
       )}
     </button>

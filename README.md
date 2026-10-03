@@ -1,89 +1,100 @@
 # Gucci Trade Journal
 
-A local, percentage-based trading journal built around one strategy — the GOLD Model —
-with its rulebook inside: every rule the desk can check is checked, every broken one is
-flagged and has consequences, and every change to a rule is versioned with a reason.
-A morning check-in, and a coach that turns your own history into a briefing.
+**A local trading desk for one strategy, the GOLD Model on XAUUSD. It keeps the journal, the rulebook and the discipline in one place.**
 
-Everything runs on your machine: an Express API (port 3848) over a SQLite file, and a
-React page (port 3847). No account and no API keys. The only outside calls are read-only:
-the economic calendar and headlines, the gold price (Dukascopy's public feed) and, while
-today's briefing is missing, your own Gmail drafts folder.
+![The journal](docs/screenshots/journal.png)
 
-## Run
+Most journals record trades. This one also knows the rules. Every setup is graded against the rulebook before it is taken, and the grade decides how much may be risked. Every rule the desk can check, it checks. Every broken rule is flagged and has a consequence. A morning check-in, a gold briefing and a coach turn your own history into advice for the next session.
+
+It runs entirely on your Mac. There is no account, no cloud database and no API key. Your data is one SQLite file.
+
+## What it does
+
+**Before the session**
+- **Check-in.** Nine questions about sleep, energy, focus, stress and pressure. The result is *Clear to trade*, *Trade with care* or *Better to leave the charts*. It is advice, not a lock: the choice to trade is always yours.
+- **Daily Bias.** The morning's gold briefing drawn over the live price: scenarios, targets, key levels, the CRT box, the day's releases, macro drivers and analyst consensus. A cloud routine writes it, and the desk collects it from a Gmail draft.
+- **News.** The economic calendar on New York time, with skip days and no-entry release windows marked.
+
+**During the session**
+- **Grade the setup.** Base rules first (the desk ticks the ones it can check), then five factors. The lowest cap wins, and the grade sets the risk. B and C are logged as *not taken*, with what they would have made.
+- **Today dock.** Always in the corner: entry windows, release windows, skip days, days off, the daily and weekly budgets, and both accounts.
+
+**After the session**
+- **Journal and Calendar.** Every trade in R, % and dollars, with why it got its grade and which rules held.
+- **Stats.** Equity, edges and leaks, habits after wins and losses, and every grade, factor answer and logged field compared against results.
+- **Risk lab.** Your own trading days replayed into 5,000 possible futures, plus the Exit lab: which target would have paid best.
+- **Coach.** A short read of the day: the rules' state, streaks, edges, leaks and hypotheses ready to decide.
+
+**The rules themselves**
+- **Rulebook.** The GOLD Model on one page, every number live and every section editable in place. Each change is saved with a one-line reason in the changelog, and a trade is always judged by the rules it was graded under.
+- **One consequence.** Any broken rule costs the rest of that day and the next trading day.
+
+## Two accounts
+
+You log the dollar result of the main account (FTMO 200K). Linked accounts (FTMO 100K) take the same percentage on their own balance. The desk shows each account and the total, counted from the day the journal started. Names and balances are set in the Rulebook.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Daily Bias](docs/screenshots/daily-bias.png) | ![Stats](docs/screenshots/stats.png) |
+| **Daily Bias** — the plan on the live chart | **Stats** — results, equity and your accounts |
+| ![Grade the setup](docs/screenshots/new-trade.png) | ![Rulebook](docs/screenshots/rulebook.png) |
+| **New trade** — the setup graded before the trade | **Rulebook** — the rules, drawn and editable |
+| ![Risk lab](docs/screenshots/risk-lab.png) | ![Coach](docs/screenshots/coach.png) |
+| **Risk lab** — 5,000 futures from your own days | **Coach** — the day's read, before the session |
+
+*Screenshots use made-up example data.*
+
+## Getting started
+
+You need [Node.js](https://nodejs.org) (LTS) on macOS.
 
 ```bash
+git clone https://github.com/Gusta1919/Trading-desk.git trade-assistant
+cd trade-assistant
 npm install
-npm start          # starts API + web
-open http://localhost:3847
+npm start          # the desk on http://localhost:3847
 ```
 
-## The screen
+On the first start the desk creates `data/trade-assistant.db` with the GOLD Model rulebook as version 1.0, and you're ready to trade. A database from an older version is moved whole into `data/archive/` (nothing is deleted), and your own check-ins come along.
 
-- **Morning** — the check-in (readiness → Ready / Caution / Sit out), then today's status
-  and the Coach's briefing. Nothing to write down; on weekends there's no check-in at all.
-- **Today dock** — bottom-right on every tab: where the day stands right now (entries
-  open, release window, skip day, day off, done for today…); click for the whole day:
-  entry windows, time stop and every release window with its no-entry span.
-- **KPI strip** — net return, win rate, expectancy, profit factor, drawdown, streak, and
-  this week's rule adherence.
-- **Journal** — every trade in R and % of account, its exit reason, flags and rulebook
-  version; click a row to edit.
-- **New trade** — the setup check first (auto rules, Compass, displacement, the grade and
-  what it may risk today), then the trade: prices, lot size, exit, MFE/MAE.
-- **Daily Bias** — today's gold briefing drawn over live price, and the desk's own
-  "stand aside today" list worked out from the rulebook.
-- **Calendar** — results, flags, days off and skip days.
-- **Rulebook** — the whole GOLD Model rulebook with live values, the decision flow, an
-  edit mode per section, versions and changelog, hypotheses, open items, glossary.
-- **Stats** — full stats, Compare, what drives your results, habits, well-being, and
-  "By the rulebook": every grade, factor answer and journal field against results.
-- **News** — the economic calendar with skip days and release windows marked, and the wire.
-- **Risk lab** — your days replayed under today's rules into thousands of futures, and the
-  Exit lab: which target would have paid best.
-- **Coach** — today's briefing: the rules' state, streak maths, drawdown simulation,
-  your leaks and edges, A+ → 1% eligibility, hypotheses ready to decide.
+To update later, close the desk, then run `git pull` and `npm install`, and start it again.
 
-## Data
+The Polish step-by-step guide, including the Dock app, a keyboard shortcut and the Gmail setup for the Daily Bias, is in [JAK-URUCHOMIC.txt](JAK-URUCHOMIC.txt).
 
-- `data/trade-assistant.db` — SQLite; written the moment you save a trade or check-in.
-- `rulebook_versions` holds every version of the rulebook; the newest is in force, and each
-  trade records the version it was graded under.
-- **Backup** button exports everything as JSON; copying `data/` is a full backup.
-- `legacy_*` tables hold the old (v1, USD-based) schema; `strategies`, `limits` and
-  `news_rules` hold what the desk used before the rulebook. All are kept, untouched.
-- `npm run demo:add` / `demo:more` / `demo:fill` / `demo:remove` — demo history, tagged `[demo]`
-  (`demo:more` adds just the two Exit-lab trades).
+## Commands
 
-## Code map
-
-| File | What it holds |
+| Command | What it does |
 |---|---|
-| `server/db.ts` | opens the database |
-| `server/schema.ts`, `server/migrate.ts` | schema + migrations (the rulebook's is `migrateRulebook`) |
-| `server/rulebookStore.ts` | rulebook versions: the one in force, the list, saving a new one |
-| `server/index.ts` | REST API; re-derives % and R and re-judges every flag after each write |
-| `src/lib/types.ts` | trade shape and its journal fields, flags, grades, the definition |
-| `src/lib/rulebook.ts` | the rulebook's shape, `{{tokens}}`, the text format, versions, validation |
-| `src/lib/rulebookText.ts` | rulebook v1.2 as it moved into the desk |
-| `src/lib/rules.ts` | entry window, Compass, displacement, R:R, lots, MFE/MAE |
-| `src/lib/discipline.ts` | every flag, the consequence ladder, today's status, adherence |
-| `src/lib/newsRules.ts` | release kinds, skip days and release windows |
-| `src/lib/hypotheses.ts` | the rulebook's hypotheses, measured |
-| `src/lib/exitLab.ts` | the Exit lab |
-| `src/lib/checkin.ts` | check-in questions, scoring, verdicts |
-| `src/lib/stats.ts` | outcomes, summary, equity, grouping |
-| `src/lib/insights.ts` | factor analysis (edges/leaks) and behaviour patterns |
-| `src/lib/coach.ts` | the briefing: rules, probabilities, wording |
-| `src/lib/dailyBias.ts` | Daily Bias: file shape, parsing, is-it-today's |
-| `src/lib/chart.ts` | chart maths: sessions, CRT box, price range, level roles, label stacking |
-| `src/lib/useCandles.ts` | polls today's candles for the chart |
-| `src/lib/layout.ts` | even card rows for the Coach |
-| `server/bias.ts` | reads and writes `data/daily-bias.json` |
-| `server/gmailBias.ts` | collects the briefing from its Gmail draft (setup: JAK-URUCHOMIC.txt) |
-| `server/candles.ts` | XAU/USD candles from Dukascopy's public feed, cached for a minute |
-| `src/components/BiasChart.tsx` | the Daily Bias chart card: title bar, scenario pills, layers, legend |
-| `src/components/PriceChart.tsx` | the SVG candle chart itself |
-| `src/components/RulebookView.tsx` | the Rulebook tab; `RuleEditors.tsx` holds its grading editors |
-| `src/components/TradeForm.tsx`, `SetupCheck.tsx` | the setup check and the trade |
-| `src/components/` | board panels, forms, charts |
+| `npm start` | Starts the desk: the API on port 3848 and the page on port 3847 |
+| `npm test` | Runs the test suite |
+| `npm run build` | Type-checks and builds the page |
+| `npm run reset` | With the desk closed: moves the database into `data/archive/` for an empty desk |
+| `npm run preview:build` | Builds a static snapshot of the running desk into `dist-preview/` |
+
+## Your data
+
+- Everything lives in `data/trade-assistant.db` and is saved the moment you save.
+- The download button in the header exports trades, check-ins and the rulebook with its changelog as one JSON file. Copying `data/` with the desk closed is a full backup.
+- The only outside calls are read-only: the economic calendar and headlines, the gold price (Dukascopy's public feed) and, while today's briefing is missing, your own Gmail drafts folder.
+
+## How it's built
+
+- **Frontend:** React 19, Vite 7, Tailwind CSS 4. One dark theme, one type scale and shared components, so every tab looks and behaves the same way.
+- **Backend:** Express 5 and better-sqlite3. The server re-derives R, risk, flags and allowed risk after every write, so the numbers are never stale.
+- **Tests:** Node's built-in test runner, covering grading, discipline, the rulebook, the accounts, the database, the coach and the chart maths.
+
+| Path | What it holds |
+|---|---|
+| `server/` | the API, the database (schema, archive, rulebook versions) and the news, candle and briefing feeds |
+| `src/lib/goldModel.ts` | the GOLD Model rulebook as it ships |
+| `src/lib/` | grading, discipline, budgets and accounts, news rules, stats, insights, coach, Risk lab |
+| `src/components/` | the tabs, the trade form and the shared UI (`ui.tsx`) |
+| `src/index.css` | the theme: colours, type scale, surfaces and animations |
+| `tests/` | the test suite |
+| `scripts/` | the Mac launchers (they stop a stale copy and install packages when needed), `reset` and the preview build |
+
+---
+
+Built for one trader and one strategy. Analysis, not financial advice.

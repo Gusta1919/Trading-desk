@@ -41,6 +41,7 @@ describe("parseBias", () => {
     );
   });
 
+
   it("keeps the core when everything else is missing", () => {
     const b = parseBias(core)!;
     assert.deepEqual(b.levels, []);

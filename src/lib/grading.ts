@@ -152,8 +152,8 @@ export function withUnit(text: string, unit: string | undefined): string {
  */
 export function whyGrade(snap: Pick<Definition, "baseRules" | "factors"> & SetupAnswers): string {
   const r = computeGrade(snap, snap);
-  if (r.grade === "A+") return r.complete ? "every answer at its best" : "A+ so far";
-  return r.cappedBy.map((c) => (c.source === "rule" ? `missing: ${c.label}` : c.label)).join(" · ");
+  if (r.grade === "A+") return r.complete ? "Every rule held, every factor at its best" : "A+ so far";
+  return r.cappedBy.map((c) => (c.source === "rule" ? `Missing: ${c.label}` : c.label)).join(" · ");
 }
 
 /** The answers to a factor that still allow `grade` or better, in words. */
@@ -164,13 +164,26 @@ export function answersReaching(f: Factor, grade: Grade): string[] {
   return f.caps
     .map((cap, i) => ({ cap, i }))
     .filter(({ cap }) => gradeRank(cap) <= gradeRank(grade))
-    .map(({ i }) => rangeLabel(f, i));
+    .map(({ i }) => withUnit(rangeLabel(f, i), f.unit));
+}
+
+/**
+ * A factor's answers as the rulebook's table draws them: each with the best grade it still
+ * allows, best first. An answer allows its own grade and every grade below it, so on the
+ * table it runs from that grade to C — a staircase, one step per answer.
+ */
+export function factorSteps(f: Factor): { label: string; cap: Grade }[] {
+  const answers =
+    f.kind === "choice"
+      ? f.options.map((o) => ({ label: o.label, cap: o.cap }))
+      : f.caps.map((cap, i) => ({ label: withUnit(rangeLabel(f, i), f.unit), cap }));
+  return answers.map((a, i) => ({ ...a, i })).sort((a, b) => gradeRank(a.cap) - gradeRank(b.cap) || a.i - b.i).map(({ label, cap }) => ({ label, cap }));
 }
 
 /** The answers to a factor that cap a setup at exactly `grade`, in words. */
 export function answersCappingAt(f: Factor, grade: Grade): string[] {
   if (f.kind === "choice") return f.options.filter((o) => o.cap === grade).map((o) => o.label);
-  return f.caps.map((cap, i) => ({ cap, i })).filter(({ cap }) => cap === grade).map(({ i }) => rangeLabel(f, i));
+  return f.caps.map((cap, i) => ({ cap, i })).filter(({ cap }) => cap === grade).map(({ i }) => withUnit(rangeLabel(f, i), f.unit));
 }
 
 const needFor = (f: Factor, grade: Grade) => {
@@ -255,9 +268,3 @@ export function gradeRequirements(def: Pick<Definition, "baseRules" | "factors">
   return { requires, cappedHere };
 }
 
-/** One line per rung, for compact places. */
-export function gradeOneLiner(def: Pick<Definition, "baseRules" | "factors">, grade: Grade): string {
-  const r = gradeRequirements(def, grade);
-  if (grade === "A+") return r.requires.length ? r.requires.join(" · ") : "No conditions defined yet";
-  return r.cappedHere.length ? `when ${r.cappedHere.join(" · ")}` : "nothing lands here";
-}

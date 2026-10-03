@@ -3,6 +3,7 @@ data/
 *.db-*
 node_modules/
 dist/
+dist-preview/
 .DS_Store
 # Signed locally by scripts/sign-mac-app.sh; its source is scripts/Trade Assistant.applescript.
 Trade Assistant.app/

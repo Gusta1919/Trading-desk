@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { categoryOf, newsDay, releaseWindowAt, stanceOf, type NewsItem } from "../src/lib/newsRules";
-import { defaultRulebook } from "../src/lib/rulebookText";
+import { defaultRulebook } from "../src/lib/goldModel";
 
 const rules = defaultRulebook().news;
 const red = (title: string, currency = "USD", minutes: number | null = 8 * 60 + 30): NewsItem => ({

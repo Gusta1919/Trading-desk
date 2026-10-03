@@ -2,7 +2,7 @@
  * The rulebook: the one strategy this desk trades, as a single versioned document.
  *
  * It holds two kinds of thing. Values — the risk ladder, the windows, the limits, the
- * news rules, the Compass snapshot, the grade factors — which the logic reads. And
+ * news rules, the grade factors — which the logic reads. And
  * text — every section of the written rulebook — which the Rulebook tab renders.
  *
  * The text never repeats a value. Wherever a number appears it is a token such as
@@ -27,30 +27,6 @@ export interface TimeWindow {
 
 export type Weekday = "Mon" | "Tue" | "Wed" | "Thu" | "Fri";
 export const WEEKDAY_KEYS: Weekday[] = ["Mon", "Tue", "Wed", "Thu", "Fri"];
-export const WEEKDAY_NAMES: Record<Weekday, string> = {
-  Mon: "Monday",
-  Tue: "Tuesday",
-  Wed: "Wednesday",
-  Thu: "Thursday",
-  Fri: "Friday",
-};
-
-/**
- * The frozen Compass snapshot: by weekday, the chance (in %) that the opposite box side
- * is reached before the cut-off. Short = the high was swept first; long = the low was.
- */
-export interface CompassSnapshot {
-  frozenOn: string; // "YYYY-MM-DD"
-  source: string;
-  sessions: number;
-  days: Record<Weekday, { short: number; long: number }>;
-  /** All weekdays together, as counts. */
-  all: { short: { hit: number; of: number }; long: { hit: number; of: number } };
-  /** How often the box midpoint gets reached, in %. */
-  midpointPct: number;
-  /** After this many days the snapshot is due for a refresh. */
-  refreshDays: number;
-}
 
 /** A release kind on one currency, e.g. CPI on USD. Kinds are the ids in `newsRules.ts`. */
 export interface NewsPair {
@@ -78,21 +54,13 @@ export interface NewsRules {
   afterMin: number;
 }
 
-/** The consequence ladder for broken rules. */
-export interface Consequences {
-  /** The risk multiplier for a half-risk week. */
-  factor: number;
-  /** This many flagged trades in one ISO week put the next week at reduced risk. */
-  breaks: number;
-  /** Trading days off after the one-trade rule or a loss limit is broken. */
-  daysOff: number;
-}
-
 /** A section of the written rulebook. `body` is the small text format below. */
 export interface Section {
   id: string;
   title: string;
   body: string;
+  /** Background, not a rule: shown in the Reference panel, closed by default. */
+  reference?: boolean;
 }
 
 /** An idea being tested by logging, not yet a rule. */
@@ -106,8 +74,6 @@ export interface Hypothesis {
   unit: string;
   /** "about" the number rather than exactly. */
   approx: boolean;
-  /** Measured in Forex Tester, outside the desk. */
-  outside?: boolean;
 }
 
 export interface GlossaryEntry {
@@ -115,28 +81,16 @@ export interface GlossaryEntry {
   meaning: string;
 }
 
-/** A changelog row from before the rulebook lived in the desk. */
-export interface HistoryRow {
-  version: string;
-  date: string; // "YYYY-MM-DD"
-  change: string;
-}
-
 export interface Rulebook {
   /** Filled in by the server from the version row; not part of what is saved. */
   version: string;
   name: string;
   instrument: string;
-  ozPerLot: number;
 
   /* When */
   box: TimeWindow;
-  /** v1.2 only: the daily plan had to exist by this time. Retired in v1.3. */
-  planBy?: string;
   entryWindows: TimeWindow[];
   timeStop: string;
-  /** The Compass measures the opposite side being reached by this time. */
-  compassBy: string;
   maxTradesPerDay: number;
   /** A limit order at the FVG stays valid this many closed 5m candles. */
   limitCandles: number;
@@ -147,23 +101,23 @@ export interface Rulebook {
   liquidityR: number;
   /** The stop stays put until price has covered this share of the way to the target. */
   trailAfter: number;
-  /** The Compass reference for sweep depth: $ beyond the box edge. */
+  /** Reference sweep depths ($ beyond the box edge): about 70%, 85% and 95% of sweeps stay within them. */
   sweep: { p70: number; p85: number; p95: number };
 
   /* Grading and risk */
   baseRules: BaseRule[];
   factors: Factor[];
   grades: GradeCard[];
-  compass: CompassSnapshot;
   /** When A+ may go back to a bigger risk. */
   aPlus: { trades: number; edgeR: number; riskPct: number };
   limits: Limits;
-  consequences: Consequences;
+  /** Any broken rule costs the rest of that day and this many trading days after it. */
+  daysOff: number;
   news: NewsRules;
 
   /* Review */
-  calibration: { displacement: number; reviewFrom: number; reviewTo: number; rr: number; evidence: number };
-  goLiveTrades: number;
+  calibration: { reviewFrom: number; reviewTo: number; rr: number; evidence: number };
+  /** The Exit lab reads only once this many taken trades carry an MFE. */
   exitLabMin: number;
 
   /* Text */
@@ -172,7 +126,6 @@ export interface Rulebook {
   guidance: string[];
   hypotheses: Hypothesis[];
   glossary: GlossaryEntry[];
-  history: HistoryRow[];
 }
 
 /** One saved version, as the server hands it over. */
@@ -183,9 +136,6 @@ export interface RulebookVersion {
   doc: Rulebook;
 }
 
-/** A version in the changelog list, without its document. */
-export type VersionRow = Omit<RulebookVersion, "doc">;
-
 /* ── Versions ────────────────────────────────────────────────────────── */
 
 export function parseVersion(v: string): [number, number] | null {
@@ -193,10 +143,10 @@ export function parseVersion(v: string): [number, number] | null {
   return m ? [Number(m[1]), Number(m[2])] : null;
 }
 
-/** 1.2 → 1.3 for a normal change; 1.2 → 2.0 when you call it a big one. */
-export function nextVersion(current: string, bump: "minor" | "major"): string {
+/** 1.0 → 1.1 → 1.2: every saved change is the next version. */
+export function nextVersion(current: string): string {
   const [major, minor] = parseVersion(current) ?? [1, 0];
-  return bump === "major" ? `${major + 1}.0` : `${major}.${minor + 1}`;
+  return `${major}.${minor + 1}`;
 }
 
 /** Newest first. */
@@ -204,12 +154,6 @@ export function compareVersions(a: string, b: string): number {
   const [am, an] = parseVersion(a) ?? [0, 0];
   const [bm, bn] = parseVersion(b) ?? [0, 0];
   return bm - am || bn - an;
-}
-
-/** Whether `v` is this version or a later one — e.g. "graded under 1.2 or later". */
-export function atLeast(v: string | null | undefined, than: string): boolean {
-  if (!v) return false;
-  return compareVersions(v, than) <= 0;
 }
 
 /* ── Formatting values for the text ──────────────────────────────────── */
@@ -221,9 +165,7 @@ const num = (x: number) => String(Number(x.toFixed(4)));
 export const pct = (x: number) => `${num(x)}%`;
 const money = (x: number, digits = 2) =>
   `${x < 0 ? "−" : ""}$${Math.abs(x).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
-const signedMoney = (x: number) => `${x >= 0 ? "+" : ""}${money(x)}`;
 const thousands = (x: number) => `$${num(x / 1000)}K`;
-const pct2 = (x: number) => `${x < 0 ? "−" : ""}${Math.abs(x).toFixed(2)}%`;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 /** "2026-10-02" → "2 October 2026"; "12-22" → "22 December". */
 export function longDate(d: string): string {
@@ -269,24 +211,25 @@ export function skipDayLines(n: NewsRules): string[] {
   return lines;
 }
 
-/** The displacement and Compass factors, found by what they do rather than by name. */
-export const autoFactor = (doc: Pick<Rulebook, "factors">, kind: Factor["auto"]) =>
-  doc.factors.find((f) => f.auto === kind) ?? null;
+/** The displacement and Compass factors, found by their ids — the text quotes their cuts. */
+const factorById = (doc: Pick<Rulebook, "factors">, id: string) => doc.factors.find((f) => f.id === id) ?? null;
 const numberCut = (f: Factor | null, i: number) =>
   f && f.kind === "number" && f.cuts[i] ? (f as NumberFactor).cuts[i].value : null;
 
-/** The account arithmetic the limits section quotes. */
-export function accountMaths(l: Limits) {
+/**
+ * The challenge in numbers, from a balance: the firm's floor (the start balance less its
+ * max loss), the target, and how far the balance sits from each.
+ */
+export function accountMaths(l: Limits, balance = l.openingBalance) {
   const floor = l.startBalance * (1 - l.maxLossPct / 100);
-  const goal = l.startBalance * (1 + l.phase1TargetPct / 100);
-  const room = l.openingBalance - floor;
-  const need = goal - l.openingBalance;
+  const goal = l.startBalance * (1 + l.targetPct / 100);
+  const room = balance - floor;
+  const need = goal - balance;
   const roomPct = (room / l.startBalance) * 100;
   const needPct = (need / l.startBalance) * 100;
-  // With zero edge, price is a fair random walk: the chance of reaching +a before −b is b ÷ (a + b).
-  const p1 = roomPct + needPct > 0 ? roomPct / (roomPct + needPct) : 0;
-  const p2 = l.maxLossPct + l.phase2TargetPct > 0 ? l.maxLossPct / (l.maxLossPct + l.phase2TargetPct) : 0;
-  return { floor, goal, room, need, roomPct, needPct, p1, p2, both: p1 * p2 };
+  // With no edge, the chance of reaching +a before −b is b ÷ (a + b).
+  const odds = roomPct > 0 && needPct > 0 ? roomPct / (roomPct + needPct) : needPct <= 0 ? 1 : 0;
+  return { floor, goal, room, need, roomPct, needPct, odds };
 }
 
 /**
@@ -301,29 +244,19 @@ export function tokenValues(doc: Rulebook): Record<string, string | null> {
     const c = card(g);
     return c ? (c.traded ? pct(c.riskPct) : "Not tradable") : null;
   };
-  const backtest = (g: string) => {
-    const c = card(g);
-    return c ? (c.backtestRiskPct != null ? pct(c.backtestRiskPct) : "No trade") : null;
-  };
   const traded = doc.grades.filter((c) => c.traded);
   const risks = [...new Set(traded.map((c) => c.riskPct))].sort((a, b) => a - b);
-  const disp = autoFactor(doc, "displacement");
-  const compass = autoFactor(doc, "compass");
-  const all = doc.compass.all;
-  const share = (x: { hit: number; of: number }) =>
-    x.of ? `${num(Number(((x.hit / x.of) * 100).toFixed(1)))}% (${x.hit} of ${x.of})` : null;
+  const disp = factorById(doc, "disp");
+  const compass = factorById(doc, "compass");
   const values: Record<string, string | null> = {
     name: doc.name,
     instrument: doc.instrument,
-    "lot.oz": num(doc.ozPerLot),
     box: span(doc.box),
     "box.from": doc.box.from,
     "box.to": doc.box.to,
     "box.name": `CRT ${hour12(doc.box.from)}–${hour12(doc.box.to)}AM box`,
-    planBy: doc.planBy ?? null,
     windows: and(doc.entryWindows.map((w) => span(w)!)),
     timeStop: doc.timeStop,
-    compassBy: doc.compassBy,
     maxTrades: num(doc.maxTradesPerDay),
     "maxTrades.Word": capital(word(doc.maxTradesPerDay)),
     "limit.candles": num(doc.limitCandles),
@@ -339,53 +272,30 @@ export function tokenValues(doc: Rulebook): Record<string, string | null> {
     "grades.tradable": traded.length ? and(traded.map((c) => c.grade)).replace(/,? and /, " or ") : null,
     "disp.weak": numberCut(disp, 0) != null ? `${numberCut(disp, 0)!.toFixed(2)}×` : null,
     "disp.strong": numberCut(disp, 1) != null ? `${numberCut(disp, 1)!.toFixed(1)}×` : null,
-    "disp.weak.x": numberCut(disp, 0) != null ? num(numberCut(disp, 0)!) : null,
-    "disp.strong.x": numberCut(disp, 1) != null ? numberCut(disp, 1)!.toFixed(1) : null,
     "compass.cut": numberCut(compass, 0) != null ? pct(numberCut(compass, 0)!) : null,
-    "compass.frozenOn": longDate(doc.compass.frozenOn),
-    "compass.source": doc.compass.source,
-    "compass.sessions": num(doc.compass.sessions),
-    "compass.all.short": share(all.short),
-    "compass.all.long": share(all.long),
-    "compass.midpoint": pct(doc.compass.midpointPct),
     "aplus.trades": num(doc.aPlus.trades),
     "aplus.edge": `${num(doc.aPlus.edgeR)}R`,
     "aplus.risk": pct(doc.aPlus.riskPct),
     "limits.maxRisk": pct(l.maxRiskPct),
     "limits.dailyStop": pct(l.dailyStopPct),
     "limits.weeklyStop": pct(l.weeklyStopPct),
-    "limits.weeklyStop.losses": l.maxRiskPct > 0 ? word(Math.round(l.weeklyStopPct / l.maxRiskPct)) : null,
     "limits.firmDaily": pct(l.dailyLossPct),
     "limits.firmMax": pct(l.maxLossPct),
-    "limits.phase1": pct(l.phase1TargetPct),
-    "limits.phase2": pct(l.phase2TargetPct),
+    "limits.target": pct(l.targetPct),
     "limits.start": thousands(l.startBalance),
-    "limits.second": thousands(l.secondAccount),
     "limits.opening": money(l.openingBalance),
-    "limits.openingLoss": money(l.openingBalance - l.startBalance),
-    "limits.openingLossPct": pct2(((l.openingBalance - l.startBalance) / l.startBalance) * 100),
     "limits.floor": money(acc.floor, 0),
-    "limits.room": money(acc.room),
-    "limits.roomPct": pct2(acc.roomPct),
-    "limits.phase1Goal": money(acc.goal, 0),
-    "limits.phase1Need": signedMoney(acc.need),
-    "limits.phase1NeedPct": `${acc.needPct >= 0 ? "+" : ""}${pct2(acc.needPct)}`,
-    "limits.phase1NeedPct.abs": pct2(Math.abs(acc.needPct)),
-    "odds.phase1": `${acc.roomPct.toFixed(2)} ÷ (${acc.needPct.toFixed(2)} + ${acc.roomPct.toFixed(2)}) ≈ ${Math.round(acc.p1 * 100)}%`,
-    "odds.phase2": `${num(l.maxLossPct)} ÷ (${num(l.phase2TargetPct)} + ${num(l.maxLossPct)}) ≈ ${Math.round(acc.p2 * 100)}%`,
-    "odds.both": `${Math.round(acc.both * 100)}%`,
-    "consequence.breaks.Word": capital(word(doc.consequences.breaks)),
-    "consequence.factor.word": doc.consequences.factor === 0.5 ? "half" : `${num(doc.consequences.factor * 100)}%`,
-    "consequence.daysOff.word": word(doc.consequences.daysOff),
+    "limits.goal": money(acc.goal, 0),
+    "consequence.daysOff.word": word(doc.daysOff),
+    "consequence.daysOff": num(doc.daysOff),
+    "consequence.days": doc.daysOff === 1 ? "the next trading day" : `the next ${word(doc.daysOff)} trading days`,
     "news.before": `${num(doc.news.beforeMin)} minutes`,
     "news.after": `${num(doc.news.afterMin)} minutes`,
     "news.windowCurrencies": and(doc.news.windowCurrencies),
     "news.windowExtra": doc.news.windowExtra.length ? and(doc.news.windowExtra.map((p) => pairText(p, "window"))) : "nothing else",
-    "calib.displacement": num(doc.calibration.displacement),
     "calib.review": `${num(doc.calibration.reviewFrom)}–${num(doc.calibration.reviewTo)}`,
     "calib.rr": num(doc.calibration.rr),
     "evidence.trades": num(doc.calibration.evidence),
-    goLiveTrades: num(doc.goLiveTrades),
     exitLabMin: num(doc.exitLabMin),
   };
   doc.entryWindows.forEach((w, i) => {
@@ -393,12 +303,7 @@ export function tokenValues(doc: Rulebook): Record<string, string | null> {
     values[`window.${i + 1}.from`] = w.from;
     values[`window.${i + 1}.to`] = w.to;
   });
-  for (const g of ["A+", "A", "B", "C"]) {
-    values[`risk.${g}`] = risk(g);
-    values[`backtest.${g}`] = backtest(g);
-  }
-  // Section references, so renumbering the sections never breaks a "see §14".
-  doc.sections.forEach((s, i) => (values[`ref:${s.id}`] = `§${i + 1}`));
+  for (const g of ["A+", "A", "B", "C"]) values[`risk.${g}`] = risk(g);
   return values;
 }
 
@@ -426,7 +331,7 @@ export function unknownTokens(text: string, values: Record<string, string | null
  *     - a sub-bullet         - a sub-bullet under it
  *   > An aside, for the "why" behind a rule.
  *   | A | table | row |   (the first row is the header; a | --- | row is skipped)
- *   [[compass]]           a table drawn from the values, not typed
+ *   [[factors]]           a table drawn from the values, not typed
  *
  * Blocks are separated by blank lines or by a change of kind.
  */
@@ -441,14 +346,15 @@ export type Block =
 /** The tables and lists the desk draws from values. */
 export const GENERATED = [
   "flow",
+  "day",
   "skip-days",
+  "release-window",
+  "consequences",
   "base-rules",
   "factors",
-  "compass",
   "ladder",
   "guidance",
   "hypotheses",
-  "open-items",
   "glossary",
   "changelog",
 ] as const;
@@ -555,9 +461,7 @@ export function rulebookErrors(doc: Rulebook): string[] {
   const times: [string, string][] = [
     ["Box start", doc.box.from],
     ["Box end", doc.box.to],
-    ...(doc.planBy ? ([["Plan deadline", doc.planBy]] as [string, string][]) : []),
     ["Time stop", doc.timeStop],
-    ["Compass cut-off", doc.compassBy],
     ...doc.entryWindows.flatMap((w, i): [string, string][] => [
       [`Entry window ${i + 1} start`, w.from],
       [`Entry window ${i + 1} end`, w.to],
@@ -580,22 +484,19 @@ export function rulebookErrors(doc: Rulebook): string[] {
     ["Firm max loss", l.maxLossPct],
     ["Start balance", l.startBalance],
     ["Opening balance", l.openingBalance],
-    ["Second account", l.secondAccount],
-    ["Lot size", doc.ozPerLot],
+    ["Profit target", l.targetPct],
     ["Trades per day", doc.maxTradesPerDay],
   ];
   for (const [what, v] of positive) if (!(Number.isFinite(v) && v > 0)) errors.push(`${what} must be above 0`);
+  if (!l.accountName?.trim()) errors.push("The main account needs a name");
+  for (const a of l.linked ?? []) {
+    if (!a.name.trim()) errors.push("Every linked account needs a name");
+    if (!(Number.isFinite(a.opening) && a.opening > 0)) errors.push(`${a.name || "A linked account"}: its balance must be above 0`);
+  }
   for (const c of doc.grades) {
     if (!(Number.isFinite(c.riskPct) && c.riskPct >= 0)) errors.push(`${c.grade} risk must be 0 or more`);
   }
-  if (!(doc.consequences.factor > 0 && doc.consequences.factor <= 1)) errors.push("The reduced-risk multiplier must be above 0 and at most 1");
-
-  for (const d of WEEKDAY_KEYS) {
-    for (const side of ["short", "long"] as const) {
-      const v = doc.compass.days[d]?.[side];
-      if (!(Number.isFinite(v) && v >= 0 && v <= 100)) errors.push(`Compass ${WEEKDAY_NAMES[d]} ${side} must be 0–100%`);
-    }
-  }
+  if (!(Number.isInteger(doc.daysOff) && doc.daysOff >= 0)) errors.push("Days off must be a whole number, 0 or more");
 
   const n = doc.news;
   if (!(n.beforeMin >= 0 && n.afterMin >= 0)) errors.push("Release window minutes must be 0 or more");

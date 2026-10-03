@@ -5,9 +5,21 @@ Folder: ~/Documents/Trading/trade-assistant/
 
 PIERWSZY RAZ:
   1. Zainstaluj Node.js → nodejs.org (LTS)
-  2. Terminal:
-       cd ~/Documents/Trading/trade-assistant
+  2. Terminal (pobranie z GitHuba):
+       cd ~/Documents/Trading
+       gh repo clone Gusta1919/Trading-desk trade-assistant
+       cd trade-assistant
        npm install
+
+AKTUALIZACJA DO NOWEJ WERSJI (z GitHuba):
+  Zamknij dziennik (okno Terminala z serwerem), potem w Terminalu:
+       cd ~/Documents/Trading/trade-assistant
+       git fetch origin
+       git checkout main
+       git pull
+       npm install
+  Potem uruchom jak zwykle. Przy pierwszym starcie dziennik sam się czyści
+  (patrz ŚWIEŻY START niżej).
 
 KAŻDY RAZ — wybierz jedną opcję:
 
@@ -28,18 +40,33 @@ KAŻDY RAZ — wybierz jedną opcję:
      Potem: http://localhost:3847
 
 GDZIE SĄ MOJE DANE:
-  data/trade-assistant.db  — jeden plik SQLite: wszystkie transakcje i check-iny.
-  Zapisuje się natychmiast po kliknięciu „Add trade" / „Enter journal".
+  data/trade-assistant.db  — jeden plik SQLite: transakcje, check-iny i rulebook
+  (każda wersja). Zapisuje się natychmiast po zapisaniu transakcji / check-inu.
   Zamknięcie przeglądarki, serwera albo Maca niczego nie kasuje.
 
   KOPIA ZAPASOWA — dwa sposoby:
-   1. Przycisk „Backup" w aplikacji → plik .json z wszystkim (do Downloads).
+   1. Ikona pobierania (↓) w górnym pasku → plik .json z wszystkim (do Downloads).
    2. Skopiuj cały folder data/ (np. do iCloud / na dysk zewnętrzny).
       Najpierw zamknij serwer, żeby plik był kompletny.
+
+ŚWIEŻY START:
+  Pierwsze uruchomienie tej wersji samo przenosi starą bazę do data/archive/
+  (nic nie jest kasowane). Dziennik startuje pusty, z rulebookiem GOLD Model
+  jako wersją 1.0. Twoje własne check-iny przechodzą do nowej bazy. Wszystko,
+  co zostało po starym demo, jest usuwane przy starcie — dziennik jest czysty.
+
+  Później, w dowolnym momencie (najpierw zamknij serwer):
+    npm run reset         przenosi bazę do data/archive/ — następny start jest pusty
 
 JAK TO DZIAŁA (w skrócie):
   Serwer (port 3848) czyta i zapisuje bazę, strona (port 3847) ją pokazuje.
   Wszystko działa lokalnie na tym Macu — nic nie wychodzi do internetu.
+
+STARA WERSJA SIĘ OTWIERA?
+  To znaczy, że w tle działa stara kopia serwera. Launchery (Start Trade
+  Assistant.command i aplikacja w Docku) same ją wykrywają, zatrzymują
+  i uruchamiają wersję z tego folderu. Ręcznie:
+       lsof -ti tcp:3847 -ti tcp:3848 | xargs kill
 
 GDY NIC SIĘ NIE DZIEJE:
   1. Użyj opcji B (Start Trade Assistant.command) — zawsze pokazuje okno
@@ -58,19 +85,21 @@ W APLIKACJI:
   N        — nowa transakcja (najpierw ocena setupu, potem transakcja)
   ⌘↵       — zapisz transakcję
   1–5      — odpowiedzi w porannym check-inie (w weekend nie ma check-inu)
-  Today    — prawy dolny róg: status dnia (okna wejść, okna newsów, skip day);
-             kliknij, żeby zobaczyć cały dzień
-  Backup   — pobierz kopię wszystkiego: transakcje, check-iny, każda wersja
-             rulebooka (z limitami i regułami newsów), otwarte punkty
-  Rulebook — zasady GOLD Model; każda zmiana wymaga powodu i tworzy nową wersję
+  Today    — prawy dolny róg: status dnia (okna wejść, okna newsów, skip day,
+             dzień wolny); najedź myszą, żeby zobaczyć cały dzień, budżety i konto
+  ↓        — pobierz kopię wszystkiego: transakcje, check-iny, rulebook z changelogiem
+  Rulebook — zasady GOLD Model; każda sekcja edytuje się na miejscu, każda zmiana
+             wymaga jednego zdania powodu i trafia do changelogu. Limity konta
+             zmieniasz tylko tutaj (sekcja „Limits and consequences").
 
-DANE DEMO (do wypróbowania Coacha, Risk laba i Compare):
-  npm run demo:add      ~9 tygodni transakcji demo z check-inami
-                        (kilka celowych naruszeń, żeby Coach miał co pokazać)
-  npm run demo:more     tylko 2 transakcje do Exit laba (MFE)
-  npm run demo:fill     300 transakcji zdyscyplinowanego tradera
-  npm run demo:remove   usuwa wszystko oznaczone [demo] — nic innego
-  Demo kończy się 29.09.2026, więc nie dotyka żadnego prawdziwego dnia.
+DWA KONTA:
+  Wpisujesz wynik w $ tylko z konta FTMO 200K. Konto FTMO 100K dostaje ten sam %
+  od swojego salda. Dziennik pokazuje oba konta i sumę — liczone od startu dziennika,
+  bez wcześniejszego drawdownu. Nazwy i salda zmieniasz w Rulebooku (Limits).
+
+CHECK-IN:
+  Trzy wyniki: Clear to trade / Trade with care / Better to leave the charts.
+  To tylko ostrzeżenie i informacja — niczego nie blokuje, decyzja zawsze należy do Ciebie.
 
 DAILY BIAS (ZŁOTO) — SKĄD SIĘ BIERZE:
   Codziennie (pon–pt) o 9:46 czasu Amsterdamu rutyna Claude w chmurze

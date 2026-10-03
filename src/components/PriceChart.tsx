@@ -4,7 +4,6 @@ import {
   levelEffect,
   levelRole,
   priceDomain,
-  sessionRuns,
   stackLabels,
   timeMarks,
   verdictEffect,
@@ -57,7 +56,6 @@ export interface MapLevel {
 export interface Layers {
   levels: boolean;
   box: boolean;
-  sessions: boolean;
 }
 
 const PAD = { top: 28, right: 132, bottom: 26 };
@@ -90,13 +88,6 @@ const WASH: Record<ChartTone, string> = {
   accent: "fill-accent/10",
 };
 
-/* The session strip: three quiet steps of the same grey. */
-const STRIP = {
-  asia: "fill-faint/40",
-  london: "fill-soft/45",
-  ny: "fill-soft/80",
-} as const;
-
 /* Text over candles gets a halo in the surface colour instead of a box. */
 const HALO = { stroke: "var(--color-surface)", strokeWidth: 3.5, paintOrder: "stroke", strokeLinejoin: "round" } as const;
 
@@ -124,7 +115,10 @@ export function PriceChart({
   map,
   layers,
   toolbar,
+  crt,
 }: {
+  /** The rulebook's box and time stop, for the CRT box and its window. */
+  crt: { box: { from: string; to: string }; until: string };
   candles: Candle[];
   tf: Timeframe;
   height: number;
@@ -146,19 +140,13 @@ export function PriceChart({
   }, []);
 
   const n = candles.length;
-  const box = useMemo(() => (layers.box ? crtBox(candles) : null), [candles, layers.box]);
-  // Sessions on intraday views only: on 1h a week of sessions is noise, and the
-  // bottom axis already names the days.
-  const runs = useMemo(() => {
-    if (!layers.sessions || tf === "1h") return [];
-    return sessionRuns(candles).map((r) => ({
-      key: `${r.session}-${r.from}`,
-      label: r.session,
-      tint: (r.session === "New York" ? "ny" : r.session === "London" ? "london" : "asia") as keyof typeof STRIP,
-      from: r.from,
-      to: r.to,
-    }));
-  }, [candles, layers.sessions, tf]);
+  const box = useMemo(() => (layers.box ? crtBox(candles, crt.box, crt.until) : null), [candles, layers.box, crt.box, crt.until]);
+  // The box arrives with the candles: it starts when the sweep reaches its first candle and
+  // keeps pace to the end of its window, the same few milliseconds per candle.
+  const boxDelay = box ? Math.round((box.from / n) * INTRO_MS) : 0;
+  const boxSweep = box
+    ? { animation: `reveal ${Math.round(((Math.max(box.to, box.windowEnd) - box.from + 1) / n) * INTRO_MS)}ms linear ${boxDelay}ms both` }
+    : undefined;
   const [lo, hi] = useMemo(
     () =>
       priceDomain(
@@ -251,21 +239,6 @@ export function PriceChart({
 
       <div className="relative">
         <svg width={width} height={height} className="block select-none" role="img" aria-label="XAU/USD candles with the briefing's levels">
-          {/* Sessions: a thin strip along the top, out of the price action's way. Segments
-              are split by a 2px gap; New York, where the day's move usually happens, is
-              the brightest. */}
-          {runs.map((r) => (
-            <rect
-              key={r.key}
-              x={x(r.from) - slot / 2 + 1}
-              y={PAD.top - 7}
-              width={Math.max(1, (r.to - r.from + 1) * slot - 2)}
-              height={3}
-              rx={1.5}
-              className={STRIP[r.tint]}
-            />
-          ))}
-
           {/* The plan's zone: chop range or trigger area. */}
           {zone && (
             <rect
@@ -277,9 +250,10 @@ export function PriceChart({
             />
           )}
 
-          {/* CRT 3–4AM box and its 04:00–16:00 sweep window. */}
+          {/* The CRT box and its window up to the time stop — on the first draw it is
+              uncovered left to right in step with the candles beneath it. */}
           {box && (
-            <g>
+            <g style={intro ? boxSweep : undefined}>
               <rect
                 x={x(box.from) - slot / 2}
                 y={y(box.high)}
@@ -402,28 +376,19 @@ export function PriceChart({
             onPointerLeave={() => setCursor(null)}
           />
 
-          {/* Session names along the top. */}
-          {runs.map((r) =>
-            r.label && (r.to - r.from + 1) * slot > 48 ? (
-              <text
-                key={`label-${r.key}`}
-                x={x(r.from) - slot / 2 + 4}
-                y={PAD.top - 12}
-                className="fill-faint text-[9px] font-semibold uppercase tracking-[0.08em]"
-              >
-                {r.label}
-              </text>
-            ) : null,
-          )}
-
           {box && (
-            <text x={x(box.from) - slot / 2} y={y(box.high) - 5} className="fill-accent-2 text-[9px] font-semibold" style={HALO}>
-              CRT 3–4AM
+            <text
+              x={x(box.from) - slot / 2}
+              y={y(box.high) - 5}
+              className={cx("fill-accent-2 text-[9px] font-semibold", intro && "anim-fade")}
+              style={{ ...HALO, ...(intro ? { animationDelay: `${boxDelay}ms` } : {}) }}
+            >
+              CRT {crt.box.from}–{crt.box.to}
             </text>
           )}
 
           {zone && (
-            <text x={plotW - 8} y={y(Math.min(zone.high, hi)) + 13} textAnchor="end" className="fill-soft text-[10px]" style={HALO}>
+            <text x={plotW - 8} y={y(Math.min(zone.high, hi)) + 13} textAnchor="end" className="fill-soft text-micro" style={HALO}>
               {zone.label} {fmt(zone.low)}–{fmt(zone.high)}
             </text>
           )}
@@ -445,7 +410,7 @@ export function PriceChart({
               {Math.abs(m.labelY + 5 - m.y) > 3 && (
                 <line x1={2} x2={8} y1={m.y} y2={m.labelY - 3} className="stroke-soft/50" strokeWidth={1} />
               )}
-              <text x={8} y={m.labelY} className="text-[10px]" style={HALO}>
+              <text x={8} y={m.labelY} className="text-micro" style={HALO}>
                 <tspan className="num fill-faint text-[9px]">{KIND_TAG[m.kind]} </tspan>
                 <tspan className="fill-soft">{m.label} </tspan>
                 <tspan className="num fill-ink">{fmt(m.price)}</tspan>
@@ -460,7 +425,7 @@ export function PriceChart({
             <g key={t.text + t.live}>
               <rect x={plotW + 6} y={t.y - 8} width={PAD.right - 12} height={16} rx={4} className={t.live ? "fill-accent/20" : "fill-raised"} />
               <circle cx={plotW + 13} cy={t.y} r={2.5} className={FILL[t.tone]} />
-              <text x={plotW + 20} y={t.y + 3.5} className={cx("num text-[10px]", t.live ? "fill-accent-2 font-semibold" : "fill-soft")}>
+              <text x={plotW + 20} y={t.y + 3.5} className={cx("num text-micro", t.live ? "fill-accent-2 font-semibold" : "fill-soft")}>
                 {t.text}
               </text>
             </g>
@@ -477,7 +442,7 @@ export function PriceChart({
           {cursor && (
             <g>
               <rect x={plotW + 6} y={cursor.y - 8} width={60} height={16} rx={4} className="fill-ink/80" />
-              <text x={plotW + 12} y={cursor.y + 3.5} className="num fill-bg text-[10px] font-semibold">
+              <text x={plotW + 12} y={cursor.y + 3.5} className="num fill-bg text-micro font-semibold">
                 {fmt(Math.round(priceAt(cursor.y) * 100) / 100)}
               </text>
             </g>
@@ -487,7 +452,7 @@ export function PriceChart({
           {cursor && (
             <g>
               <rect x={x(cursor.i) - 30} y={height - 20} width={60} height={16} rx={4} className="fill-ink/80" />
-              <text x={x(cursor.i)} y={height - 8.5} textAnchor="middle" className="num fill-bg text-[10px] font-semibold">
+              <text x={x(cursor.i)} y={height - 8.5} textAnchor="middle" className="num fill-bg text-micro font-semibold">
                 {tf === "1h" ? `${dayMark(candles[cursor.i].t)} ` : ""}
                 {deskTime(new Date(candles[cursor.i].t))}
               </text>
@@ -506,7 +471,7 @@ export function PriceChart({
         {focused && (
           <div
             role="tooltip"
-            className="anim-fade pointer-events-none absolute left-2 z-10 w-[300px] rounded-xl border bg-raised px-3.5 py-3 text-[12px] leading-snug"
+            className="anim-fade pointer-events-none absolute left-2 z-10 w-[300px] rounded-xl border bg-raised px-3.5 py-3 text-small leading-snug"
             style={{
               top: focused.labelY + (focused.labelY > height * 0.6 ? -14 : 12),
               transform: focused.labelY > height * 0.6 ? "translateY(-100%)" : undefined,
@@ -515,7 +480,7 @@ export function PriceChart({
           >
             <div className="flex items-baseline justify-between gap-3">
               <span className="font-semibold text-ink">
-                <span className="num mr-1.5 text-[10px] text-faint">{KIND_TAG[focused.kind]}</span>
+                <span className="num mr-1.5 text-micro text-faint">{KIND_TAG[focused.kind]}</span>
                 {focused.label}
               </span>
               <span className="num text-ink">{fmt(focused.price)}</span>
@@ -525,14 +490,14 @@ export function PriceChart({
                 <div className="h-1 overflow-hidden rounded-full bg-subtle">
                   <div className="h-full rounded-full bg-accent" style={{ width: `${focused.prob}%` }} />
                 </div>
-                <div className="mt-1 text-[11px] text-faint">
+                <div className="mt-1 text-caption text-faint">
                   {focused.prob}% chance price trades at it (a wick counts) before the 17:00 NY close
                 </div>
               </div>
             )}
             <p className="mt-2 text-soft">{levelEffect(focused.kind, focused.price > last.c)}</p>
             <p className="mt-1 text-soft">{verdictEffect(focused.verdict, focused.kind)}</p>
-            {focused.note && <p className="mt-1.5 text-[11px] text-faint">{focused.note}</p>}
+            {focused.note && <p className="mt-1.5 text-caption text-faint">{focused.note}</p>}
           </div>
         )}
       </div>

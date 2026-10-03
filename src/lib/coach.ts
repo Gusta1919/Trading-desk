@@ -6,25 +6,19 @@
  * ("this happens") from a real problem ("something changed") — and in the rulebook:
  * what today allows, what is running from yesterday, and what is ready to decide.
  */
-import { QUESTIONS, VERDICTS, type CheckIn } from "./checkin";
-import { dayKey, fmtPct, fmtR } from "./format";
+import { VERDICTS, type CheckIn } from "./checkin";
+import { dayKey, fmtPct, fmtR, fmtUsd as money } from "./format";
 import { classifyOutcome, groupBy, isClosed, summarize, tradePct } from "./stats";
-import { costDrag, limitState } from "./limits";
-import { adherence, deskStatus, weekSpan } from "./discipline";
+import { accountState } from "./limits";
+import { adherence, daysOffText, deskStatus, weekSpan } from "./discipline";
 import { hypothesisResults } from "./hypotheses";
 import type { NewsDay } from "./newsRules";
 import { dayBudget } from "./risk";
 import { tokenValues, type Rulebook } from "./rulebook";
 import { minutesOf } from "./rules";
-import { deskNow } from "./tz";
-import {
-  DEFAULT_LIMITS,
-  FLAG_LABEL,
-  checklistOf,
-  checklistRecorded,
-  type Trade,
-  type TradeFlag,
-} from "./types";
+import { deskDateLabel, deskNow } from "./tz";
+import { defaultRulebook } from "./goldModel";
+import { FLAG_LABEL, type Trade, type TradeFlag } from "./types";
 import {
   behaviour,
   brokeRules as breaksRules,
@@ -211,9 +205,21 @@ export interface CoachDesk {
   news?: NewsDay | null;
 }
 
+/** "Wednesday 30 Sept" for a New York day. */
+const dayLabel = (day: string) => deskDateLabel(`${day}T12:00:00Z`);
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
-/** `allTrades` may include setups logged as skipped in the past; they are never counted. */
+/** What the days off cost, in the rulebook's own number: "the next trading day", "the next two trading days". */
+function daysOffBody(doc: Rulebook | null, from: string): string {
+  const n = doc?.daysOff ?? 1;
+  const days = doc ? tokenValues(doc)["consequence.days"] : "the next trading day";
+  return n === 1
+    ? `Any rule break costs ${days}. This one follows the break on ${dayLabel(from)}. Use it to review the journal, not to watch the chart.`
+    : `Any rule break costs ${days}. They started after ${dayLabel(from)}. Use them to review the journal, not to watch the chart.`;
+}
+
+/** `allTrades` may include setups logged as not taken; they are never counted. */
+
 export function buildBriefing(
   allTrades: Trade[],
   checkins: CheckIn[],
@@ -243,7 +249,7 @@ export function buildBriefing(
    * Today, as the rulebook sees it: one trade a day, a daily and a weekly stop, the
    * consequences still running and the news.
    */
-  const L = limits ?? DEFAULT_LIMITS;
+  const L = limits ?? defaultRulebook().limits;
   const budget = dayBudget(trades, today, L);
   const todays = trades.filter((t) => t.date.slice(0, 10) === today);
   const open = trades.filter((t) => !isClosed(t));
@@ -324,11 +330,11 @@ export function buildBriefing(
         id: "day-off",
         tone: "alert",
         priority: 100,
-        title: status.dayOff.reason === "rule-break" ? "Day off — a rule was broken today" : `Day off — until ${status.dayOff.until}`,
+        title: status.dayOff.reason === "rule-break" ? "Day off — a rule was broken today" : daysOffText(status.dayOff, today),
         body:
           status.dayOff.reason === "rule-break"
             ? "Any rule break ends the day. The trade is recorded; there is no next one today."
-            : `Breaking the one-trade rule or a loss limit costs ${doc ? tokenValues(doc)["consequence.daysOff.word"] : "two"} trading days. They started after ${status.dayOff.from}. Use them to review the journal, not to watch the chart.`,
+            : daysOffBody(doc, status.dayOff.from),
         why: "A consequence decided in advance is not a punishment, it is a circuit breaker: it takes the decision away from the state that broke the rule.",
       });
     }
@@ -360,17 +366,6 @@ export function buildBriefing(
       body: "Same rules, same size. The weekly stop is there so that a bad week stays a bad week.",
     });
   }
-  if (status?.halfRisk) {
-    add({
-      id: "half-risk",
-      tone: "warn",
-      priority: 86,
-      title: "Half-risk week",
-      body: `Two or more rule breaks last week put this week at reduced risk: A+ may risk ${pctStr(status.allowedByGrade["A+"] || L.maxRiskPct * (doc?.consequences.factor ?? 0.5))} at most.`,
-      why: "Smaller size after broken rules keeps a habit from becoming a drawdown while you fix it.",
-    });
-  }
-
   if (brokenToday.length) {
     const flags = [...new Set(brokenToday.flatMap((t) => t.flags).filter((f) => f !== "after_daily_stop"))];
     add({
@@ -385,39 +380,24 @@ export function buildBriefing(
     });
   }
 
-  if (checkinToday?.verdict === "sit-out") {
-    const same = closed.filter((t) => byDate.get(t.date.slice(0, 10))?.verdict === "sit-out");
+  // The check-in advises; it never closes the day. The card says what your own history shows on such days.
+  if (checkinToday && checkinToday.verdict !== "ready") {
+    const v = checkinToday.verdict;
+    const same = closed.filter((t) => byDate.get(t.date.slice(0, 10))?.verdict === v);
     add({
-      id: "sit-out",
-      tone: "alert",
-      priority: 98,
-      title: "Check-in says: stand down",
+      id: "checkin",
+      tone: "warn",
+      priority: v === "sit-out" ? 98 : 90,
+      title: v === "sit-out" ? "Check-in: better to leave the charts today" : "Check-in: trade with care today",
       body:
-        "The best thing you can do today is nothing — and the rulebook agrees: on a sit-out day nothing is tradable, and any trade is logged as a rule break.",
+        v === "sit-out"
+          ? "Your answers point to a bad day for trading. Stepping away is the strong move — but the choice is yours. If you trade, take only a setup you would show someone, and stop after it."
+          : "Something is off this morning. Nothing is forbidden — be strict with yourself: the cleanest setup only, and walk away at the first sign you're forcing it.",
       stat:
         same.length >= 2
-          ? `On past sit-out days you averaged ${fmtR(mean(same.map((t) => t.resultR!)))} over ${plural(same.length, "trade")} (overall ${fmtR(allAvgR)}).`
+          ? `On past days like this you averaged ${fmtR(mean(same.map((t) => t.resultR!)))} over ${plural(same.length, "trade")} (overall ${fmtR(allAvgR)}).`
           : undefined,
       why: "Tired or stressed brains take more risk to feel relief. The check-in is your calm self giving advice to your trading self.",
-    });
-  }
-
-  if (checkinToday?.verdict === "caution" && !todays.length) {
-    const flagged = QUESTIONS.filter((q) => (q.options[checkinToday.answers[q.id]]?.risk ?? 0) > 0).map(
-      (q) => `${q.short.toLowerCase()} (${q.options[checkinToday.answers[q.id]].label.toLowerCase()})`,
-    );
-    const same = closed.filter((t) => byDate.get(t.date.slice(0, 10))?.verdict === "caution");
-    add({
-      id: "caution",
-      tone: "warn",
-      priority: 88,
-      title: "Check-in says: trade restricted",
-      body: `Flags raised: ${flagged.join(", ")}. Raise the bar instead of trimming the size: only an A+ is tradable today — an A waits for a clearer morning — and the grade sets the risk, no rounding by feel.`,
-      stat:
-        same.length >= 2
-          ? `On past “trade with care” days you averaged ${fmtR(mean(same.map((t) => t.resultR!)))} over ${plural(same.length, "trade")} (overall ${fmtR(allAvgR)}).`
-          : undefined,
-      why: "You can't always choose how you feel, but you can choose how much it's allowed to cost. Smaller size on weaker days keeps a bad state from turning into a bad week.",
     });
   }
 
@@ -490,39 +470,25 @@ export function buildBriefing(
    * The prop firm's lines. This is the only failure in the journal that is not
    * recoverable by trading better tomorrow, so it outranks everything else.
    */
-  if (limits?.enabled) {
-    const L = limitState(trades, limits, now);
-    if (L.dailyUsed >= 0.5 || L.maxUsed >= 0.5) {
-      const dailyCritical = L.dailyUsed >= 0.8;
+  if (limits) {
+    const A = accountState(trades, limits, now);
+    const floorUsed = limits.maxLossPct > 0 ? 1 - A.room / ((limits.startBalance * limits.maxLossPct) / 100) : 0;
+    if (A.dailyUsed >= 0.5 || floorUsed >= 0.5) {
+      const dailyCritical = A.dailyUsed >= 0.8;
       add({
         id: "limits",
-        tone: dailyCritical || L.maxUsed >= 0.8 ? "alert" : "warn",
+        tone: dailyCritical || floorUsed >= 0.8 ? "alert" : "warn",
         priority: 97,
         title: dailyCritical
-          ? `${fmtPct(-L.todayLoss)} today — ${L.dailyLeft.toFixed(2)}% from the daily limit`
-          : `You have used ${pct0(Math.max(L.dailyUsed, L.maxUsed))} of a limit`,
+          ? `Today has used ${pct0(A.dailyUsed)} of the firm's daily line`
+          : `You have used ${pct0(Math.max(A.dailyUsed, floorUsed))} of a firm limit`,
         body: dailyCritical
           ? "Stop for today. One more trade at normal size could end the account, and no setup is worth that. The daily line resets tomorrow; a breach does not."
-          : `Room left: ${L.dailyLeft.toFixed(2)}% today, ${L.maxLeft.toFixed(2)}% overall. Size the next trade so a full stop-out still leaves you inside both.`,
-        stat: `Today ${L.todayLoss.toFixed(2)}% of ${limits.dailyLossPct}% · overall ${L.drawdown.toFixed(2)}% of ${limits.maxLossPct}% · safe risk now ${L.safeRisk.toFixed(2)}%.`,
+          : `Room above the firm's floor: ${money(A.room)}. Size the next trade so a full stop-out still leaves you inside both lines.`,
+        stat: `Balance ${money(A.balance)} · floor ${money(A.floor)} · safe risk now ${A.safeRisk.toFixed(2)}%.`,
         why: "Every other mistake in this journal costs you money you can win back. This one costs you the account, and the pressure of being near the line is exactly what makes traders size up to escape it.",
       });
     }
-  }
-
-  /* What the broker quietly takes */
-  const drag = costDrag(trades);
-  if (drag && drag.n >= 10 && drag.share != null && drag.share >= 0.25) {
-    add({
-      id: "costs",
-      tone: drag.share >= 0.5 ? "warn" : "info",
-      priority: 58,
-      title: `Costs took ${pct0(drag.share)} of your gross profit`,
-      body:
-        "Commission and swap come out of every trade whether it wins or loses. At this share they are not a rounding error — they are a competitor. Bigger targets, fewer trades, or tighter spreads all fix it; trading harder does not.",
-      stat: `${fmtPct(-drag.cost, 3)} over ${plural(drag.n, "trade")} — ${fmtPct(drag.perTrade, 3)} each. You kept ${fmtPct(drag.net, 3)} of ${fmtPct(drag.gross, 3)}.`,
-      why: "In the largest study of day traders ever run, costs turned a small gross loss into a much larger net one. Costs are the most reliably underestimated number in trading, because they never show up on the chart.",
-    });
   }
 
   /* Streaks — is this normal for me? */
@@ -721,20 +687,8 @@ export function buildBriefing(
       });
     }
 
-    // The Compass is a frozen snapshot — and it goes stale.
-    const age = Math.floor((new Date(`${today}T12:00:00Z`).getTime() - new Date(`${doc.compass.frozenOn}T12:00:00Z`).getTime()) / 86_400_000);
-    if (age > doc.compass.refreshDays) {
-      add({
-        id: "compass-age",
-        tone: "info",
-        priority: 45,
-        title: `The Compass snapshot is ${age} days old`,
-        body: "It is due a refresh every quarter. Pull the new weekday values and update the snapshot in the Rulebook — it becomes a new version.",
-      });
-    }
-
     // Hypotheses with enough data behind them.
-    const ready = hypothesisResults(doc, trades).filter((h) => h.status === "ready");
+    const ready = hypothesisResults(doc, allTrades).filter((h) => h.status === "ready");
     if (ready.length) {
       const values = tokenValues(doc);
       add({
@@ -789,24 +743,15 @@ export function buildBriefing(
 
     if (broken.length) {
       const mistakes = [...new Set(broken.flatMap((t) => t.mistakes))];
-      const missing = [
-        ...new Set(
-          broken.flatMap((t) =>
-            checklistOf(t)
-              .filter((c) => !t.checklist.includes(c.id))
-              .map((c) => c.label),
-          ),
-        ),
-      ];
+      const flags = [...new Set(broken.flatMap((t) => t.flags))];
       add({
         id: "last-rules",
         tone: "warn",
         priority: 85,
         title: `Last session (${when}) you broke a rule`,
         body: [
+          flags.length ? `Broken: ${flags.map((f) => FLAG_LABEL[f].toLowerCase()).join(", ")}.` : "",
           mistakes.length ? `Mistakes: ${mistakes.join(", ")}.` : "",
-          missing.length ? `Checklist items skipped: ${missing.join(", ")}.` : "",
-          broken.some((t) => t.followedPlan === false) ? "You marked that you didn't follow your plan." : "",
           "Name what triggered it in today's reflection — awareness is what breaks the loop.",
         ]
           .filter(Boolean)
@@ -820,10 +765,7 @@ export function buildBriefing(
         priority: 80,
         title: `Last session (${when}) ended ${fmtPct(dayPct)}`,
         body:
-          (dayTrades.some(checklistRecorded)
-            ? "You followed your rules — that loss was the cost of doing business."
-            : "Nothing in the log says you broke a rule, though the checklist wasn't recorded for that day.") +
-          " It's already paid. Today's job isn't to win it back; it's to take the next good setup, or none.",
+          "You followed your rules — that loss was the cost of doing business. It's already paid. Today's job isn't to win it back; it's to take the next good setup, or none.",
         why: "Loss aversion: losses feel about twice as strong as equal gains. That pain pushes traders to “get it back” with bigger size or weaker setups.",
       });
     } else if (dayPct > 0) {
@@ -831,9 +773,7 @@ export function buildBriefing(
         id: "last-win",
         tone: "good",
         priority: 40,
-        title: `Last session (${when}) ended ${fmtPct(dayPct)}${
-          dayTrades.some(checklistRecorded) ? " with rules followed" : ""
-        }`,
+        title: `Last session (${when}) ended ${fmtPct(dayPct)} with rules followed`,
         body: "That's the process working. Today starts from zero — same standards, no need to “keep it going”.",
       });
     }
@@ -970,8 +910,8 @@ export function buildBriefing(
   /* Where your edge is — the setups and conditions that pay you */
   // The rulebook's own grade factors count as structure too — whatever they are called.
   const STRUCTURE = new Set([
-    "Entry", "HTF", "Session", "Setup", "Symbol", "Direction", "Weekday", "Time", "Planned R:R", "Box size",
-    "Entry type", "Exit reason", "15m swing", "POI", "Level sweep", "Desk", "Sweep depth", "Release day",
+    "Session", "Direction", "Weekday", "Time", "Planned R:R", "Box size", "Exit reason", "15m swing", "POI",
+    "Level sweep", "Bias vs briefing", "HTF timeframe", "Sweep depth", "Release day",
     ...(doc?.factors.map((f) => f.name) ?? []),
   ]);
   const bestEdges = edges(insights)
@@ -1104,7 +1044,7 @@ export function buildBriefing(
         : tone === "warn"
           ? "Trade with care today. Note the flags below."
           : checkinToday?.verdict === "ready"
-            ? "Cleared to trade. Hold your rules and wait for structure."
+            ? "Clear to trade. Hold your rules and wait for structure."
             : "Desk status before the session opens.";
 
   /* Reflection question, chosen by context */

@@ -49,8 +49,6 @@ async function get<T>(url: string): Promise<T> {
 export const newsApi = {
   calendar: () => get<CalendarFeed>("/api/news/calendar"),
   headlines: () => get<HeadlineFeed>("/api/news/headlines"),
-  /** The rulebook's news rules — edited, like every rule, in the Rulebook tab. */
-  rules: () => get<NewsRules>("/api/news/rules"),
 };
 
 /* ── News on a trade's day ───────────────────────────────────────────── */

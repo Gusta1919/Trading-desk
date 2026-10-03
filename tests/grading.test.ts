@@ -5,42 +5,33 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { goldModelDefinition } from "../server/migrate";
+import { BIAS_OPTION, defaultRulebook } from "../src/lib/goldModel";
 import {
   computeGrade,
   definitionErrors,
+  factorSteps,
   gradeRequirements,
   numberFactorErrors,
   rangeIndex,
   rangeLabel,
   rangeValue,
+  whyGrade,
 } from "../src/lib/grading";
 import type { ChoiceFactor, Definition, NumberFactor } from "../src/lib/types";
 
-const gold = goldModelDefinition() as unknown as Definition;
-const factor = (name: string) => gold.factors.find((f) => f.name === name)!;
-const option = (name: string, label: string) =>
-  (factor(name) as ChoiceFactor).options.find((o) => o.label === label)!.id;
+const gold: Definition = defaultRulebook();
+const factor = (id: string) => gold.factors.find((f) => f.id === id)!;
 const allRules = gold.baseRules.map((r) => r.id);
 
-/** Every GOLD answer at its best, with overrides by factor name. */
-function goldAnswers(over: Record<string, string | number> = {}) {
-  const best: Record<string, string | number> = {
-    "HTF reason timeframe": "4H / Daily",
-    "Entry model": "MSS 5m",
-    Displacement: "Strong",
-    "Daily bias": "Matches",
-    "Compass probability": 75,
-    Conviction: "No doubts",
-  };
-  const merged = { ...best, ...over };
-  const answers: Record<string, string | number> = {};
-  for (const [name, v] of Object.entries(merged)) {
-    const f = factor(name);
-    answers[f.id] = f.kind === "number" ? v : option(name, String(v));
-  }
-  return answers;
-}
+/** Every GOLD answer at its best, with overrides by factor id. */
+const goldAnswers = (over: Record<string, string | number> = {}): Record<string, string | number> => ({
+  "htf-tf": "htf-4h-plus",
+  disp: 1.5,
+  bias: BIAS_OPTION.matches,
+  compass: 70,
+  conviction: "conv-none",
+  ...over,
+});
 
 describe("GOLD Model grading", () => {
   it("is A+ when every rule holds and every answer is the best", () => {
@@ -51,15 +42,9 @@ describe("GOLD Model grading", () => {
   });
 
   it("takes the lowest cap across all answers", () => {
-    const r = computeGrade(gold, {
-      ticked: allRules,
-      answers: goldAnswers({ "HTF reason timeframe": "1H", Displacement: "Weak" }),
-    });
+    const r = computeGrade(gold, { ticked: allRules, answers: goldAnswers({ "htf-tf": "htf-1h", disp: 0.1 }) });
     assert.equal(r.grade, "B");
-    assert.deepEqual(
-      r.cappedBy.map((c) => c.label),
-      ["Displacement: Weak"],
-    );
+    assert.deepEqual(r.cappedBy.map((c) => c.label), ["Displacement multiple: <0.25×"]);
   });
 
   it("drops to C when any base rule is unticked, whatever the answers", () => {
@@ -69,41 +54,36 @@ describe("GOLD Model grading", () => {
     assert.equal(r.cappedBy[0].source, "rule");
   });
 
-  it("puts the Compass boundaries 55 / 65 / 70 on the right side", () => {
-    const at = (x: number) =>
-      computeGrade(gold, { ticked: allRules, answers: goldAnswers({ "Compass probability": x }) }).grade;
-    assert.equal(at(54.9), "C");
-    assert.equal(at(55), "B"); // 55 to 65 → B includes 55
-    assert.equal(at(65), "B"); // …and 65
-    assert.equal(at(65.01), "A"); // >65 to 70 → A
-    assert.equal(at(70), "A"); // …includes 70
-    assert.equal(at(70.01), "A+"); // >70 → A+
-  });
-
-  it("labels the Compass ranges exactly as written", () => {
-    const f = factor("Compass probability") as NumberFactor;
-    assert.deepEqual([0, 1, 2, 3].map((i) => rangeLabel(f, i)), ["<55", "55 to 65", ">65 to 70", ">70"]);
+  it("labels the displacement ranges as the rulebook draws them", () => {
+    const f = factor("disp") as NumberFactor;
+    assert.deepEqual([0, 1, 2].map((i) => rangeLabel(f, i)), ["<0.25", "0.25 to <1", "≥1"]);
   });
 
   it("gives each range button a value that falls back into that range", () => {
-    const f = factor("Compass probability") as NumberFactor;
-    for (const i of [0, 1, 2, 3]) assert.equal(rangeIndex(f, rangeValue(f, i)), i);
+    for (const id of ["disp", "compass"]) {
+      const f = factor(id) as NumberFactor;
+      for (const i of f.caps.keys()) assert.equal(rangeIndex(f, rangeValue(f, i)), i);
+    }
   });
 
   it("explains what caps the grade and what the next one needs", () => {
-    const r = computeGrade(gold, {
-      ticked: allRules,
-      answers: goldAnswers({ "Entry model": "BOS 5m", "HTF reason timeframe": "1H" }),
-    });
+    const r = computeGrade(gold, { ticked: allRules, answers: goldAnswers({ conviction: "conv-lacking", "htf-tf": "htf-1h" }) });
     assert.equal(r.grade, "A");
-    assert.deepEqual(r.cappedBy.map((c) => c.label).sort(), ["Entry model: BOS 5m", "HTF reason timeframe: 1H"]);
+    assert.deepEqual(r.cappedBy.map((c) => c.label).sort(), ["Conviction: Lacking something for A+", "HTF reason timeframe: 1H"]);
     assert.equal(r.next?.grade, "A+");
-    assert.deepEqual(r.next?.needs.sort(), ["Entry model: MSS 5m", "HTF reason timeframe: 4H / Daily"]);
+    assert.deepEqual(r.next?.needs.sort(), ["Conviction: No doubts", "HTF reason timeframe: 4H, Daily or Weekly"]);
+  });
+
+  it("says in one line why a setup got its grade", () => {
+    const snap = { baseRules: gold.baseRules, factors: gold.factors, ticked: allRules };
+    assert.equal(whyGrade({ ...snap, answers: goldAnswers() }), "Every rule held, every factor at its best");
+    assert.equal(whyGrade({ ...snap, answers: goldAnswers({ "htf-tf": "htf-1h" }) }), "HTF reason timeframe: 1H");
+    assert.match(whyGrade({ ...snap, ticked: allRules.filter((id) => id !== "window"), answers: goldAnswers() }), /^Missing: Inside the entry window/);
   });
 
   it("marks the grade provisional until every factor is answered", () => {
     const answers = goldAnswers();
-    delete answers[factor("Conviction").id];
+    delete answers.conviction;
     const r = computeGrade(gold, { ticked: allRules, answers });
     assert.equal(r.complete, false);
     assert.deepEqual(r.missingFactors.map((f) => f.name), ["Conviction"]);
@@ -111,12 +91,11 @@ describe("GOLD Model grading", () => {
 
   it("writes the ladder from the definition", () => {
     const top = gradeRequirements(gold, "A+");
-    assert.ok(top.requires.includes("all 7 base rules"));
-    assert.ok(top.requires.includes("Compass probability: >70"));
+    assert.ok(top.requires.includes(`all ${gold.baseRules.length} base rules`));
+    assert.ok(top.requires.includes("Compass: ≥60%"));
     const c = gradeRequirements(gold, "C");
     assert.ok(c.cappedHere.includes("any base rule missing"));
     assert.ok(c.cappedHere.includes("Daily bias: Against"));
-    assert.ok(c.cappedHere.includes("Compass probability: <55"));
   });
 
   it("is a valid definition", () => {
@@ -188,5 +167,30 @@ describe("number factor validation", () => {
 
   it("rejects a range with no grade", () => {
     assert.equal(numberFactorErrors({ ...base, caps: ["C", "B"] }).length, 1);
+  });
+});
+
+describe("the rulebook's table: one step per answer", () => {
+  const f = factor;
+
+  it("lists every answer with the best grade it allows, best first", () => {
+    assert.deepEqual(factorSteps(f("htf-tf")), [
+      { label: "4H, Daily or Weekly", cap: "A+" },
+      { label: "1H", cap: "A" },
+    ]);
+    assert.deepEqual(
+      factorSteps(f("disp")).map((s) => [s.label, s.cap]),
+      [["≥1×", "A+"], ["0.25 to <1×", "A"], ["<0.25×", "B"]],
+    );
+    assert.deepEqual(
+      factorSteps(f("compass")).map((s) => [s.label, s.cap]),
+      [["≥60%", "A+"], ["<60%", "B"]],
+    );
+  });
+
+  it("keeps a C-only answer, so the C column is never empty", () => {
+    const bias = factorSteps(f("bias"));
+    assert.equal(bias[bias.length - 1].cap, "C");
+    assert.deepEqual(factorSteps(f("conviction")).map((s) => s.cap), ["A+", "A", "B", "C"]);
   });
 });

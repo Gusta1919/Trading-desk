@@ -12,6 +12,10 @@ export const fmtNum = (v: number | null, digits = 2) =>
   v == null || !Number.isFinite(v) ? "—" : v.toFixed(digits);
 
 /** Class for text that shows a gain or a loss. Neutral when zero/empty. */
+/** Whole dollars: "$1,234", "−$56". */
+export const fmtUsd = (x: number) => `${x < 0 ? "−" : ""}$${Math.round(Math.abs(x)).toLocaleString("en-US")}`;
+/** Whole dollars with a sign: "+$1,234", "−$56". */
+export const fmtUsdSigned = (x: number) => `${Math.round(x) > 0 ? "+" : ""}${fmtUsd(x)}`;
 export const tone = (v: number | null | undefined) =>
   v == null || Math.abs(v) < 1e-9 ? "" : v > 0 ? "text-up" : "text-down";
 

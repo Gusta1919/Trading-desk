@@ -17,7 +17,7 @@ import { classifyOutcome, isClosed, tradePct } from "@/lib/stats";
 import { deskDay } from "@/lib/tz";
 import { GRADES, SESSIONS, isGrade, type Limits, type Trade } from "@/lib/types";
 import { SimChart, type PathStats } from "./SimChart";
-import { Chips, Segmented, cx, stagger, useCountUp } from "./ui";
+import { PageHeader, Panel, Segmented, cx, stagger, useCountUp } from "./ui";
 
 /** Below this, a simulation of your own results would mostly be noise. */
 const MIN_TRADES = 15;
@@ -42,10 +42,8 @@ interface Filters {
   grades: string[];
   sessions: string[];
   period: Period;
-  /** Leave out trades that crossed one of your lines. */
-  cleanOnly: boolean;
 }
-const NO_FILTERS: Filters = { grades: [...GRADES, "none"], sessions: [...SESSIONS, "none"], period: "all", cleanOnly: false };
+const NO_FILTERS: Filters = { grades: [...GRADES, "none"], sessions: [...SESSIONS, "none"], period: "all" };
 
 /** One way of replaying your history: which trades, sized how, called what. */
 interface Scenario {
@@ -141,12 +139,6 @@ const QUESTIONS: Question[] = [
   },
 ];
 
-const same = (a: Filters, b: Filters) =>
-  a.period === b.period &&
-  a.cleanOnly === b.cleanOnly &&
-  [...a.grades].sort().join() === [...b.grades].sort().join() &&
-  [...a.sessions].sort().join() === [...b.sessions].sort().join();
-
 /** A day's result both ways, with every trade the rules would have sized differently. */
 interface DayCompare {
   day: string;
@@ -169,8 +161,7 @@ function replayDays(closed: Trade[], filters: Filters, doc: Rulebook, L: Limits)
   const inPeriod = closed.filter((t) => cutoff == null || t.date.slice(0, 10) >= cutoff);
   const keep = (t: Trade) =>
     filters.grades.includes(isGrade(t.grade) ? t.grade : "none") &&
-    filters.sessions.includes(SESSIONS.includes(t.session) ? t.session : "none") &&
-    !(filters.cleanOnly && t.flags.length);
+    filters.sessions.includes(SESSIONS.includes(t.session) ? t.session : "none");
   const riskOf = rulesRisk(doc);
   // The weekly stop carries across days: each week's result so far, under the rules.
   const weekNet = new Map<string, number>();
@@ -223,7 +214,6 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
   const L = doc.limits;
   const [look, setLook] = useState(63);
   const [qid, setQid] = useState("future");
-  const [custom, setCustom] = useState<Scenario>({ ...EVERYTHING, label: "your filters" });
   const [expanded, setExpanded] = useState(false);
   const [details, setDetails] = useState(false);
   const [picked, setPicked] = useState<PathStats | null>(null);
@@ -231,26 +221,7 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
   const allClosed = useMemo(() => trades.filter(isClosed), [trades]);
 
   const questions = useMemo(() => QUESTIONS.filter((q) => q.available(allClosed)), [allClosed]);
-  const q: Question = useMemo(() => {
-    if (qid === "custom") {
-      const isEverything = same(custom.filters, NO_FILTERS) && custom.sizing === "rules";
-      return {
-        id: "custom",
-        chip: "Custom…",
-        ask: "Your own question — choose the trades below.",
-        now: custom,
-        base: isEverything ? null : { ...EVERYTHING, label: "everything" },
-        answer: {
-          better: "Better than all your trades together.",
-          worse: "Worse than all your trades together.",
-          mixed: "Better in some ways, worse in others, than all your trades together.",
-          none: "About the same as all your trades together.",
-        },
-        available: () => true,
-      };
-    }
-    return questions.find((x) => x.id === qid) ?? questions[0];
-  }, [qid, custom, questions]);
+  const q: Question = useMemo(() => questions.find((x) => x.id === qid) ?? questions[0], [qid, questions]);
 
   const nowDays = useMemo(() => replayDays(allClosed, q.now.filters, doc, L), [allClosed, q, doc, L]);
   const baseDays = useMemo(
@@ -307,7 +278,7 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
 
   const controls = (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[11px] uppercase tracking-[0.08em] text-faint">Look ahead</span>
+      <span className="eyebrow">Look ahead</span>
       <Segmented
         size="sm"
         value={look}
@@ -317,7 +288,7 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
       <button
         onClick={() => setExpanded((e) => !e)}
         title={expanded ? "Close (Esc)" : "Expand the chart"}
-        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink"
+        className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-small text-soft hover:bg-subtle hover:text-ink"
       >
         {expanded ? <X size={14} /> : <Maximize2 size={13} />}
         {expanded ? "Close" : "Expand"}
@@ -334,8 +305,8 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
       </p>
     ) : !result ? (
       <div className="relative overflow-hidden rounded-xl" style={{ height }}>
-        <div className="absolute inset-0 bg-subtle" style={{ animation: "skeleton 1.8s ease-in-out infinite" }} />
-        <p className="absolute inset-0 flex items-center justify-center text-[13px] text-faint">
+        <div className="anim-skeleton absolute inset-0 bg-subtle" />
+        <p className="absolute inset-0 flex items-center justify-center text-body text-faint">
           Modelling {RUNS.toLocaleString("en-GB")} futures…
         </p>
       </div>
@@ -347,28 +318,23 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
     );
 
   return (
-    <>
-      <section id="sec-simulation" className="card scroll-mt-24 px-6 py-5">
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-[15px] font-semibold">Risk Lab</h2>
-            <p className="text-[12px] text-faint">
-              Pick a question. Your own trading days are replayed into {RUNS.toLocaleString("en-GB")} possible futures
-              to answer it.
-            </p>
-          </div>
-          {controls}
-        </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Risk lab"
+        sub={`Your own trading days, replayed into ${RUNS.toLocaleString("en-GB")} possible futures. Pick a question.`}
+        actions={controls}
+      />
 
+      <Panel index={1} id="sec-simulation">
         {/* One question at a time — each sets up the right trades and the right comparison. */}
         <div className="flex flex-wrap items-center gap-2">
-          {[...questions, { id: "custom", chip: "Custom…", ask: "" }].map((x) => (
+          {questions.map((x) => (
             <button
               key={x.id}
               onClick={() => setQid(x.id)}
               title={x.ask}
               className={cx(
-                "rounded-full border px-3.5 py-1.5 text-[13px] transition-[color,background-color,border-color] duration-200",
+                "rounded-full border px-3.5 py-1.5 text-body transition-[color,background-color,border-color] duration-200",
                 q.id === x.id ? "border-ink bg-ink text-bg" : "text-soft hover:border-soft hover:text-ink",
               )}
             >
@@ -376,8 +342,6 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
             </button>
           ))}
         </div>
-
-        {q.id === "custom" && <CustomFilters value={custom} onChange={setCustom} trades={allClosed} />}
 
         {enough && result && (
           <div className={cx("transition-opacity duration-500", pending && "opacity-50")}>
@@ -396,10 +360,10 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
 
         <button
           onClick={() => setDetails((v) => !v)}
-          className="mt-6 flex items-center gap-1.5 text-[12px] text-faint hover:text-ink"
+          className="mt-6 flex items-center gap-1.5 text-small text-faint hover:text-ink"
         >
           <ChevronDown size={13} className={cx("transition-transform duration-200", details && "rotate-180")} />
-          {details ? "Less detail" : "More detail — rules against what you did, projections, raw numbers"}
+          {details ? "Less detail" : "More detail — your rules against what you did, projections, raw numbers"}
         </button>
         {details && (
           <div className="anim-rise">
@@ -412,14 +376,14 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
             )}
           </div>
         )}
-      </section>
+      </Panel>
 
       {expanded && (
         <div className="fixed inset-0 z-50 flex flex-col overflow-y-auto bg-bg px-8 py-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-[15px] font-semibold">Risk lab · {q.chip}</h2>
-              <p className="text-[12px] text-faint">
+              <h2 className="text-title font-semibold">Risk lab · {q.chip}</h2>
+              <p className="text-small text-faint">
                 {RUNS.toLocaleString("en-GB")} futures over the next {lookLabel}
               </p>
             </div>
@@ -432,7 +396,7 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
       )}
 
       <ExitLabCard trades={trades} doc={doc} />
-    </>
+    </div>
   );
 }
 
@@ -448,23 +412,20 @@ function ExitLabCard({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
     : null;
   const actual = lab.rows.find((r) => r.id === "actual")!;
   return (
-    <section id="sec-exit-lab" className="card mt-4 scroll-mt-24 px-6 py-5">
-      <div className="mb-4">
-        <h2 className="text-[15px] font-semibold">Exit lab</h2>
-        <p className="text-[12px] text-faint">
-          Which target would have paid best? Your taken trades, replayed from the MFE each one logged — approximate, since
-          the path inside a trade isn't known.
-        </p>
-      </div>
+    <Panel
+      index={2}
+      id="sec-exit-lab"
+      title="Exit lab"
+      sub="Which target would have paid best? Your taken trades, replayed from the MFE each one logged — approximate, since the path inside a trade isn't known."
+    >
       {!lab.enough ? (
         <p className="py-6 text-center text-soft">
-          Needs at least {doc.exitLabMin} taken trades with MFE logged — you have {lab.n}. Log the best price on every
-          trade and this answers itself.
+          Needs at least {doc.exitLabMin} taken trades with MFE logged — you have {lab.n}. Log the MFE (how far it went your way, in R) on every trade and this answers itself.
         </p>
       ) : (
         <>
           {best && actual.avgR != null && (
-            <p className="mb-4 text-[14px]">
+            <p className="mb-4 text-title">
               {best.avgR! > actual.avgR + 0.05 ? (
                 <>
                   <b className="font-semibold">{best.label}</b> would have paid best: {fmtNum(best.avgR, 2)}R a trade against{" "}
@@ -476,9 +437,9 @@ function ExitLabCard({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
             </p>
           )}
           <div className="-mx-6 overflow-x-auto">
-            <table className="w-full text-[13px]">
+            <table className="w-full text-body">
               <thead>
-                <tr className="border-b text-[11px] uppercase tracking-[0.06em] text-faint">
+                <tr className="border-b eyebrow">
                   <th className="px-6 py-2 text-left font-medium">Exit rule</th>
                   <th className="px-3 py-2 text-right font-medium">Trades</th>
                   <th className="px-3 py-2 text-right font-medium">Unknown</th>
@@ -505,13 +466,13 @@ function ExitLabCard({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
               </tbody>
             </table>
           </div>
-          <p className="mt-3 text-[12px] text-faint">
-            A trade reaches X R if its MFE did. A bigger target than the one a trade hit counts only when the furthest price
-            until {doc.timeStop} was logged; otherwise it is left out as unknown.
+          <p className="mt-3 text-small text-faint">
+            A trade reaches X R if its MFE did. A bigger target than the one a trade hit counts only when how far price ran
+            by {doc.timeStop} was logged (in R); otherwise it is left out as unknown.
           </p>
         </>
       )}
-    </section>
+    </Panel>
   );
 }
 
@@ -609,11 +570,13 @@ function Answer({
   }
 
   return (
-    <div className="anim-rise relative mt-4 overflow-hidden rounded-xl border py-4 pl-6 pr-5">
-      <span className="absolute inset-y-0 left-0 w-[3px]" style={{ backgroundColor: bar }} />
-      <p className="text-[12px] text-faint">{q.ask}</p>
-      <p className={cx("mt-1 text-[16px] font-medium leading-snug", tone)}>{headline}</p>
-      <p className="mt-1.5 text-[12px] text-faint">
+    <div
+      className="anim-rise mt-4 rounded-xl border px-5 py-4"
+      style={{ borderColor: `color-mix(in oklab, ${bar} 32%, transparent)`, backgroundColor: `color-mix(in oklab, ${bar} 6%, transparent)` }}
+    >
+      <p className="text-small text-faint">{q.ask}</p>
+      <p className={cx("mt-1 text-title font-medium leading-snug", tone)}>{headline}</p>
+      <p className="mt-1.5 text-small text-faint">
         {q.base ? `Comparing ${q.base.label} → ${q.now.label}` : `All your setups, each sized by your rules`}, over the next{" "}
         {lookLabel} · based on {trades} trade{trades === 1 ? "" : "s"}.
         {thin && (
@@ -688,15 +651,13 @@ function Tile({
   // Counts up to its value, the same way the headline numbers across the app do.
   const shown = useCountUp(value, 900) ?? value;
   return (
-    // The entrance sits on a wrapper: its held end state would cancel card-hover's lift.
-    <div className="anim-rise flex" style={stagger(index, 70)}>
-    <div className="card card-hover w-full px-4 py-3.5">
-      <p className="text-[11px] uppercase tracking-[0.08em] text-faint">{label}</p>
-      <p className="num mt-1 flex items-baseline gap-1.5 text-[22px] font-semibold tracking-tight">
-        {was != null && <span className="text-[13px] font-normal text-faint">{fmt(was)} →</span>}
+    <div className="well anim-rise px-4 py-3.5" style={stagger(index, 70)}>
+      <p className="eyebrow">{label}</p>
+      <p className="num mt-1 flex items-baseline gap-1.5 text-stat font-semibold tracking-tight">
+        {was != null && <span className="text-body font-normal text-faint">{fmt(was)} →</span>}
         <span className={!signed ? "text-ink" : value >= 0 ? "text-up" : "text-down"}>{fmt(shown)}</span>
       </p>
-      <p className="mt-0.5 text-[12px] leading-snug text-faint">
+      <p className="mt-0.5 text-small leading-snug text-faint">
         {was != null && (
           <span className={cx("font-medium", move > 0 ? "text-up" : move < 0 ? "text-down" : "text-faint")}>
             {move > 0 ? "better · " : move < 0 ? "worse · " : "no real change · "}
@@ -705,94 +666,8 @@ function Tile({
         {help}
       </p>
     </div>
-    </div>
   );
 }
-
-/* ── Your own question ───────────────────────────────────────────────── */
-
-const joinAnd = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
-
-/** The four filters, for questions the ready-made ones don't cover. */
-function CustomFilters({ value, onChange, trades }: { value: Scenario; onChange: (s: Scenario) => void; trades: Trade[] }) {
-  const f = value.filters;
-  const set = (patch: Partial<Filters>) => onChange({ ...value, filters: { ...f, ...patch } });
-  const grades = [...GRADES.filter((g) => trades.some((t) => t.grade === g)), ...(trades.some((t) => !isGrade(t.grade)) ? ["none"] : [])];
-  const sessions = [
-    ...SESSIONS.filter((s) => trades.some((t) => t.session === s)),
-    ...(trades.some((t) => !SESSIONS.includes(t.session)) ? ["none"] : []),
-  ];
-  const pickedGrades = grades.filter((g) => f.grades.includes(g));
-  const pickedSessions = sessions.filter((s) => f.sessions.includes(s));
-
-  return (
-    <div className="anim-rise mt-4 grid gap-x-8 gap-y-3 rounded-xl border px-4 py-3 md:grid-cols-2 xl:grid-cols-5">
-      <Field label="Setups">
-        <Chips
-          options={grades}
-          value={pickedGrades}
-          labelOf={(g) => (g === "none" ? "ungraded" : g)}
-          onChange={(v) => set({ grades: [...v, ...f.grades.filter((g) => !grades.includes(g))] })}
-        />
-      </Field>
-      <Field label="Sessions">
-        <Chips
-          options={sessions}
-          value={pickedSessions}
-          labelOf={(s) => (s === "none" ? "no session" : s)}
-          onChange={(v) => set({ sessions: [...v, ...f.sessions.filter((s) => !sessions.includes(s))] })}
-        />
-      </Field>
-      <Field label="History">
-        <Segmented
-          size="sm"
-          value={f.period}
-          onChange={(v) => v && set({ period: v })}
-          options={[
-            { value: "all", label: "All" },
-            { value: "90", label: "90 days" },
-            { value: "30", label: "30 days" },
-          ]}
-        />
-      </Field>
-      <Field label="Rule-breaks">
-        <Segmented
-          size="sm"
-          value={f.cleanOnly}
-          onChange={(v) => v != null && set({ cleanOnly: Boolean(v) })}
-          options={[
-            { value: false, label: "Keep" },
-            { value: true, label: "Leave out" },
-          ]}
-        />
-      </Field>
-      <Field label="Size each trade">
-        <Segmented
-          size="sm"
-          value={value.sizing}
-          onChange={(v) => v && onChange({ ...value, sizing: v })}
-          options={[
-            { value: "rules", label: "By my rules" },
-            { value: "traded", label: "As I did" },
-          ]}
-        />
-      </Field>
-      <p className="text-[12px] text-faint md:col-span-2 xl:col-span-5">
-        Replaying {pickedGrades.length === grades.length ? "all setups" : `${joinAnd(pickedGrades)} setups`}
-        {pickedSessions.length === sessions.length ? "" : ` in ${joinAnd(pickedSessions)}`}
-        {f.period === "all" ? "" : ` from the last ${f.period} days`}
-        {f.cleanOnly ? ", without rule-breaks" : ""}. Days left with nothing to trade count as flat days.
-      </p>
-    </div>
-  );
-}
-
-const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div>
-    <p className="mb-1.5 text-[11px] uppercase tracking-[0.08em] text-faint">{label}</p>
-    {children}
-  </div>
-);
 
 /**
  * The same history, summed both ways, and the days where the two differ — so the
@@ -809,20 +684,20 @@ function SizingGap({ days, mode }: { days: DayCompare[]; mode: Mode }) {
   if (!days.length) return null;
 
   return (
-    <div className="mt-6 rounded-xl border px-5 py-4">
-      <p className="text-[13px] font-medium">Your rules against what you actually did</p>
-      <p className="text-[12px] text-faint">
+    <div className="well mt-6 px-5 py-4">
+      <p className="text-body font-medium">Your rules against what you actually did</p>
+      <p className="text-small text-faint">
         Same trades, same results in R — only the size of each trade differs.
       </p>
       <div className="mt-3 grid gap-4 sm:grid-cols-3">
         <Total label="Sized as you actually did" value={actual} active={mode === "traded"} />
         <Total label="Sized by your rules" value={rules} active={mode === "rules"} />
         <div>
-          <p className="text-[11px] uppercase tracking-[0.08em] text-faint">What your rules would change</p>
-          <p className={cx("num mt-1 text-[20px] font-semibold", Math.abs(gap) < 0.005 ? "text-soft" : gap > 0 ? "text-up" : "text-down")}>
+          <p className="eyebrow">What your rules would change</p>
+          <p className={cx("num mt-1 text-heading font-semibold", Math.abs(gap) < 0.005 ? "text-soft" : gap > 0 ? "text-up" : "text-down")}>
             {Math.abs(gap) < 0.005 ? "nothing" : fmtPct(gap)}
           </p>
-          <p className="text-[12px] text-faint">
+          <p className="text-small text-faint">
             {differing.length
               ? `on ${differing.length} of ${days.length} days`
               : "you followed your sizing on every day"}
@@ -832,9 +707,9 @@ function SizingGap({ days, mode }: { days: DayCompare[]; mode: Mode }) {
 
       {differing.length > 0 && (
         <div className="mt-4 border-t pt-3">
-          <p className="mb-1.5 text-[11px] uppercase tracking-[0.08em] text-faint">Where they differ</p>
+          <p className="mb-1.5 eyebrow">Where they differ</p>
           {(showAll ? differing : differing.slice(0, 4)).map((d, i) => (
-            <div key={d.day} className="anim-rise flex flex-wrap items-baseline gap-x-4 gap-y-0.5 py-1.5 text-[12px]" style={stagger(i, 50)}>
+            <div key={d.day} className="anim-rise flex flex-wrap items-baseline gap-x-4 gap-y-0.5 py-1.5 text-small" style={stagger(i, 50)}>
               <span className="num w-20 shrink-0 text-soft">{fmtDate(`${d.day}T12:00`)}</span>
               <span className="min-w-0 flex-1 text-soft">{d.changes.map((c) => c.why).join(" · ")}</span>
               <span className="num shrink-0 text-faint">
@@ -845,7 +720,7 @@ function SizingGap({ days, mode }: { days: DayCompare[]; mode: Mode }) {
             </div>
           ))}
           {differing.length > 4 && (
-            <button onClick={() => setShowAll((v) => !v)} className="mt-1 text-[12px] text-faint hover:text-ink">
+            <button onClick={() => setShowAll((v) => !v)} className="mt-1 text-small text-faint hover:text-ink">
               {showAll ? "show fewer" : `show all ${differing.length} days`}
             </button>
           )}
@@ -857,18 +732,18 @@ function SizingGap({ days, mode }: { days: DayCompare[]; mode: Mode }) {
 
 const Total = ({ label, value, active }: { label: string; value: number; active: boolean }) => (
   <div className={cx("transition-opacity duration-300", !active && "opacity-60")}>
-    <p className="text-[11px] uppercase tracking-[0.08em] text-faint">
+    <p className="eyebrow">
       {label}
       {active && <span className="ml-1.5 text-accent-2">· charted</span>}
     </p>
-    <p className={cx("num mt-1 text-[20px] font-semibold", value >= 0 ? "text-up" : "text-down")}>{fmtPct(value)}</p>
-    <p className="text-[12px] text-faint">over this history</p>
+    <p className={cx("num mt-1 text-heading font-semibold", value >= 0 ? "text-up" : "text-down")}>{fmtPct(value)}</p>
+    <p className="text-small text-faint">over this history</p>
   </div>
 );
 
 function ChartLegend({ picked, onClear }: { picked: PathStats | null; onClear: () => void }) {
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-5 text-[11px] text-faint">
+    <div className="mt-3 flex flex-wrap items-center gap-5 text-caption text-faint">
       <span className="flex items-center gap-2">
         <span className="h-[2px] w-5 rounded-full bg-up" /> Best 20% of futures
       </span>
@@ -960,8 +835,8 @@ function PaceNeeded({ trades }: { trades: Trade[] }) {
     : 0;
   return (
     <div className="mt-6 border-t pt-5">
-      <h3 className="text-[13px] font-medium">If you keep trading exactly like this</h3>
-      <p className="mt-1 text-[12px] text-faint">
+      <h3 className="text-body font-medium">If you keep trading exactly like this</h3>
+      <p className="mt-1 text-small text-faint">
         The 1 / 3 / 6 / 12-month estimates need to know how often you trade, and your journal
         covers {days} day{days === 1 ? "" : "s"} so far. At least 7 days of trades are needed —
         any pace worked out from less would be guesswork, not a projection.
@@ -973,15 +848,15 @@ function PaceNeeded({ trades }: { trades: Trade[] }) {
 function Projections({ rows, perMonth }: { rows: ReturnType<typeof project>; perMonth: number }) {
   return (
     <div className="mt-6 border-t pt-5">
-      <h3 className="text-[13px] font-semibold">If you keep trading exactly like this</h3>
-      <p className="mb-3 text-[12px] text-faint">
+      <h3 className="text-body font-semibold">If you keep trading exactly like this</h3>
+      <p className="mb-3 text-small text-faint">
         At your current pace of {fmtNum(perMonth, 1)} trading days a month — same edge, same rules,
         same discipline. Only the order of results changes.
       </p>
       <div className="-mx-6 overflow-x-auto">
-        <table className="w-full text-[13px]">
+        <table className="w-full text-body">
           <thead>
-            <tr className="border-b text-[11px] uppercase tracking-[0.06em] text-faint">
+            <tr className="border-b eyebrow">
               <th className="px-6 py-2.5 text-left font-medium">Horizon</th>
               <th className="px-3 py-2.5 text-right font-medium">Days</th>
               <th className="px-3 py-2.5 text-right font-medium">Typical (median)</th>
@@ -1015,7 +890,7 @@ function Projections({ rows, perMonth }: { rows: ReturnType<typeof project>; per
           </tbody>
         </table>
       </div>
-      <p className="mt-3 text-[12px] text-faint">
+      <p className="mt-3 text-small text-faint">
         Returns are summed, not compounded. The gap between the median and the range is the part
         you don't control — {PROJECTION_MONTHS.length} horizons, one edge, thousands of orders.
       </p>
@@ -1027,14 +902,9 @@ function Projections({ rows, perMonth }: { rows: ReturnType<typeof project>; per
 
 function Group({ title, index = 0, children }: { title: string; index?: number; children: React.ReactNode }) {
   return (
-    // The entrance sits on a wrapper: its held end state would otherwise cancel card-hover's lift.
-    <div className="anim-rise flex" style={stagger(index, 90)}>
-    <div className="card card-hover w-full px-5 py-4">
-      <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-faint">
-        {title}
-      </h3>
+    <div className="well anim-rise px-5 py-4" style={stagger(index, 90)}>
+      <h3 className="mb-3 eyebrow">{title}</h3>
       <div className="space-y-2">{children}</div>
-    </div>
     </div>
   );
 }
@@ -1052,11 +922,11 @@ function Fact({
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[12px] text-soft">{label}</span>
+      <span className="text-small text-soft">{label}</span>
       <span
         className={cx(
           "num",
-          strong ? "text-[18px] font-medium" : "text-[13px]",
+          strong ? "text-heading font-medium" : "text-body",
           cls,
           strong && cls === "text-up" && "glow-up",
           strong && cls === "text-down" && "glow-down",

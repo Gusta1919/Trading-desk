@@ -52,7 +52,8 @@ export interface Summary {
   maxWinStreak: number;
   maxLossStreak: number;
   currentStreak: { outcome: "win" | "loss" | null; count: number };
-  planAdherence: number | null;
+  /** Share of closed trades that broke no rule. */
+  ruleAdherence: number | null;
   avgRiskPct: number | null;
   avgPlannedRR: number | null;
   equity: EquityPoint[];
@@ -95,7 +96,6 @@ export function summarize(all: Trade[]): Summary {
     else maxLoss = Math.max(maxLoss, run.count);
   }
 
-  const withPlan = trades.filter((t) => t.followedPlan != null);
   const planned = trades.map((t) => t.plannedRR).filter((v): v is number => v != null);
   const decided = winsR.length + lossesR.length;
 
@@ -120,9 +120,7 @@ export function summarize(all: Trade[]): Summary {
     maxWinStreak: maxWin,
     maxLossStreak: maxLoss,
     currentStreak: run,
-    planAdherence: withPlan.length
-      ? withPlan.filter((t) => t.followedPlan).length / withPlan.length
-      : null,
+    ruleAdherence: trades.length ? trades.filter((t) => !t.flags.length).length / trades.length : null,
     avgRiskPct: mean(trades.map((t) => t.riskPct)),
     avgPlannedRR: mean(planned),
     equity,

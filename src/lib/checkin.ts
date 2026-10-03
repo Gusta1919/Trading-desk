@@ -1,7 +1,14 @@
 /** Shown in the greeting. */
 export const USER_NAME = "Gustaw";
 
-export type Verdict = "ready" | "caution" | "sit-out";
+/**
+ * What the check-in advises. It never decides: trading stays your call, and nothing
+ * is blocked or flagged by it — it is a warning to take seriously.
+ */
+export type Verdict = "ready" | "careful" | "sit-out";
+
+/** A stored verdict read back safely; an old "caution" is today's "careful". */
+export const toVerdict = (v: unknown): Verdict => (v === "ready" ? "ready" : v === "careful" || v === "caution" ? "careful" : "sit-out");
 
 export interface CheckIn {
   date: string; // "YYYY-MM-DD"
@@ -151,25 +158,29 @@ export function evaluate(answers: Record<string, number>) {
   const score = Math.round(100 - (points / max) * 100);
   const redFlags = flags.filter((f) => f.risk === 2).length;
 
-  const verdict: Verdict =
-    redFlags >= 2 || score < 55 ? "sit-out" : redFlags === 1 || score < 80 ? "caution" : "ready";
+  // Two red flags or a low score: better to leave the charts. One red flag, or a few
+  // ambers: trade with care. Advice either way — the choice to trade stays yours.
+  const verdict: Verdict = redFlags >= 2 || score < 60 ? "sit-out" : redFlags >= 1 || score < 85 ? "careful" : "ready";
 
   flags.sort((a, b) => b.risk - a.risk);
   return { score, verdict, flags };
 }
 
-export const VERDICTS: Record<Verdict, { label: string; advice: string }> = {
+export const VERDICTS: Record<Verdict, { label: string; short: string; advice: string }> = {
   ready: {
-    label: "Cleared to trade",
-    advice: "Green light. Every base rule, let the grade set the size, no improvising.",
+    label: "Clear to trade",
+    short: "Clear to trade",
+    advice: "You're in good shape. Every base rule, let the grade set the size, no improvising.",
   },
-  caution: {
-    label: "Trade restricted",
-    advice: "Amber. A+ only today — an A waits for a clearer morning — and the daily stop still applies.",
+  careful: {
+    label: "Trade with care",
+    short: "Trade with care",
+    advice: "Something is off today. Be strict with yourself: only the cleanest setup, and walk away at the first sign you're forcing it.",
   },
   "sit-out": {
-    label: "Stand down",
-    advice: "Red. Nothing is tradable today. Protecting capital is today's job — the desk opens again tomorrow.",
+    label: "Better to leave the charts",
+    short: "Step away",
+    advice: "Your answers say today is a bad day to trade. Stepping away is the strong move — but it's your call. If you trade, do it knowingly.",
   },
 };
 

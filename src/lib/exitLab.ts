@@ -14,7 +14,6 @@
  *    trade is left out of that row rather than guessed.
  *  - Breakeven at 1R: a losing trade whose MFE reached 1R is scored 0R.
  */
-import { excursions, priceR } from "./rules";
 import { isClosed } from "./stats";
 import type { Trade } from "./types";
 
@@ -43,7 +42,7 @@ const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.l
 export function exitLab(trades: Trade[], minTrades: number): ExitLab {
   const logged = trades
     .filter((t) => !t.skipped && isClosed(t))
-    .map((t) => ({ t, mfe: excursions(t).mfeR }))
+    .map((t) => ({ t, mfe: t.mfeR }))
     .filter((x): x is { t: Trade; mfe: number } => x.mfe != null);
 
   const row = (id: string, label: string, score: (x: { t: Trade; mfe: number }) => number | null): ExitRow => {
@@ -65,8 +64,8 @@ export function exitLab(trades: Trade[], minTrades: number): ExitLab {
       row(`target-${x}`, `${x}R target`, ({ t, mfe }) => {
         if (mfe >= x) return x;
         if (t.exitReason !== "target") return t.resultR!;
-        // It hit its own (smaller) target; whether it would have gone on to X is only known from the furthest price.
-        const fav = priceR(t.direction, t.entryPrice, t.stopPrice, t.maxFavPrice);
+        // It hit its own (smaller) target; whether it would have gone on to X is only known from how far price ran (maxFavR).
+        const fav = t.maxFavR;
         if (fav == null) return null;
         return fav >= x ? x : null;
       }),
