@@ -13,7 +13,9 @@ import { evaluateHistory } from "../src/lib/discipline.js";
 import { ALL_FLAGS, EXIT_REASONS, type Trade } from "../src/lib/types.js";
 import { readBias } from "./bias.js";
 import { getCandles } from "./candles.js";
-import { openDatabase } from "./db.js";
+import fs from "node:fs";
+import path from "node:path";
+import { DATA_DIR, openDatabase } from "./db.js";
 import { gmailStatus, syncBias } from "./gmailBias.js";
 import { getCalendar, getHeadlines, startCalendarRefresh } from "./news.js";
 import { RulebookError, currentRulebook, listVersions, saveRulebook } from "./rulebookStore.js";
@@ -347,6 +349,13 @@ app.get("/api/news/headlines", async (_req, res) => {
  * The morning's gold briefing. Each read also nudges a Gmail check while today's
  * briefing is missing (throttled in gmailBias.ts), so the page's polling collects it.
  */
+/** Which copy of the desk is answering: the launchers use it to tell this folder's desk from a stale one. */
+const ROOT = path.dirname(DATA_DIR);
+const VERSION = (JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")) as { version: string }).version;
+app.get("/api/about", (_req, res) => {
+  res.json({ name: "trading-desk", version: VERSION, dir: ROOT });
+});
+
 app.get("/api/bias", (_req, res) => {
   syncBias();
   res.json({ ...readBias(), gmail: gmailStatus() });

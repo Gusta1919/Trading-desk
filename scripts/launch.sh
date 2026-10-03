@@ -59,11 +59,25 @@ if ! command -v node &>/dev/null; then
 fi
 
 cd "$APP_DIR"
+# shellcheck source=desk.sh
+source "$APP_DIR/scripts/desk.sh"
 
-if is_running; then
+if desk_is_ours; then
   log "Server already running"
   open_app
   exit 0
+fi
+
+# An older copy of the desk still holds the ports: stop it, so this folder's version opens.
+if desk_is_up; then
+  log "Stopping a stale desk on ports 3847/3848"
+  desk_stop_stale
+fi
+
+if ! desk_prepare >>"$LOG_FILE" 2>&1; then
+  log "ERROR: npm install failed"
+  alert "Instalacja pakietów się nie udała. Uruchom npm install w folderze dziennika."
+  exit 1
 fi
 
 notify "Uruchamianie" "Startuję serwer Trade Assistant…"

@@ -51,9 +51,8 @@ You log the dollar result of the main account (FTMO 200K). Linked accounts (FTMO
 You need [Node.js](https://nodejs.org) (LTS) on macOS.
 
 ```bash
-cd ~/Projects
-git clone https://github.com/Gusta1919/Trading-desk.git
-cd Trading-desk
+git clone https://github.com/Gusta1919/Trading-desk.git trade-assistant
+cd trade-assistant
 npm install
 npm start          # the desk on http://localhost:3847
 ```
@@ -94,7 +93,7 @@ The Polish step-by-step guide, including the Dock app, a keyboard shortcut and t
 | `src/components/` | the tabs, the trade form and the shared UI (`ui.tsx`) |
 | `src/index.css` | the theme: colours, type scale, surfaces and animations |
 | `tests/` | the test suite |
-| `scripts/` | the Mac launcher, `reset` and the preview build |
+| `scripts/` | the Mac launchers (they stop a stale copy and install packages when needed), `reset` and the preview build |
 
 ---
 

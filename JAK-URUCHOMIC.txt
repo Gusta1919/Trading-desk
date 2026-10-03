@@ -1,19 +1,19 @@
 GUCCI TRADE JOURNAL — JAK URUCHOMIĆ
 ===================================
 
-Folder: ~/Projects/Trading-desk/
+Folder: ~/Documents/Trading/trade-assistant/
 
 PIERWSZY RAZ:
   1. Zainstaluj Node.js → nodejs.org (LTS)
-  2. Terminal (pobranie z GitHuba do ~/Projects):
-       cd ~/Projects
-       git clone https://github.com/Gusta1919/Trading-desk.git
-       cd Trading-desk
+  2. Terminal (pobranie z GitHuba):
+       cd ~/Documents/Trading
+       gh repo clone Gusta1919/Trading-desk trade-assistant
+       cd trade-assistant
        npm install
 
 AKTUALIZACJA DO NOWEJ WERSJI (z GitHuba):
   Zamknij dziennik (okno Terminala z serwerem), potem w Terminalu:
-       cd ~/Projects/Trading-desk
+       cd ~/Documents/Trading/trade-assistant
        git fetch origin
        git checkout main
        git pull
@@ -36,7 +36,7 @@ KAŻDY RAZ — wybierz jedną opcję:
      Safari: Plik → Dodaj do Docka…
 
   D) TERMINAL ręcznie
-     cd ~/Projects/Trading-desk && npm start
+     cd ~/Documents/Trading/trade-assistant && npm start
      Potem: http://localhost:3847
 
 GDZIE SĄ MOJE DANE:
@@ -62,6 +62,12 @@ JAK TO DZIAŁA (w skrócie):
   Serwer (port 3848) czyta i zapisuje bazę, strona (port 3847) ją pokazuje.
   Wszystko działa lokalnie na tym Macu — nic nie wychodzi do internetu.
 
+STARA WERSJA SIĘ OTWIERA?
+  To znaczy, że w tle działa stara kopia serwera. Launchery (Start Trade
+  Assistant.command i aplikacja w Docku) same ją wykrywają, zatrzymują
+  i uruchamiają wersję z tego folderu. Ręcznie:
+       lsof -ti tcp:3847 -ti tcp:3848 | xargs kill
+
 GDY NIC SIĘ NIE DZIEJE:
   1. Użyj opcji B (Start Trade Assistant.command) — zawsze pokazuje okno
   2. Pierwszy raz macOS może zapytać o zgodę — kliknij „Otwórz"
@@ -71,7 +77,7 @@ SKRÓT KLAWISZOWY (np. ⌘⇧T) — Shortcuts / Skróty:
   1. Dodaj „Uruchom skrypt powłoki" (Run Shell Script)
   2. Wklej:
        export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
-       bash "$HOME/Projects/Trading-desk/scripts/launch.sh"
+       bash "$HOME/Documents/Trading/trade-assistant/scripts/launch.sh"
   3. Ustaw powłokę: /bin/bash
   4. ⓘ → Skrót klawiaturowy → np. ⌘⇧T
 

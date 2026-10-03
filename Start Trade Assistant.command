@@ -18,12 +18,27 @@ if ! command -v node &>/dev/null; then
   exit 1
 fi
 
-if curl -sf "$URL" >/dev/null 2>&1; then
-  echo "  ✓ Serwer już działa — otwieram dziennik…"
+source scripts/desk.sh
+
+if desk_is_ours; then
+  echo "  ✓ Dziennik już działa — otwieram…"
   open "$URL"
   echo ""
   read -r -p "  Naciśnij Enter, żeby zamknąć…"
   exit 0
+fi
+
+if desk_is_up; then
+  echo "  ▶ Działa stara kopia dziennika — zatrzymuję ją…"
+  desk_stop_stale
+fi
+
+echo "  ▶ Sprawdzam pakiety…"
+if ! desk_prepare; then
+  echo ""
+  echo "  ✗ Instalacja pakietów się nie udała. Spróbuj w tym folderze: npm install"
+  read -r -p "  Naciśnij Enter, żeby zamknąć…"
+  exit 1
 fi
 
 echo "  ▶ Startuję serwer (pierwsze uruchomienie ~10 s)…"
