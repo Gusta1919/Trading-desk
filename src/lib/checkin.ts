@@ -165,11 +165,11 @@ export const VERDICTS: Record<Verdict, { label: string; advice: string }> = {
   },
   caution: {
     label: "Trade restricted",
-    advice: "Amber. A+ and A setups only — skip B today — and the daily stop still applies.",
+    advice: "Amber. A+ only today — an A waits for a clearer morning — and the daily stop still applies.",
   },
   "sit-out": {
     label: "Stand down",
-    advice: "Red. Protecting capital is today's job — the desk opens again tomorrow.",
+    advice: "Red. Nothing is tradable today. Protecting capital is today's job — the desk opens again tomorrow.",
   },
 };
 

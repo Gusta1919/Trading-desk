@@ -228,12 +228,19 @@ export interface DeskStatus {
   plan: PlanStatus;
   /** Past the plan deadline without a plan written on time. */
   noPlan: boolean;
+  /** Today is a skip day — from today's news, or the fixed year-end range. */
+  skipDay: boolean;
   verdict: Verdict | undefined;
   /** What each grade may risk right now, after everything above. */
   allowedByGrade: Record<Grade, number>;
 }
 
-export function deskStatus(input: DisciplineInput & { doc: Rulebook }): DeskStatus {
+/**
+ * `news` is today as the news rules see it (null when the calendar has nothing for
+ * today): a skip day leaves nothing tradable, like a missing plan does — both fail a
+ * base rule, and a missing base rule makes any setup a C.
+ */
+export function deskStatus(input: DisciplineInput & { doc: Rulebook; news?: NewsDay | null }): DeskStatus {
   const now = input.now ?? new Date();
   const stamp = deskNow(now);
   const day = stamp.slice(0, 10);
@@ -252,10 +259,18 @@ export function deskStatus(input: DisciplineInput & { doc: Rulebook }): DeskStat
   const verdict = input.checkins.find((c) => c.date === day)?.verdict;
   const doneForToday = takenToday.filter(isClosed).length >= doc.maxTradesPerDay || dayB.stopHit;
 
+  const noPlan = plan !== "on-time" && stamp.slice(11, 16) >= doc.planBy;
+  const skipDay = Boolean(input.news?.skip.length) || inSkipRange(day, doc.news);
   const allowedByGrade = {} as Record<Grade, number>;
   for (const card of doc.grades) {
     const gRisk = card.traded ? card.riskPct : 0;
-    const blocked = dayOff || doneForToday || takenToday.length >= doc.maxTradesPerDay || !tradableToday(card, verdict);
+    const blocked =
+      dayOff ||
+      doneForToday ||
+      noPlan ||
+      skipDay ||
+      takenToday.length >= doc.maxTradesPerDay ||
+      !tradableToday(card, verdict);
     allowedByGrade[card.grade] = blocked ? 0 : allowedRisk(gRisk, dayB, doc.limits, { week: weekB, multiplier });
   }
   return {
@@ -270,7 +285,8 @@ export function deskStatus(input: DisciplineInput & { doc: Rulebook }): DeskStat
     open,
     doneForToday,
     plan,
-    noPlan: plan !== "on-time" && stamp.slice(11, 16) >= doc.planBy,
+    noPlan,
+    skipDay,
     verdict,
     allowedByGrade,
   };

@@ -1,13 +1,33 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil } from "lucide-react";
 import { useMemo, useState } from "react";
+import { evaluateHistory, type DayOff } from "@/lib/discipline";
 import { dayKey, fmtPct, fmtR, fmtTime, tone } from "@/lib/format";
+import type { CalendarEvent } from "@/lib/news";
+import { coveredDays, fromEvent, fromTradeNews, newsDay, inSkipRange, type NewsItem } from "@/lib/newsRules";
+import { planStatus, type Plan, type PlanStatus } from "@/lib/plans";
+import { weekOfDay } from "@/lib/risk";
+import type { Rulebook } from "@/lib/rulebook";
 import { WEEKDAYS, isClosed, tradePct } from "@/lib/stats";
 import { QUESTIONS, VERDICTS, type CheckIn } from "@/lib/checkin";
-import { isGrade, type Trade } from "@/lib/types";
+import { deskDay } from "@/lib/tz";
+import { FLAG_LABEL, isGrade, type Trade, type TradeFlag, type WeekNote } from "@/lib/types";
 import { verdictColor } from "./CheckIn";
 import { GradeBadge } from "./GradeBadge";
 import { setupOf } from "./TradeList";
-import { Button, cx } from "./ui";
+import { WeekNoteEditor } from "./WeekNoteEditor";
+import { Button, Modal, cx } from "./ui";
+
+/** What the rules made of one day: its plan, its flags, and whether it was off or skipped. */
+interface DayRules {
+  plan: PlanStatus | null;
+  flags: TradeFlag[];
+  dayOff: DayOff | null;
+  skip: string[];
+  /** More than one taken trade: always a violation. */
+  overTrades: boolean;
+}
+
+const PLAN_TEXT: Record<PlanStatus, string> = { "on-time": "plan on time", late: "plan late", missing: "no plan" };
 
 interface Day {
   key: string;
@@ -29,15 +49,60 @@ const cellKey = (d: Date) =>
 export function CalendarView({
   trades,
   checkins,
+  plans = [],
+  weeks: weekNotes = [],
+  doc,
+  rulebookOf,
+  calendar = [],
+  onWeekSaved,
+  since,
   onOpen,
   compact = false,
 }: {
+  /** Taken trades only. */
   trades: Trade[];
   checkins: CheckIn[];
+  plans?: Plan[];
+  weeks?: WeekNote[];
+  doc?: Rulebook;
+  rulebookOf?: (v: string | null) => Rulebook;
+  calendar?: CalendarEvent[];
+  onWeekSaved?: (w: WeekNote) => void;
+  /** The day the rulebook began: before it there were no plans to miss. */
+  since?: string;
   onOpen: (t: Trade) => void;
   /** Board mode: fits a small panel — no week column, no day panel, smaller cells. */
   compact?: boolean;
 }) {
+  const [editingWeek, setEditingWeek] = useState<string | null>(null);
+  /* The rules over the whole history: flags, days off, half-risk weeks. */
+  const judged = useMemo(
+    () => (rulebookOf ? evaluateHistory({ trades, plans, checkins, rulebookOf }) : null),
+    [trades, plans, checkins, rulebookOf],
+  );
+  const covered = useMemo(() => coveredDays(calendar), [calendar]);
+  const today = deskDay();
+  /** A day's rules, worked out only for weekdays up to today — the future has no plan to miss. */
+  const rulesOf = (key: string, dayTrades: Trade[], weekday: boolean): DayRules | null => {
+    if (!doc || !weekday) return null;
+    const off = judged?.timeline.dayOff.get(key) ?? null;
+    // Ahead of today only a scheduled day off is known — there is no plan to miss yet.
+    if (key > today) return off ? { plan: null, flags: [], dayOff: off, skip: [], overTrades: false } : null;
+    const items: NewsItem[] | null =
+      covered && key >= covered.from && key <= covered.to
+        ? calendar.filter((e) => e.at && deskDay(new Date(e.at)) === key).map(fromEvent)
+        : dayTrades.length
+          ? dayTrades.flatMap((t) => t.news).map(fromTradeNews)
+          : null;
+    const skip = items ? newsDay(key, items, doc.news).skip : inSkipRange(key, doc.news) ? ["the year-end break"] : [];
+    return {
+      plan: since && key < since ? null : planStatus(plans.find((p) => p.date === key), doc.planBy),
+      flags: [...new Set(dayTrades.flatMap((t) => judged?.byId.get(t.id)?.flags ?? t.flags))],
+      dayOff: off,
+      skip,
+      overTrades: dayTrades.filter((t) => !t.skipped).length > doc.maxTradesPerDay,
+    };
+  };
   // "Today" is New York's date, like every date a trade carries.
   const todayKey = dayKey(new Date());
   const thisMonth = () => new Date(Number(todayKey.slice(0, 4)), Number(todayKey.slice(5, 7)) - 1, 1);
@@ -161,13 +226,17 @@ export function CalendarView({
             const weekDays = week.filter((d) => d.inMonth);
             const weekPct = weekDays.reduce((a, d) => a + d.pct, 0);
             const weekTrades = weekDays.reduce((a, d) => a + d.trades.length, 0);
+            const weekKey = weekOfDay(week[0].key);
+            const note = weekNotes.find((x) => x.week === weekKey);
+            const half = judged?.timeline.halfWeeks.has(weekKey);
             return [
-              ...week.map((d) => (
+              ...week.map((d, i) => (
                 <DayCell
                   key={d.key}
                   day={d}
                   peak={peak}
                   checkin={checkins.find((c) => c.date === d.key)}
+                  rules={compact ? null : rulesOf(d.key, d.trades, i < 5)}
                   compact={compact}
                   isToday={d.key === todayKey}
                   isSelected={d.key === selected}
@@ -182,7 +251,7 @@ export function CalendarView({
               compact ? null : (
               <div
                 key={`w${w}`}
-                className="flex min-h-[88px] flex-col justify-center border-b px-3 py-2 last:border-b-0"
+                className="group/week flex min-h-[88px] flex-col justify-center gap-0.5 border-b px-3 py-2 last:border-b-0"
               >
                 {weekTrades > 0 && (
                   <>
@@ -191,6 +260,19 @@ export function CalendarView({
                       {weekTrades} trade{weekTrades === 1 ? "" : "s"}
                     </span>
                   </>
+                )}
+                {half && <span className="text-[10px] font-medium text-warn">half risk</span>}
+                {onWeekSaved && (
+                  <button
+                    onClick={() => setEditingWeek(weekKey)}
+                    title={note?.reasoning || "Write this week's note"}
+                    className={cx(
+                      "flex items-center gap-1 text-left text-[11px] hover:text-ink",
+                      note?.bias ? "font-medium capitalize text-soft" : "text-faint opacity-0 group-hover/week:opacity-100",
+                    )}
+                  >
+                    <Pencil size={10} /> {note?.bias || (note?.reasoning ? "note" : "week note")}
+                  </button>
                 )}
               </div>
               ),
@@ -209,6 +291,28 @@ export function CalendarView({
             })}
           </h3>
           {selectedCheckIn && <DayCheckIn checkin={selectedCheckIn} />}
+          {(() => {
+            const r = rulesOf(selected, selectedTrades, ![0, 6].includes(new Date(`${selected}T12:00`).getDay()));
+            if (!r) return null;
+            const plan = plans.find((p) => p.date === selected);
+            return (
+              <div className="mb-4 space-y-1 text-[12px]">
+                <p className={cx(r.plan == null && "hidden", r.plan === "on-time" ? "text-soft" : "text-down")}>
+                  <span className="text-faint">Plan: </span>
+                  {r.plan === "on-time" ? `${plan?.bias || "written"}, on time` : r.plan === "late" ? "written after the deadline" : "none"}
+                  {plan?.notes && <span className="text-faint"> · {plan.notes}</span>}
+                </p>
+                {r.skip.length > 0 && <p className="text-down">Skip day: {r.skip.join(", ")}</p>}
+                {r.dayOff && (
+                  <p className="text-down">
+                    {r.dayOff.reason === "rule-break" ? "Day off after a rule break" : `Day off — after a limit broken on ${r.dayOff.from}`}
+                  </p>
+                )}
+                {r.overTrades && <p className="font-medium text-down">More than one trade — the one-trade rule was broken.</p>}
+                {r.flags.length > 0 && <p className="text-warn">Flags: {r.flags.map((f) => FLAG_LABEL[f].toLowerCase()).join(", ")}</p>}
+              </div>
+            );
+          })()}
           {selectedTrades.length === 0 ? (
             <p className="text-soft">No trades on this day.</p>
           ) : (
@@ -237,6 +341,23 @@ export function CalendarView({
           )}
         </div>
       )}
+
+      <Modal open={editingWeek != null} onClose={() => setEditingWeek(null)} width="max-w-lg">
+        {editingWeek && (
+          <div className="space-y-4 px-7 py-6">
+            <h2 className="text-[18px] font-semibold tracking-tight">Week {editingWeek.slice(6)}</h2>
+            <WeekNoteEditor
+              week={editingWeek}
+              note={weekNotes.find((x) => x.week === editingWeek) ?? null}
+              onSaved={(n) => {
+                onWeekSaved?.(n);
+                setEditingWeek(null);
+              }}
+              onCancel={() => setEditingWeek(null)}
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -273,6 +394,7 @@ function DayCell({
   day,
   peak,
   checkin,
+  rules,
   isToday,
   isSelected,
   onClick,
@@ -281,6 +403,7 @@ function DayCell({
   day: Day;
   peak: number;
   checkin?: CheckIn;
+  rules?: DayRules | null;
   isToday: boolean;
   isSelected: boolean;
   onClick: () => void;
@@ -357,12 +480,34 @@ function DayCell({
             {hasClosed ? fmtPct(day.pct, compact ? 1 : 2) : "open"}
           </span>
           {!compact && (
-            <span className="num text-[10px] text-faint">
+            <span className={cx("num text-[10px]", rules?.overTrades ? "font-medium text-down" : "text-faint")}>
               {n} trade{n > 1 ? "s" : ""}
-              {n > 1 && " ⚠"}
+              {rules?.overTrades && " ⚠ one-trade rule"}
             </span>
           )}
           {compact && n > 1 && <span className="num text-[10px] text-down">⚠{n}</span>}
+        </span>
+      )}
+      {/* The rules' read of the day, in one quiet line at the bottom. */}
+      {rules && !compact && (
+        <span className="mt-auto flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]">
+          {checkin && (
+            <span
+              className={cx("size-1.5 rounded-full bg-current", verdictColor[checkin.verdict])}
+              title={`Check-in: ${VERDICTS[checkin.verdict].label} (${checkin.score})`}
+            />
+          )}
+          {rules.skip.length > 0 ? (
+            <span className="text-down" title={rules.skip.join(", ")}>skip day</span>
+          ) : rules.plan ? (
+            <span className={rules.plan === "on-time" ? "text-faint" : "text-down"}>{PLAN_TEXT[rules.plan]}</span>
+          ) : null}
+          {rules.dayOff && <span className="font-medium text-down">day off</span>}
+          {rules.flags.length > 0 && (
+            <span className="text-warn" title={rules.flags.map((f) => FLAG_LABEL[f]).join(", ")}>
+              ⚠ {rules.flags.length}
+            </span>
+          )}
         </span>
       )}
     </button>

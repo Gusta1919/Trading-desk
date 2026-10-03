@@ -1,24 +1,43 @@
 import { useEffect, useRef, useState } from "react";
-import { dayBudget } from "@/lib/risk";
-import { deskDay } from "@/lib/tz";
-import type { Limits, Trade } from "@/lib/types";
-import { cx } from "./ui";
+import type { DeskStatus } from "@/lib/discipline";
+import type { Limits } from "@/lib/types";
+import { Button, cx } from "./ui";
 
 /**
- * Your two risk lines, as one small label in the top bar: the most a trade may risk,
- * and how much of today's daily stop is used. Click it to change either.
+ * Your risk lines, as one small label in the top bar: how much of today's stop is
+ * left, and anything that takes it away. Click it to see the week too, or to change a
+ * line — a change to a limit is a rule change, so it asks for a reason and becomes a
+ * new rulebook version.
  */
 export function RiskChip({
-  trades,
+  status,
   limits,
-  onChange,
+  version,
+  evidence,
+  onSave,
 }: {
-  trades: Trade[];
+  status: DeskStatus | null;
   limits: Limits | null;
-  onChange: (l: Limits) => void;
+  /** The rulebook version in force, so the save button can say what it writes. */
+  version: string | null;
+  /** Trades of evidence a riskier change needs, from the rulebook's guidance. */
+  evidence: number;
+  onSave: (next: Limits, reason: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<Limits | null>(limits);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setDraft(limits);
+      setReason("");
+      setError(null);
+    }
+  }, [open, limits]);
 
   // Closes on a click outside or on Escape, like any small menu.
   useEffect(() => {
@@ -33,24 +52,47 @@ export function RiskChip({
     };
   }, [open]);
 
-  if (!limits) return null;
-  const budget = dayBudget(trades, deskDay(), limits);
-  const used = Math.max(0, limits.dailyStopPct - budget.remaining);
-  const left = limits.dailyStopPct > 0 ? budget.remaining / limits.dailyStopPct : 0;
-  // Green while more than half of the day's budget is there, amber from half down
-  // (0.50 of a 1% stop is already amber), red once it is gone.
-  const state = budget.stopHit
-    ? { label: "Stop hit", cls: "text-down" }
-    : left <= 0.5 + 1e-9
-      ? { label: "Budget low", cls: "text-warn" }
-      : { label: "Daily budget", cls: "text-up" };
+  if (!limits || !status) return null;
+  const day = status.dayBudget;
+  const week = status.weekBudget;
+  const left = limits.dailyStopPct > 0 ? day.remaining / limits.dailyStopPct : 0;
+  // The most serious thing about today wins the label.
+  const state = status.dayOff
+    ? { label: status.dayOff.reason === "rule-break" ? "Day off" : "Days off", cls: "text-down" }
+    : week.stopHit
+      ? { label: "Weekly stop hit", cls: "text-down" }
+      : day.stopHit
+        ? { label: "Stop hit", cls: "text-down" }
+        : status.doneForToday
+          ? { label: "Done for today", cls: "text-soft" }
+          : status.halfRisk
+            ? { label: "Half-risk week", cls: "text-warn" }
+            : left <= 0.5 + 1e-9
+              ? { label: "Budget low", cls: "text-warn" }
+              : { label: "Daily budget", cls: "text-up" };
+
+  const changed = draft && JSON.stringify(draft) !== JSON.stringify(limits);
+  async function save() {
+    if (!draft || !changed) return;
+    if (!reason.trim()) return setError("Add a one-line reason — every rule change is versioned.");
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(draft, reason.trim());
+      setOpen(false);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div ref={ref} className="relative">
       {/* Built like the readiness read-out beside it: the state, a small line, the number. */}
       <button
         onClick={() => setOpen((v) => !v)}
-        title={`Today's loss budget: ${budget.remaining.toFixed(2)}% of ${limits.dailyStopPct}% left · max ${limits.maxRiskPct}% per trade — click to change`}
+        title={`Today: ${day.remaining.toFixed(2)}% of ${limits.dailyStopPct}% left · this week: ${week.remaining.toFixed(2)}% of ${limits.weeklyStopPct}% · max ${limits.maxRiskPct}% per trade — click for more`}
         className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[12px] transition-colors hover:bg-subtle"
       >
         <span className={cx("font-medium", state.cls)}>{state.label}</span>
@@ -61,32 +103,70 @@ export function RiskChip({
           />
         </span>
         <span className="num text-faint">
-          {budget.remaining.toFixed(2)}
+          {day.remaining.toFixed(2)}
           <span className="opacity-50">/{limits.dailyStopPct}%</span>
         </span>
       </button>
 
-      {open && (
-        <div className="anim-pop absolute right-0 top-full z-40 mt-2 w-72 whitespace-normal rounded-xl border bg-raised p-4 shadow-[var(--shadow-lift)]">
+      {open && draft && (
+        <div className="anim-pop absolute right-0 top-full z-40 mt-2 w-80 whitespace-normal rounded-xl border bg-raised p-4 shadow-[var(--shadow-lift)]">
           <p className="text-[12px] font-medium">Your risk lines</p>
-          <p className="mt-0.5 text-[11px] text-faint">Shared by every strategy.</p>
-          <div className="mt-3 space-y-2.5">
-            <Row label="Max risk per trade" value={limits.maxRiskPct} onChange={(v) => onChange({ ...limits, maxRiskPct: v })} />
-            <Row label="Daily stop" value={limits.dailyStopPct} onChange={(v) => onChange({ ...limits, dailyStopPct: v })} />
-          </div>
-          <p className="mt-3 border-t pt-2.5 text-[11px] text-soft">
-            {budget.stopHit ? (
-              <span className="text-down">Daily stop hit — no more trades today.</span>
-            ) : (
-              <>
-                Today: {used.toFixed(2)}% used, {budget.remaining.toFixed(2)}% left. The next trade may risk up to{" "}
-                <b className="num text-ink">{+Math.min(limits.maxRiskPct, budget.remaining).toFixed(2)}%</b>.
-              </>
+          <div className="mt-2 space-y-1 text-[11px] text-soft">
+            <Budget label="Today" left={day.remaining} of={limits.dailyStopPct} />
+            <Budget label="This week" left={week.remaining} of={limits.weeklyStopPct} />
+            {status.halfRisk && <p className="text-warn">Half-risk week: every allowance × {status.multiplier}.</p>}
+            {status.dayOff && (
+              <p className="text-down">
+                {status.dayOff.reason === "rule-break" ? "Day off — a rule was broken today." : `Days off until ${status.dayOff.until}.`}
+              </p>
             )}
-          </p>
+            <p>
+              The next A+ may risk{" "}
+              <b className="num text-ink">{status.allowedByGrade["A+"]}%</b>, the next A{" "}
+              <b className="num text-ink">{status.allowedByGrade.A}%</b>.
+            </p>
+          </div>
+
+          <div className="mt-3 space-y-2 border-t pt-3">
+            <Row label="Max risk per trade" value={draft.maxRiskPct} onChange={(v) => setDraft({ ...draft, maxRiskPct: v })} />
+            <Row label="Daily stop" value={draft.dailyStopPct} onChange={(v) => setDraft({ ...draft, dailyStopPct: v })} />
+            <Row label="Weekly stop" value={draft.weeklyStopPct} onChange={(v) => setDraft({ ...draft, weeklyStopPct: v })} />
+          </div>
+          {changed && (
+            <div className="anim-rise mt-3 space-y-2">
+              <input
+                autoFocus
+                className="field py-1.5 text-[12px]"
+                placeholder="Why? One line — saved in the changelog"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && save()}
+              />
+              <p className="text-[11px] text-faint">
+                Lowering risk needs no evidence; raising it needs {evidence}+ trades from data that didn't create the idea.
+              </p>
+              {error && <p className="text-[11px] text-down">{error}</p>}
+              <div className="flex justify-end">
+                <Button variant="accent" onClick={save} disabled={saving} className="px-3 py-1.5 text-[12px]">
+                  Save as a new version{version ? ` (after v${version})` : ""}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+function Budget({ label, left, of }: { label: string; left: number; of: number }) {
+  return (
+    <p className="flex items-center justify-between gap-3">
+      <span>{label}</span>
+      <span className={cx("num", left <= 0 ? "text-down" : left <= of / 2 + 1e-9 ? "text-warn" : "text-ink")}>
+        {left.toFixed(2)}% <span className="text-faint">of {of}% left</span>
+      </span>
+    </p>
   );
 }
 

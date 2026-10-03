@@ -51,3 +51,22 @@ export function planStatus(plan: Plan | null | undefined, deadline: string): Pla
   if (!plan) return "missing";
   return planOnTime(plan, deadline) ? "on-time" : "late";
 }
+
+/**
+ * Which way the Daily Bias briefing leans: its largest of the three odds. A range day
+ * reads as "unclear" — it has no direction to agree or disagree with.
+ */
+export function briefingLean(odds: { bullish: number; range: number; bearish: number } | null | undefined): PlanBias | null {
+  if (!odds) return null;
+  const { bullish, range, bearish } = odds;
+  if (bullish > range && bullish > bearish) return "bullish";
+  if (bearish > range && bearish > bullish) return "bearish";
+  return "unclear";
+}
+
+/** Whether the briefing agrees with your bias; "none" when there is no briefing to compare. */
+export function deskCheckFor(bias: PlanBias | "", lean: PlanBias | null): DeskCheck | "" {
+  if (!lean) return "none";
+  if (!bias) return "";
+  return bias === lean ? "agree" : "disagree";
+}

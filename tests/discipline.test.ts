@@ -249,3 +249,13 @@ describe("automatic base rules", () => {
     assert.equal(autoRuleState("daily-budget", ctx(`${MON}T04:30`)), true);
   });
 });
+
+describe("today's allowance on a skip day", () => {
+  it("is nothing, whatever the grade", () => {
+    const now = new Date(`${FRI}T10:00:00Z`);
+    const news = { skip: ["US Non-Farm Payrolls"], windows: [] };
+    const s = deskStatus({ trades: [], plans: allPlans, checkins: [], rulebookOf, doc, now, news });
+    assert.equal(s.skipDay, true);
+    assert.deepEqual(s.allowedByGrade, { "A+": 0, A: 0, B: 0, C: 0 });
+  });
+});

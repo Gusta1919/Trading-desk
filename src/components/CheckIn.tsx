@@ -11,12 +11,22 @@ import {
   type CheckIn as CheckInData,
   type Verdict,
 } from "@/lib/checkin";
+import { evaluateHistory } from "@/lib/discipline";
 import { dayKey } from "@/lib/format";
-import type { Trade } from "@/lib/types";
+import type { CalendarEvent } from "@/lib/news";
+import { coveredDays, fromEvent, newsDay } from "@/lib/newsRules";
+import type { Plan, PlanBias } from "@/lib/plans";
+import { weekOfDay } from "@/lib/risk";
+import type { Rulebook } from "@/lib/rulebook";
+import { deskDay } from "@/lib/tz";
+import type { Trade, WeekNote } from "@/lib/types";
 import { Briefing } from "./Briefing";
+import { PlanForm } from "./PlanForm";
+import { WeekNoteEditor } from "./WeekNoteEditor";
 import { Button, cx } from "./ui";
 
-type Stage = "hello" | number | "note" | "result" | "briefing";
+/** Greeting → the questions → a note → the verdict → today's plan → the week (on its first morning) → the briefing. */
+type Stage = "hello" | number | "note" | "result" | "plan" | "week" | "briefing";
 
 export const verdictColor: Record<Verdict, string> = {
   ready: "text-up",
@@ -30,15 +40,32 @@ const verdictBg: Record<Verdict, string> = {
   "sit-out": "bg-down",
 };
 
-/** Full-screen daily check-in: greeting → questions → note → verdict. */
+/** Full-screen daily check-in: greeting → questions → note → verdict → plan → week → briefing. */
 export function CheckIn({
   trades,
   checkins,
+  plans,
+  weeks,
+  doc,
+  rulebookOf,
+  calendar,
+  lean,
+  onPlanSaved,
+  onWeekSaved,
   onDone,
   onKeep,
 }: {
   trades: Trade[];
   checkins: CheckInData[];
+  plans: Plan[];
+  weeks: WeekNote[];
+  doc: Rulebook;
+  rulebookOf: (v: string | null) => Rulebook;
+  calendar: CalendarEvent[];
+  /** Which way today's Daily Bias briefing leans, or null before it arrives. */
+  lean: PlanBias | null;
+  onPlanSaved: (p: Plan) => void;
+  onWeekSaved: (w: WeekNote) => void;
   onDone: (c: CheckInData) => void;
   /** Only when redoing: go back and keep the check-in already saved today. */
   onKeep?: () => void;
@@ -69,6 +96,25 @@ export function CheckIn({
   }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pending = useRef<{ timer: number; advance: () => void } | null>(null);
+
+  /* Today on the desk's calendar: its plan, its news, and anything still running from before. */
+  const today = deskDay();
+  const week = weekOfDay(today);
+  const plan = plans.find((p) => p.date === today) ?? null;
+  // The first check-in of an ISO week also asks for the week's note.
+  const firstOfWeek = !checkins.some((c) => c.date !== today && weekOfDay(c.date) === week);
+  const weekNote = weeks.find((w) => w.week === week) ?? null;
+  const todayNews = useMemo(() => {
+    const covered = coveredDays(calendar);
+    if (!covered || today < covered.from || today > covered.to) return null;
+    const items = calendar.filter((e) => e.at && deskDay(new Date(e.at)) === today).map(fromEvent);
+    return newsDay(today, items, doc.news);
+  }, [calendar, today, doc.news]);
+  const timeline = useMemo(
+    () => evaluateHistory({ trades, plans, checkins, rulebookOf }).timeline,
+    [trades, plans, checkins, rulebookOf],
+  );
+  const afterPlan = () => setStage(firstOfWeek ? "week" : "briefing");
 
   function choose(qIndex: number, option: number) {
     if (pending.current) return; // this question is already answered, moving on
@@ -168,7 +214,7 @@ export function CheckIn({
       <main className="flex flex-1 flex-col overflow-y-auto px-6 pb-16">
         <div
           key={String(stage)}
-          className={cx("mx-auto my-auto w-full py-6", stage === "briefing" ? "max-w-xl" : "max-w-lg")}
+          className={cx("mx-auto my-auto w-full py-6", stage === "briefing" || stage === "plan" ? "max-w-xl" : "max-w-lg")}
         >
           {stage === "hello" && <Hello onStart={() => setStage(0)} onKeep={onKeep} />}
 
@@ -210,8 +256,48 @@ export function CheckIn({
               score={result.score}
               verdict={result.verdict}
               flags={result.flags}
-              onEnter={() => setStage("briefing")}
+              onEnter={() => setStage("plan")}
             />
+          )}
+
+          {stage === "plan" && (
+            <PlanForm
+              day={today}
+              plan={plan}
+              doc={doc}
+              news={todayNews}
+              verdict={result.verdict}
+              dayOff={timeline.dayOff.get(today) ?? null}
+              halfRisk={timeline.halfWeeks.has(week)}
+              lean={lean}
+              saveLabel="Save the plan — continue"
+              onSaved={(p) => {
+                onPlanSaved(p);
+                afterPlan();
+              }}
+              onSkip={afterPlan}
+            />
+          )}
+
+          {stage === "week" && (
+            <div className="space-y-5">
+              <div>
+                <h2 className="anim-rise text-[26px] font-semibold tracking-tight">This week</h2>
+                <p className="anim-rise mt-1 text-soft" style={{ animationDelay: "80ms" }}>
+                  The first morning of the week: your bias, why, and the levels — referenced on every trade until Friday.
+                </p>
+              </div>
+              <WeekNoteEditor
+                week={week}
+                note={weekNote}
+                saveLabel="Save the week — continue"
+                onSaved={(w) => {
+                  onWeekSaved(w);
+                  setStage("briefing");
+                }}
+                onCancel={() => setStage("briefing")}
+              />
+            </div>
           )}
 
           {stage === "briefing" && briefing && (
@@ -408,7 +494,7 @@ function Result({
 
       <div className="anim-rise mt-8" style={{ animationDelay: `${850 + flags.length * 90}ms` }}>
         <Button onClick={onEnter} className="px-6 py-2.5 text-[14px]">
-          {verdict === "sit-out" ? "Understood — continue" : "See my briefing"}
+          {verdict === "sit-out" ? "Understood — write the plan" : "Write today's plan"}
         </Button>
       </div>
     </div>

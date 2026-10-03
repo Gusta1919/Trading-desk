@@ -10,7 +10,7 @@
  * "Federal Funds Rate", "Core CPI m/m", "FOMC Member Williams Speaks".
  */
 import type { CalendarEvent } from "./news";
-import type { NewsPair, NewsRules } from "./rulebook";
+import { pairText, type NewsPair, type NewsRules } from "./rulebook";
 import { deskDay, deskTime } from "./tz";
 import type { TradeNews } from "./types";
 export interface NewsCategory {
@@ -148,6 +148,17 @@ export const fromTradeNews = (n: TradeNews): NewsItem => ({
 const hasPair = (pairs: NewsPair[], category: string | null, currency: string) =>
   category != null && pairs.some((p) => p.category === category && p.currency === currency);
 
+/**
+ * Why a release makes a skip day, in words: the rule's own name for it ("US Non-Farm
+ * Payrolls") when the rulebook has one, so the four lines of an NFP morning read as
+ * one reason — otherwise the release itself.
+ */
+export function skipReason(item: Pick<NewsItem, "title" | "currency" | "impact">, rules: NewsRules): string {
+  const category = NEWS_CATEGORIES.find((c) => c.match.test(item.title))?.id ?? null;
+  const pair = item.impact !== "Holiday" ? rules.skip.find((p) => p.category === category && p.currency === item.currency) : null;
+  return pair ? pairText(pair, "window") : `${item.currency} ${item.title}`;
+}
+
 export function stanceOf(item: Pick<NewsItem, "title" | "currency" | "impact">, rules: NewsRules): Stance {
   if (item.impact === "Holiday") return rules.holidayCurrencies.includes(item.currency) ? "skip" : "info";
   // Only red releases trigger rules; orange is information only.
@@ -191,7 +202,7 @@ export function newsDay(day: string, items: NewsItem[], rules: NewsRules): NewsD
   const windows: ReleaseWindow[] = [];
   for (const item of items) {
     const stance = stanceOf(item, rules);
-    if (stance === "skip") skip.push(`${item.currency} ${item.title}`);
+    if (stance === "skip") skip.push(skipReason(item, rules));
     else if (stance === "window" && item.minutes != null) {
       windows.push({
         start: item.minutes - rules.beforeMin,

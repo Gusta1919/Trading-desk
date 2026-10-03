@@ -60,7 +60,10 @@ describe("news stance", () => {
 describe("a news day", () => {
   it("lists why it is a skip day", () => {
     const day = newsDay("2026-10-02", [red("Non-Farm Employment Change"), red("Unemployment Rate")], rules);
-    assert.deepEqual(day.skip, ["USD Non-Farm Employment Change", "USD Unemployment Rate"]);
+    // The NFP morning's lines are one reason, named the way the rulebook names it.
+    assert.deepEqual(day.skip, ["US Non-Farm Payrolls"]);
+    const holiday = newsDay("2026-11-26", [{ title: "Bank Holiday", currency: "USD", impact: "Holiday", minutes: null }], rules);
+    assert.deepEqual(holiday.skip, ["USD Bank Holiday"]);
   });
 
   it("skips 22 December to 2 January, across the new year", () => {

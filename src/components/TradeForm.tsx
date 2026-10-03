@@ -61,6 +61,7 @@ import {
   type WeekNote,
 } from "@/lib/types";
 import { GradeBadge } from "./GradeBadge";
+import { WeekNoteEditor } from "./WeekNoteEditor";
 import { GlossaryContext, Glossed } from "./Glossed";
 import { GradePanel, SetupCheck, answerSummary, type AutoState } from "./SetupCheck";
 import { Button, Chips, Modal, Segmented, cx, stagger } from "./ui";
@@ -218,7 +219,8 @@ export function TradeForm({
   trades,
   checkins,
   plans,
-  week,
+  weeks = [],
+  onWeekSaved,
   nudge,
   doc,
   rulebookOf,
@@ -237,8 +239,9 @@ export function TradeForm({
   rulebookOf: (version: string | null) => Rulebook;
   /** The whole news calendar, so the trade can record what was out on its day. */
   calendar: CalendarEvent[];
-  /** This week's reasoning, so the trade can be checked against it. */
-  week?: WeekNote | null;
+  /** Every weekly note; the trade is checked against its own week's. */
+  weeks?: WeekNote[];
+  onWeekSaved?: (w: WeekNote) => void;
   nudge?: CoachCard | null;
   onClose: () => void;
   onSaved: () => void;
@@ -252,6 +255,7 @@ export function TradeForm({
    * before it is logged. Editing goes straight to the trade.
    */
   const [step, setStep] = useState<"setup" | "form">("form");
+  const [weekEditing, setWeekEditing] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -283,6 +287,7 @@ export function TradeForm({
   const time = timeOf(f.date);
   const others = useMemo(() => trades.filter((t) => t.id !== trade?.id), [trades, trade?.id]);
   const plan = plans.find((p) => p.date === day) ?? null;
+  const week = weeks.find((w) => w.week === weekOfDay(day)) ?? null;
   const verdict = checkins.find((c) => c.date === day)?.verdict;
 
   /* ── The day's news: the live calendar when it covers the day, else the trade's own copy ── */
@@ -1167,15 +1172,38 @@ export function TradeForm({
                   <p className="mt-2 text-[11px] text-faint">Saved with the trade automatically.</p>
                 </Side>
 
-                {week && (week.bias || week.reasoning) && (
-                  <Side index={3} title="This week">
-                    {week.bias && <p className={cx("text-[13px] font-medium capitalize", biasTone(week.bias))}>{week.bias} bias</p>}
-                    {week.reasoning && <p className="mt-1 text-[12px] leading-relaxed text-soft">{week.reasoning}</p>}
-                    {week.bias && week.bias !== "neutral" && week.bias !== f.direction && (
-                      <p className="mt-2 text-[12px] font-medium text-warn">⚠ A {f.direction} trade against your {week.bias} bias.</p>
-                    )}
-                  </Side>
-                )}
+                <Side index={3} title={`This week · ${weekOfDay(day).slice(6)}`}>
+                  {weekEditing ? (
+                    <WeekNoteEditor
+                      compact
+                      week={weekOfDay(day)}
+                      note={week ?? null}
+                      onSaved={(w) => {
+                        onWeekSaved?.(w);
+                        setWeekEditing(false);
+                      }}
+                      onCancel={() => setWeekEditing(false)}
+                    />
+                  ) : week && (week.bias || week.reasoning) ? (
+                    <>
+                      {week.bias && <p className={cx("text-[13px] font-medium capitalize", biasTone(week.bias))}>{week.bias} bias</p>}
+                      {week.reasoning && <p className="mt-1 text-[12px] leading-relaxed text-soft">{week.reasoning}</p>}
+                      {week.levels && <p className="num mt-1 text-[11px] text-faint">{week.levels}</p>}
+                      {week.bias && week.bias !== "neutral" && week.bias !== f.direction && (
+                        <p className="mt-2 text-[12px] font-medium text-warn">⚠ A {f.direction} trade against your {week.bias} bias.</p>
+                      )}
+                      {onWeekSaved && (
+                        <button type="button" onClick={() => setWeekEditing(true)} className="mt-2 text-[11px] text-faint underline underline-offset-2 hover:text-ink">
+                          Edit the week's note
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button type="button" onClick={() => setWeekEditing(true)} className="text-[12px] text-faint underline underline-offset-2 hover:text-ink">
+                      No note for this week yet — write it
+                    </button>
+                  )}
+                </Side>
 
                 <Side index={4} title={`Rulebook v${version ?? doc.version}`}>
                   <RulebookHint rb={rb} values={values} plan={plan} day={day} />
