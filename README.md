@@ -57,6 +57,10 @@ open http://localhost:3847
 - `npm run demo:bias` writes an example Daily Bias briefing for today, marked `"demo": true`.
   A real briefing from Gmail still replaces it, and `demo:remove` takes it away again (putting
   back any real one it covered). `npm run demo:all` = `demo:add` + `demo:bias`: every tab filled in.
+- `npm run preview:build` (with the desk running) builds `dist-preview/`: the app with a snapshot of
+  the desk baked in, for viewing without the server. `scripts/preview/shim.js` answers the app's
+  `/api` calls in the browser; the briefing moves to the day it's opened, and the candles and the
+  news week are samples.
 
 ## Code map
 

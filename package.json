@@ -17,6 +17,7 @@
     "demo:fill": "node --import tsx scripts/demo-data.ts fill",
     "demo:bias": "node --import tsx scripts/demo-data.ts bias",
     "demo:all": "node --import tsx scripts/demo-data.ts all",
+    "preview:build": "node --import tsx scripts/preview/build.ts",
     "demo:remove": "node --import tsx scripts/demo-data.ts remove"
   },
   "dependencies": {
