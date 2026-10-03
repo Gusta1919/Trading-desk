@@ -1,6 +1,7 @@
 # Plan: one strategy, the rulebook built in
 
-The plan the brief (§0.2) asks for. Nothing is deleted until you say **go**.
+The plan the brief (§0.2) asks for. **Approved and carried out, phases 1–7, on branch
+`rulebook`.**
 
 Starting point: 108 tests and the build both pass. The database holds one strategy
 (GOLD Model), 68 `[demo]` trades, 45 `[demo]` check-ins and your 3 real check-ins

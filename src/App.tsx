@@ -233,10 +233,31 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [formOpen, checkInOpen]);
 
-  /** Saves a copy of everything as one JSON file — your own backup. */
-  function exportData() {
+  /**
+   * Saves a copy of everything as one JSON file — your own backup: trades, check-ins,
+   * plans, weekly notes, every rulebook version (the limits, the news rules and the
+   * settings live inside it) and the open items.
+   */
+  async function exportData() {
+    const openItems = await api.openItems().catch(() => []);
+    const versions = rulebook.versions.map((v) => ({ ...v, doc: rulebook.rulebookOf(v.version) }));
     const blob = new Blob(
-      [JSON.stringify({ exportedAt: new Date().toISOString(), trades, checkins }, null, 2)],
+      [
+        JSON.stringify(
+          {
+            exportedAt: new Date().toISOString(),
+            rulebookInForce: rulebook.current?.version ?? null,
+            trades,
+            checkins,
+            plans,
+            weeks,
+            rulebookVersions: versions,
+            openItems,
+          },
+          null,
+          2,
+        ),
+      ],
       { type: "application/json" },
     );
     const url = URL.createObjectURL(blob);
@@ -345,7 +366,7 @@ export default function App() {
         </button>
         <button
           onClick={exportData}
-          title="Download a backup of every trade and check-in"
+          title="Download a backup of everything: trades, check-ins, plans, weeks, every rulebook version, open items"
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink"
         >
           <Download size={14} /> <span className="hidden 2xl:inline">Backup</span>

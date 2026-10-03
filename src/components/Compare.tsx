@@ -3,9 +3,8 @@ import { fmtR, fmtRate, tone } from "@/lib/format";
 import { rangeIndex, rangeLabel, withUnit } from "@/lib/grading";
 import { depthBucket } from "@/lib/insights";
 import { fromTradeNews, newsDay } from "@/lib/newsRules";
-import { autoFactor, type Rulebook } from "@/lib/rulebook";
+import type { Rulebook } from "@/lib/rulebook";
 import { releasesHeld } from "@/lib/discipline";
-import { displacementMultiple } from "@/lib/rules";
 import { WEEKDAYS, classifyOutcome, isClosed, weekdayOf } from "@/lib/stats";
 import {
   DESK_AGREED,
@@ -76,7 +75,6 @@ type View = "grade" | "setup" | "trade" | "when";
 export function Compare({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
   const [view, setView] = useState<View>("grade");
   const taken = useMemo(() => trades.filter((t) => !t.skipped && isClosed(t)), [trades]);
-  const disp = autoFactor(doc, "displacement");
 
   const sections: { title: string; note: string; groups: Group[] }[] = [];
   if (view === "grade") {
@@ -86,23 +84,7 @@ export function Compare({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
       groups: groups(taken, (t) => (isGrade(t.grade) ? t.grade : null), GRADES.map((g) => ({ key: g, label: <GradeBadge grade={g} size="sm" /> }))),
     });
     for (const f of doc.factors) sections.push({ title: f.name, note: factorNote(f), groups: factorGroups(taken, f) });
-    sections.push({
-      title: "Displacement multiple",
-      note: "Worked out from the MSS close and the ATR you logged.",
-      groups: groups(
-        taken,
-        (t) => {
-          const m = displacementMultiple(t.mssBeyond, t.atr) ?? (disp ? (answerOf(t, disp) as number | undefined) ?? null : null);
-          if (m == null || typeof m !== "number") return null;
-          return m < 0.25 ? "lt" : m < 1 ? "mid" : "ge";
-        },
-        [
-          { key: "lt", label: "under 0.25×" },
-          { key: "mid", label: "0.25–1×" },
-          { key: "ge", label: "1× or more" },
-        ],
-      ),
-    });
+    // The displacement factor's own ranges (<0.25 · 0.25–1 · ≥1) are the brief's buckets.
   }
   if (view === "setup") {
     sections.push(

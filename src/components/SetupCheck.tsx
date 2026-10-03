@@ -282,7 +282,7 @@ function FactorInput({
           />
           <span className="text-[12px] text-faint">=</span>
           {typeof value === "number" && cap ? (
-            <AnswerButton label={withUnit(String(value), f.kind === "number" ? f.unit : "")} cap={cap} on mono onClick={() => {}} />
+            <AnswerButton label={withUnit(value.toFixed(2), f.kind === "number" ? f.unit : "")} cap={cap} on mono onClick={() => {}} />
           ) : (
             <span className="text-[12px] text-faint">both numbers give the multiple</span>
           )}
