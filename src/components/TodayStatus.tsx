@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { DeskStatus } from "@/lib/discipline";
 import type { NewsDay, ReleaseWindow } from "@/lib/newsRules";
 import type { Rulebook } from "@/lib/rulebook";
+import { goldMarket, inLabel, type GoldMarket } from "@/lib/market";
 import { minutesOf } from "@/lib/rules";
 import { deskNow } from "@/lib/tz";
 import { cx, stagger } from "./ui";
@@ -19,10 +20,15 @@ function wait(from: number, to: number) {
   return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${m}m`;
 }
 
+/** "opens Sunday 18:00 · in 1d 2h", "closes 17:00 · in 3h 10m" — the market's next change. */
+export const marketNext = (g: GoldMarket) =>
+  `${g.next.what} ${g.next.day === "today" ? "" : `${g.next.day} `}${g.next.time} · in ${inLabel(g.next.inMinutes)}`;
+
 /**
- * The one line that sums today up right now, most serious first: anything that closes
- * the day, then a release window running, then where the clock is against the entry
- * windows and the time stop.
+ * The one line that sums today up right now, most serious first: whether gold is trading
+ * at all (its New York hours: Sunday 18:00 to Friday 17:00, a break from 17:00 to 18:00),
+ * anything that closes the day, a release window running, then where the clock is
+ * against the entry windows and the time stop.
  */
 export function headline(
   doc: Rulebook,
@@ -32,7 +38,12 @@ export function headline(
 ): { tone: Tone; text: string; sub?: string } {
   const m = minutesOf(deskNow(now).slice(11, 16))!;
   const skip = news?.skip.length ? news.skip.join(", ") : status?.skipDay ? "the year-end break" : null;
-  if (status?.blocked === "it's the weekend") return { tone: "soft", text: "Weekend", sub: "Market closed" };
+  const market = goldMarket(deskNow(now));
+  if (!market.open) {
+    return { tone: "soft", text: "Market closed", sub: `${market.closedFor === "weekend" ? "Weekend" : "Daily break"} · ${marketNext(market)}` };
+  }
+  // Sunday evening: gold trades again, the desk's week starts Monday morning.
+  if (status?.blocked === "it's the weekend") return { tone: "soft", text: "Market open", sub: "Sunday evening · no session until Monday" };
   if (status?.dayOff) {
     return status.dayOff.reason === "rule-break"
       ? { tone: "down", text: "Day off", sub: "Rule broken today" }
@@ -62,7 +73,9 @@ export function headline(
   }
   if (next) return { tone: "soft", text: `Entries at ${hhmm(next.from)}`, sub: `In ${wait(m, next.from)}` };
   if (m < stop) return { tone: "soft", text: "No new entries", sub: `Out by ${doc.timeStop}` };
-  return { tone: "soft", text: "Desk closed", sub: "Time stop passed" };
+  return market.next.day === "today"
+    ? { tone: "soft", text: "Desk closed", sub: `Time stop passed · market ${marketNext(market)}` }
+    : { tone: "soft", text: "Desk closed", sub: `Evening session · entries from ${doc.entryWindows[0]?.from ?? "tomorrow"}` };
 }
 
 /**
@@ -88,6 +101,12 @@ export function TodayCard({
   // On a weekend no window is live — the clock still runs, the session doesn't.
   const m = weekend ? -1 : minutesOf(deskNow(now).slice(11, 16))!;
   const lines: { tone: Tone; text: string }[] = [];
+  const market = goldMarket(deskNow(now));
+  lines.push(
+    market.open
+      ? { tone: "up", text: `Gold is trading — ${marketNext(market)}.` }
+      : { tone: "soft", text: `Gold is closed (${market.closedFor}) — ${marketNext(market)}.` },
+  );
   if (weekend) lines.push({ tone: "soft", text: "Weekend — no session today. Analysis only." });
   else if (news?.skip.length) lines.push({ tone: "down", text: `Skip day — ${news.skip.join(", ")}. No trading today.` });
   else if (status?.skipDay) lines.push({ tone: "down", text: "Skip day — the year-end break. No trading today." });
@@ -102,7 +121,7 @@ export function TodayCard({
   if (status?.verdict === "caution") lines.push({ tone: "warn", text: "Check-in says caution — only A+ is tradable today." });
   if (status?.halfRisk) lines.push({ tone: "warn", text: "Half-risk week — every allowance is halved." });
   if (status?.doneForToday && !status.dayOff) lines.push({ tone: "up", text: "Done for today." });
-  if (!lines.length) lines.push({ tone: "soft", text: news ? "Not a skip day." : "Not a skip day — as far as the calendar knows." });
+  if (lines.length === 1 && !weekend) lines.push({ tone: "soft", text: news ? "Not a skip day." : "Not a skip day — as far as the calendar knows." });
 
   const rise = (i: number) => (animate ? stagger(i, 60) : undefined);
 

@@ -393,7 +393,7 @@ export default function App() {
                 standAside={<StandAside doc={rulebook.doc} status={status} news={todayNews} />}
               />
             )}
-            {view === "news" && <NewsView news={news} />}
+            {view === "news" && <NewsView news={news} entryWindows={rulebook.doc.entryWindows} />}
             {view === "risk" && (
               <Simulation trades={taken} doc={rulebook.doc} />
             )}

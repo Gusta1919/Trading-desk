@@ -5,6 +5,8 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { allowedFor } from "../src/lib/grading";
+import { condenseRulebook, defaultRulebook, freshStart, retirePlan, windowByHand } from "../src/lib/rulebookText";
 import { goldModelDefinition } from "../server/migrate";
 import {
   computeGrade,
@@ -188,5 +190,24 @@ describe("number factor validation", () => {
 
   it("rejects a range with no grade", () => {
     assert.equal(numberFactorErrors({ ...base, caps: ["C", "B"] }).length, 1);
+  });
+});
+
+describe("what each grade allows (the rulebook's table)", () => {
+  const two = windowByHand(freshStart(condenseRulebook(retirePlan(defaultRulebook())), "2.0"));
+  const f = (id: string) => two.factors.find((x) => x.id === id)!;
+
+  it("lists every answer that still reaches a grade, so lower grades are never empty", () => {
+    assert.deepEqual(allowedFor(f("htf-tf"), "A+").labels, ["4H, Daily or Weekly"]);
+    for (const g of ["A", "B", "C"] as const) assert.deepEqual(allowedFor(f("htf-tf"), g).labels, ["4H, Daily or Weekly", "1H"]);
+  });
+
+  it("merges neighbouring ranges, and says 'any' when every answer reaches the grade", () => {
+    assert.deepEqual(allowedFor(f("disp"), "A+").labels, ["≥1×"]);
+    assert.deepEqual(allowedFor(f("disp"), "A").labels, ["≥0.25×"]);
+    assert.equal(allowedFor(f("disp"), "B").any, true);
+    assert.equal(allowedFor(f("disp"), "C").any, true);
+    assert.deepEqual(allowedFor(f("compass"), "A").labels, allowedFor(f("compass"), "A+").labels);
+    assert.equal(allowedFor(f("compass"), "C").any, allowedFor(f("compass"), "B").any);
   });
 });

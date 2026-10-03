@@ -13,6 +13,7 @@ import {
   type Definition,
   type Factor,
   type Grade,
+  type NumberCut,
   type NumberFactor,
 } from "./types";
 
@@ -165,6 +166,27 @@ export function answersReaching(f: Factor, grade: Grade): string[] {
     .map((cap, i) => ({ cap, i }))
     .filter(({ cap }) => gradeRank(cap) <= gradeRank(grade))
     .map(({ i }) => rangeLabel(f, i));
+}
+
+/**
+ * What a grade allows on one factor, as the rulebook's table shows it: every answer that
+ * still reaches it. A run of neighbouring number ranges reads as one range ("≥0.25"); when
+ * every answer reaches the grade, `any` is set instead of listing them all.
+ */
+export function allowedFor(f: Factor, grade: Grade): { any: boolean; labels: string[] } {
+  if (f.kind === "choice") {
+    const ok = answersReaching(f, grade);
+    return { any: ok.length === f.options.length && f.options.length > 2, labels: ok };
+  }
+  const ok = f.caps.map((cap, i) => ({ cap, i })).filter(({ cap }) => gradeRank(cap) <= gradeRank(grade)).map(({ i }) => i);
+  if (!ok.length) return { any: false, labels: [] };
+  if (ok.length === f.caps.length) return { any: true, labels: [] };
+  const contiguous = ok.every((i, k) => k === 0 || i === ok[k - 1] + 1);
+  if (!contiguous) return { any: false, labels: ok.map((i) => withUnit(rangeLabel(f, i), f.unit)) };
+  const first = ok[0];
+  const last = ok[ok.length - 1];
+  const cuts = [first > 0 ? f.cuts[first - 1] : null, last < f.cuts.length ? f.cuts[last] : null].filter((c): c is NumberCut => c != null);
+  return { any: false, labels: [withUnit(rangeLabel({ ...f, cuts }, first > 0 ? 1 : 0), f.unit)] };
 }
 
 /** The answers to a factor that cap a setup at exactly `grade`, in words. */

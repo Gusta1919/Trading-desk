@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api, type OpenItem } from "@/lib/api";
-import { answersCappingAt, factorCap, withUnit } from "@/lib/grading";
+import { allowedFor, factorCap } from "@/lib/grading";
 import { hypothesisResults } from "@/lib/hypotheses";
 import { fmtR } from "@/lib/format";
 import {
@@ -619,7 +619,10 @@ function BaseRules() {
   );
 }
 
-/** Every factor: what lands an answer on each rung. */
+/**
+ * Every factor against every grade: what each grade still allows. An answer that allows an
+ * A+ allows every grade below it too, so a column lists everything that reaches its grade.
+ */
 function FactorsTable() {
   const { doc, values } = useCtx();
   const rungs: Grade[] = ["A+", "A", "B", "C"];
@@ -633,14 +636,20 @@ function FactorsTable() {
           {f.hint && <span className="block text-[11px] text-faint">{fill(f.hint, values)}</span>}
         </span>,
         ...rungs.map((g) => {
-          const here = answersCappingAt(f, g);
-          return here.length ? (
-            <span key={g} className={cx(f.kind === "number" && "num")}>
-              {here.map((h) => (f.kind === "number" ? withUnit(h, f.unit) : h)).join(" / ")}
-            </span>
-          ) : (
-            <span key={g} className="text-faint">
-              —
+          const { any, labels } = allowedFor(f, g);
+          if (any) return <span key={g} className="text-[12px] italic text-faint">any</span>;
+          if (!labels.length) return <span key={g} className="text-faint">—</span>;
+          return (
+            <span key={g} className="flex flex-wrap gap-1">
+              {labels.map((l) => (
+                <span
+                  key={l}
+                  className={cx("whitespace-nowrap rounded-md px-1.5 py-0.5 text-[12px] text-ink", f.kind === "number" && "num")}
+                  style={{ backgroundColor: tint(GRADE_COLOUR[g], 12) }}
+                >
+                  {l}
+                </span>
+              ))}
             </span>
           );
         }),
