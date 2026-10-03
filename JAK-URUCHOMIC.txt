@@ -1,17 +1,19 @@
 GUCCI TRADE JOURNAL — JAK URUCHOMIĆ
 ===================================
 
-Folder: ~/Documents/Trading/trade-assistant/
+Folder: ~/Projects/Trading-desk/
 
 PIERWSZY RAZ:
   1. Zainstaluj Node.js → nodejs.org (LTS)
-  2. Terminal:
-       cd ~/Documents/Trading/trade-assistant
+  2. Terminal (pobranie z GitHuba do ~/Projects):
+       cd ~/Projects
+       git clone https://github.com/Gusta1919/Trading-desk.git
+       cd Trading-desk
        npm install
 
 AKTUALIZACJA DO NOWEJ WERSJI (z GitHuba):
   Zamknij dziennik (okno Terminala z serwerem), potem w Terminalu:
-       cd ~/Documents/Trading/trade-assistant
+       cd ~/Projects/Trading-desk
        git fetch origin
        git checkout main
        git pull
@@ -34,7 +36,7 @@ KAŻDY RAZ — wybierz jedną opcję:
      Safari: Plik → Dodaj do Docka…
 
   D) TERMINAL ręcznie
-     cd ~/Documents/Trading/trade-assistant && npm start
+     cd ~/Projects/Trading-desk && npm start
      Potem: http://localhost:3847
 
 GDZIE SĄ MOJE DANE:
@@ -69,7 +71,7 @@ SKRÓT KLAWISZOWY (np. ⌘⇧T) — Shortcuts / Skróty:
   1. Dodaj „Uruchom skrypt powłoki" (Run Shell Script)
   2. Wklej:
        export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
-       bash "$HOME/Documents/Trading/trade-assistant/scripts/launch.sh"
+       bash "$HOME/Projects/Trading-desk/scripts/launch.sh"
   3. Ustaw powłokę: /bin/bash
   4. ⓘ → Skrót klawiaturowy → np. ⌘⇧T
 

@@ -51,8 +51,9 @@ You log the dollar result of the main account (FTMO 200K). Linked accounts (FTMO
 You need [Node.js](https://nodejs.org) (LTS) on macOS.
 
 ```bash
-git clone https://github.com/Gusta1919/Trading-desk.git trade-assistant
-cd trade-assistant
+cd ~/Projects
+git clone https://github.com/Gusta1919/Trading-desk.git
+cd Trading-desk
 npm install
 npm start          # the desk on http://localhost:3847
 ```
