@@ -51,9 +51,117 @@ export interface Trade {
   news: TradeNews[];
   notes: string;
   screenshot: string;
+  /** The rulebook version this trade was graded under; null for trades from before the rulebook. */
+  rulebookVersion: string | null;
+
+  /* ── Setup (the journal fields of the rulebook) ── */
+  /** The CRT box's high and low, wicks included. Its size stays in `boxSize`. */
+  boxHigh: number | null;
+  boxLow: number | null;
+  /** The furthest price the sweep reached beyond the box. */
+  sweepExtreme: number | null;
+  /** $ beyond the box edge — from the sweep extreme, or typed. */
+  sweepDepth: number | null;
+  took15mSwing: boolean | null;
+  htfReasonType: HtfReasonType | "";
+  poiTests: PoiTests | "";
+  /** The sweep took an important level (logged, not a rule yet). */
+  levelSweep: boolean | null;
+  /** Whether the Daily Bias briefing agreed with your bias. */
+  deskAgreed: DeskAgreed | "";
+
+  /* ── Entry ── */
+  entryType: EntryType | "";
+  entryPrice: number | null;
+  /** The initial stop — never the trailed one, so R stays measurable. */
+  stopPrice: number | null;
+  targetPrice: number | null;
+  lots: number | null;
+  /** The risk in account currency: the balance before the trade × its risk %. Derived. */
+  riskUsd: number | null;
+  /** 5m ATR(14) on the MSS candle, and how far that candle closed beyond the swing ($). */
+  atr: number | null;
+  mssBeyond: number | null;
+
+  /* ── Exit ── */
+  /** "YYYY-MM-DDTHH:mm", New York. */
+  exitTime: string;
+  exitPrice: number | null;
+  exitReason: ExitReason | "";
+  /** The stop was moved before price covered half the way to the target. */
+  earlyStopMove: boolean | null;
+  /** When a red release fell inside the trade: was the stop at breakeven or better? */
+  releaseAtBe: boolean | null;
+  /** The best and worst prices between entry and exit; R comes from the initial stop. */
+  mfePrice: number | null;
+  maePrice: number | null;
+  /** For early exits: would the target have been hit before the stop by the time stop? */
+  targetBeforeStop: "yes" | "no" | "unknown" | "";
+  /** For target exits: the furthest favourable price until the time stop. */
+  maxFavPrice: number | null;
+  screenshotAfter: string;
+
   createdAt: string;
   updatedAt: string;
 }
+
+export type HtfReasonType = "FVG" | "OB" | "VIMB";
+export const HTF_REASON_TYPES: HtfReasonType[] = ["FVG", "OB", "VIMB"];
+export type PoiTests = "fresh" | "once" | "2+";
+export const POI_TESTS: { value: PoiTests; label: string }[] = [
+  { value: "fresh", label: "Fresh" },
+  { value: "once", label: "Tested once" },
+  { value: "2+", label: "Tested 2+" },
+];
+export type DeskAgreed = "yes" | "no" | "none";
+export const DESK_AGREED: { value: DeskAgreed; label: string }[] = [
+  { value: "yes", label: "Agreed" },
+  { value: "no", label: "Disagreed" },
+  { value: "none", label: "No briefing" },
+];
+export type EntryType = "market" | "limit";
+export type ExitReason = "target" | "stop" | "trail" | "time" | "release" | "other";
+export const EXIT_REASONS: { value: ExitReason; label: string }[] = [
+  { value: "target", label: "Target" },
+  { value: "stop", label: "Stop" },
+  { value: "trail", label: "Trailing stop" },
+  { value: "time", label: "Time stop" },
+  { value: "release", label: "Release rule" },
+  { value: "other", label: "Other" },
+];
+export const exitReasonLabel = (r: string) => EXIT_REASONS.find((x) => x.value === r)?.label ?? "";
+
+/** Every rulebook field a trade carries, empty — what an older or blank trade starts with. */
+export const EMPTY_RULEBOOK_FIELDS = {
+  rulebookVersion: null,
+  boxHigh: null,
+  boxLow: null,
+  sweepExtreme: null,
+  sweepDepth: null,
+  took15mSwing: null,
+  htfReasonType: "",
+  poiTests: "",
+  levelSweep: null,
+  deskAgreed: "",
+  entryType: "",
+  entryPrice: null,
+  stopPrice: null,
+  targetPrice: null,
+  lots: null,
+  riskUsd: null,
+  atr: null,
+  mssBeyond: null,
+  exitTime: "",
+  exitPrice: null,
+  exitReason: "",
+  earlyStopMove: null,
+  releaseAtBe: null,
+  mfePrice: null,
+  maePrice: null,
+  targetBeforeStop: "",
+  maxFavPrice: null,
+  screenshotAfter: "",
+} satisfies Partial<Trade>;
 
 export type TradeInput = Omit<Trade, "id" | "createdAt" | "updatedAt">;
 
@@ -75,33 +183,51 @@ export interface TradeNews {
 }
 
 /**
- * The account's lines, all as % of the starting balance.
+ * The account's lines, all as % of a balance.
  *
- * Two are yours and apply to every strategy — the most one trade may risk, and the
- * most a day may lose. Two are the prop firm's — the lines that end the account.
+ * Three are yours — the most one trade may risk, the most a day and a week may lose.
+ * Two are the prop firm's — the lines that end the account — and those are measured
+ * against the starting balance, the way FTMO states them.
  */
 export interface Limits {
   enabled: boolean;
-  /** What the prop account was opened with; every percentage is measured from here. */
+  /** What the prop account was opened with; the firm's lines are measured from here. */
   startBalance: number;
+  /**
+   * The account's balance when this journal starts. Compounding starts here: the
+   * account had already moved before the first trade logged in the desk.
+   */
+  openingBalance: number;
+  /** The second account, traded at the same % risk but not journaled. */
+  secondAccount: number;
   /** Your hard cap per trade. */
   maxRiskPct: number;
   /** Your daily stop: once the day has lost this much, the desk is closed. */
   dailyStopPct: number;
+  /** Your weekly stop, per ISO week (Mon–Fri on New York days). */
+  weeklyStopPct: number;
   /** The prop firm's daily line. */
   dailyLossPct: number;
   /** The prop firm's overall line. */
   maxLossPct: number;
+  /** The challenge's profit targets. */
+  phase1TargetPct: number;
+  phase2TargetPct: number;
 }
 
-/** What a missing limits row falls back to: your rules, and FTMO's standard account. */
+/** What a missing rulebook falls back to: your rules, and FTMO's standard account. */
 export const DEFAULT_LIMITS: Limits = {
   enabled: true,
   startBalance: 200_000,
-  maxRiskPct: 1,
+  openingBalance: 193_933.27,
+  secondAccount: 100_000,
+  maxRiskPct: 0.5,
   dailyStopPct: 1,
+  weeklyStopPct: 2,
   dailyLossPct: 5,
   maxLossPct: 10,
+  phase1TargetPct: 10,
+  phase2TargetPct: 5,
 };
 
 export const SESSIONS = ["Asia", "London", "New York"];
@@ -143,6 +269,17 @@ export const inOrder = (picked: string[] = [], order: string[]) => [
 /* ── Strategy definition ─────────────────────────────────────────────── */
 
 /**
+ * Who answers a base rule when the desk can know it:
+ *  - `daily-budget`: the day's loss budget is left and no trade was taken yet today
+ *  - `news`: not a skip day and not inside a release window, at the entry time
+ *  - `entry-window`: the entry time is inside the entry window
+ *  - `plan`: a daily plan was written on time
+ * When the data to decide is missing, the rule falls back to a hand tick.
+ */
+export type AutoRule = "daily-budget" | "news" | "entry-window" | "plan";
+export const AUTO_RULES: AutoRule[] = ["daily-budget", "news", "entry-window", "plan"];
+
+/**
  * A yes/no condition that must hold for any trade. One unticked base rule caps the
  * grade at C. `auto` rules are answered by the app rather than ticked by hand.
  */
@@ -150,7 +287,7 @@ export interface BaseRule {
   id: string;
   text: string;
   hint: string;
-  auto?: "daily-budget";
+  auto?: AutoRule;
 }
 
 export interface ChoiceOption {
@@ -169,10 +306,19 @@ export interface NumberCut {
   lowerGetsIt: boolean;
 }
 
+/**
+ * A factor whose answer the desk fills in:
+ *  - `compass`: the frozen Compass value for the trade's weekday and direction
+ *  - `displacement`: the MSS close beyond the swing ÷ the 5m ATR(14)
+ *  - `bias`: today's plan's bias against the trade's direction (still editable)
+ */
+export type AutoFactor = "compass" | "displacement" | "bias";
+
 interface FactorBase {
   id: string;
   name: string;
   hint: string;
+  auto?: AutoFactor;
 }
 
 /** A question answered by picking one option. */
@@ -201,6 +347,11 @@ export interface GradeCard {
   riskPct: number;
   traded: boolean;
   description: string;
+  /**
+   * What the Forex Tester backtest risks on this grade — null when the backtest skips
+   * it. Shown in the rulebook only; the desk journals live trades.
+   */
+  backtestRiskPct?: number | null;
 }
 
 /** A trading strategy: what you trade, when, and what each grade of setup looks like. */

@@ -12,6 +12,7 @@ import { DESK_LABEL, deskTime } from "@/lib/tz";
 import {
   DEFAULT_LIMITS,
   EMOTIONS,
+  EMPTY_RULEBOOK_FIELDS,
   FLAG_LABEL,
   GRADES,
   MISTAKES,
@@ -281,6 +282,10 @@ export function TradeForm({
         }
       : null;
     return {
+      // The rulebook's journal fields are carried through untouched until the form asks for them.
+      ...Object.fromEntries(
+        Object.keys(EMPTY_RULEBOOK_FIELDS).map((k) => [k, trade ? trade[k as keyof typeof EMPTY_RULEBOOK_FIELDS] : EMPTY_RULEBOOK_FIELDS[k as keyof typeof EMPTY_RULEBOOK_FIELDS]]),
+      ) as Pick<TradeInput, keyof typeof EMPTY_RULEBOOK_FIELDS>,
       date: f.date,
       symbol: f.symbol,
       direction: f.direction,
