@@ -1,12 +1,13 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { dayOffLine, type DeskStatus } from "@/lib/discipline";
-import { accountState } from "@/lib/limits";
+import { fmtPct, fmtUsd as money, fmtUsdSigned as signedMoney } from "@/lib/format";
+import { ledger } from "@/lib/limits";
 import { goldMarket, inLabel, type GoldMarket } from "@/lib/market";
 import type { NewsDay, ReleaseWindow } from "@/lib/newsRules";
 import type { Rulebook } from "@/lib/rulebook";
 import { minutesOf } from "@/lib/rules";
-import { deskNow } from "@/lib/tz";
+import { deskDateLabel, deskNow } from "@/lib/tz";
 import type { Trade } from "@/lib/types";
 import { cx, stagger } from "./ui";
 
@@ -15,7 +16,6 @@ type Tone = "down" | "warn" | "up" | "soft";
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 const TONE_TEXT: Record<Tone, string> = { down: "text-down", warn: "text-warn", up: "text-up", soft: "text-soft" };
 const TONE_DOT: Record<Tone, string> = { down: "bg-down", warn: "bg-warn", up: "bg-up", soft: "bg-faint" };
-const money = (x: number) => `${x < 0 ? "−" : ""}$${Math.round(Math.abs(x)).toLocaleString("en-US")}`;
 
 /** "1h 05m", "25m" — how long until a minute of the day. */
 function wait(from: number, to: number) {
@@ -45,12 +45,12 @@ export function headline(doc: Rulebook, status: DeskStatus | null, news: NewsDay
   if (status?.dayOff) {
     return status.dayOff.reason === "rule-break"
       ? { tone: "down", text: "Day off", sub: "A rule was broken today" }
-      : { tone: "down", text: "Day off", sub: `After a rule break on ${status.dayOff.from}` };
+      : { tone: "down", text: "Day off", sub: `After a rule break on ${deskDateLabel(`${status.dayOff.from}T12:00:00Z`)}` };
   }
   if (status?.weekBudget.stopHit) return { tone: "down", text: "Weekly stop hit", sub: "No trades this week" };
   if (skip) return { tone: "down", text: "Skip day", sub: skip };
   if (status?.doneForToday) return { tone: "up", text: "Done for today", sub: status.dayBudget.stopHit ? "Daily stop hit" : "Trade taken" };
-  if (status?.verdict === "sit-out") return { tone: "down", text: "Stand down", sub: "The check-in says no trade today" };
+  if (status?.verdict === "sit-out") return { tone: "warn", text: "Step away?", sub: "The check-in advises leaving the charts — your call" };
   if (status?.takenToday.some((t) => status.open.includes(t))) return { tone: "up", text: "Trade open", sub: `Hands off · out by ${doc.timeStop}` };
 
   const stop = minutesOf(doc.timeStop)!;
@@ -96,7 +96,7 @@ export function TodayCard({
   // On a weekend no window is live — the clock still runs, the session doesn't.
   const m = weekend ? -1 : minutesOf(deskNow(now).slice(11, 16))!;
   const market = goldMarket(deskNow(now));
-  const account = useMemo(() => (trades ? accountState(trades, doc.limits, now) : null), [trades, doc.limits, now]);
+  const account = useMemo(() => (trades ? ledger(trades, doc.limits, now) : null), [trades, doc.limits, now]);
 
   const lines: { tone: Tone; text: string }[] = [
     market.open ? { tone: "up", text: `Gold is trading — ${marketNext(market)}.` } : { tone: "soft", text: `Gold is closed (${market.closedFor}) — ${marketNext(market)}.` },
@@ -111,7 +111,8 @@ export function TodayCard({
     });
   }
   if (status?.weekBudget.stopHit) lines.push({ tone: "down", text: "Weekly stop hit — no more trades this week." });
-  if (status?.verdict === "sit-out") lines.push({ tone: "down", text: "The check-in says stand down — no trade today." });
+  if (status?.verdict === "sit-out") lines.push({ tone: "warn", text: "The check-in advises leaving the charts today. Your call — make it knowingly." });
+  if (status?.verdict === "careful") lines.push({ tone: "warn", text: "The check-in says trade with care: only the cleanest setup." });
   if (status?.doneForToday && !status.dayOff) lines.push({ tone: "up", text: "Done for today." });
   if (lines.length === 1 && !weekend) lines.push({ tone: "soft", text: news ? "Not a skip day." : "Not a skip day — as far as the calendar knows." });
 
@@ -172,19 +173,21 @@ export function TodayCard({
       {account && (
         <div style={rise(lines.length + 3)} className={cx(block, "border-t pt-3")}>
           <div className="flex items-baseline justify-between">
-            <span className="eyebrow">Account</span>
-            <span className="num text-small text-soft">{money(account.balance)}</span>
+            <span className="eyebrow">Since you started</span>
+            <span className={cx("num text-small font-medium", account.total.pnl > 0 ? "text-up" : account.total.pnl < 0 ? "text-down" : "text-soft")}>
+              {signedMoney(account.total.pnl)} · {fmtPct(account.total.pnlPct)}
+            </span>
           </div>
-          <div className="relative mt-2 h-1.5 rounded-full bg-subtle">
-            <span
-              className="absolute inset-y-0 left-0 rounded-full bg-accent-2"
-              style={{ width: `${Math.max(0, Math.min(1, account.progress)) * 100}%`, boxShadow: "0 0 10px var(--glow-accent)" }}
-            />
-          </div>
-          <div className="num mt-1.5 flex justify-between text-caption text-faint">
-            <span>{money(account.room)} above the firm's floor</span>
-            <span>{account.need > 0 ? `${money(account.need)} to the ${limits.targetPct}% target` : "target reached"}</span>
-          </div>
+          <ul className="num mt-1.5 space-y-0.5 text-caption text-faint">
+            {account.accounts.map((a) => (
+              <li key={a.name} className="flex justify-between gap-3">
+                <span className="truncate font-sans">{a.name}</span>
+                <span>
+                  {money(a.balance)} <span className={a.pnl > 0 ? "text-up" : a.pnl < 0 ? "text-down" : ""}>{signedMoney(a.pnl)}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>

@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { impactColour } from "@/lib/calendarView";
 import type { CheckIn } from "@/lib/checkin";
 import type { CoachCard } from "@/lib/coach";
-import { autoRuleState, evaluateHistory, judgeDraft, releasesHeld, tradableToday } from "@/lib/discipline";
+import { autoRuleState, evaluateHistory, judgeDraft, releasesHeld } from "@/lib/discipline";
 import { fmtPct, fmtR, nowLocal, tone } from "@/lib/format";
 import { BIAS_OPTION } from "@/lib/goldModel";
 import { computeGrade } from "@/lib/grading";
@@ -379,7 +379,7 @@ export function TradeForm({
         { trades, checkins, rulebookOf },
       ).allowed;
   const doneToday = takenEarlier >= rb.maxTradesPerDay;
-  const tradable = tradableToday(card, verdict) && allowed > 0;
+  const tradable = Boolean(card?.traded) && allowed > 0;
 
   async function save() {
     setError(null);
@@ -713,7 +713,7 @@ export function TradeForm({
                         <Field label="Planned R:R">
                           <NumberInput value={f.plannedRR} onChange={(v) => set("plannedRR", v)} placeholder="2" suffix="R" />
                         </Field>
-                        <Field label="Result">
+                        <Field label={`Result · ${L.accountName}`}>
                           <NumberInput value={f.pnlUsd} onChange={(v) => set("pnlUsd", v)} placeholder="empty = open" suffix="$" />
                         </Field>
                         {/* The result as the account sees it — the same height as the fields beside it, and a stamp each time it changes. */}
@@ -732,7 +732,8 @@ export function TradeForm({
                             <span className="num text-soft">{fmtUsd(riskUsd)}</span> at risk of {fmtUsd(balanceBefore)} ·{" "}
                           </>
                         )}
-                        The broker's dollar result, costs already in it; the % and R are worked out for you. Leave it empty while the trade is open.
+                        The {L.accountName}'s dollar result, costs already in it. The % and R are worked out for you
+                        {L.linked.length > 0 && <>, and {L.linked.map((x) => x.name).join(" and ")} take the same %</>}. Leave it empty while the trade is open.
                       </p>
                     </Card>
 

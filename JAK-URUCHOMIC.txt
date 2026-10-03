@@ -74,6 +74,15 @@ W APLIKACJI:
              wymaga jednego zdania powodu i trafia do changelogu. Limity konta
              zmieniasz tylko tutaj (sekcja „Limits and consequences").
 
+DWA KONTA:
+  Wpisujesz wynik w $ tylko z konta FTMO 200K. Konto FTMO 100K dostaje ten sam %
+  od swojego salda. Dziennik pokazuje oba konta i sumę — liczone od startu dziennika,
+  bez wcześniejszego drawdownu. Nazwy i salda zmieniasz w Rulebooku (Limits).
+
+CHECK-IN:
+  Trzy wyniki: Clear to trade / Trade with care / Better to leave the charts.
+  To tylko ostrzeżenie i informacja — niczego nie blokuje, decyzja zawsze należy do Ciebie.
+
 DANE DEMO (żeby zobaczyć każdą zakładkę wypełnioną; serwer musi działać):
   npm run demo          ~13 tygodni transakcji demo z check-inami, kilka celowych
                         naruszeń, setupy B zapisane jako „not taken", 2 historie

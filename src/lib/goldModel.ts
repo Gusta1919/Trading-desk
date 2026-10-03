@@ -34,7 +34,7 @@ const SECTIONS: Rulebook["sections"] = [
   {
     id: "prep",
     title: "Before you trade",
-    body: `1. **Check-in:** answer it honestly. Anything but "Cleared to trade" ends the day before it starts.
+    body: `1. **Check-in:** answer it honestly. It says how ready you are; if it warns you, take it seriously — the decision stays yours.
 2. **Calendar:** a skip day? Which red releases fall in the entry window? The Today dock shows both.
 3. **Levels:** PDH/PDL, PWH/PWL, the higher-timeframe highs and lows, obvious EQH/EQL, and the 1H–Weekly POIs near price.
 4. **Bias:** Bullish, Bearish or Unclear, from the Daily chart and the next draw on liquidity. Decide it before the first entry. The Daily Bias briefing can veto a trade, never create one.`,
@@ -104,7 +104,7 @@ High swept: look for shorts. Low swept: look for longs. A wick is enough.
     body: `- **{{maxTrades.Word}} trade a day.** Win, lose or breakeven, you're done.
 - **Daily stop {{limits.dailyStop}}, weekly stop {{limits.weeklyStop}}.** Hit one and stop for the rest of the day or week.
 - **Never hold overnight.** Flat by {{timeStop}}.
-- **The check-in comes first.** "Stand down" means no trade today.
+- **The check-in advises, it doesn't decide.** "Trade with care" or "Better to leave the charts" are warnings to take seriously; the choice is yours.
 
 ### When a rule breaks
 
@@ -148,12 +148,11 @@ export const GOLD_MODEL: Omit<Rulebook, "version"> = {
     { id: "htf", text: "HTF reason present", hint: "a 1H, 4H, Daily or Weekly FVG, OB or VIMB" },
     { id: "mss", text: "5m MSS on external structure after the sweep, by candle close", hint: "a wick doesn't count" },
     { id: "rr", text: "R:R above {{rr.min}} net of fees at the entry price", hint: "including fees" },
-    { id: "news", text: "Not a skip day, and not inside a release window", hint: "", auto: "news" },
     { id: "window", text: "Inside the entry window", hint: "{{windows}}" },
-    { id: "opposite", text: "Opposite box side still untaken", hint: "" },
     { id: "liquidity", text: "No obvious liquidity within {{liquidityR}} beyond the stop", hint: "EQH/EQL or a key level" },
-    { id: "budget", text: "Daily loss budget available, and no trade taken yet today", hint: "", auto: "daily-budget" },
     { id: "bias-decided", text: "Daily bias decided", hint: "Bullish, Bearish or Unclear, before the entry" },
+    { id: "budget", text: "Daily loss budget available, and no trade taken yet today", hint: "", auto: "daily-budget" },
+    { id: "news", text: "Not a skip day, and not inside a release window", hint: "", auto: "news" },
   ],
   factors: [
     {
@@ -219,6 +218,7 @@ export const GOLD_MODEL: Omit<Rulebook, "version"> = {
   ],
   aPlus: { trades: 50, edgeR: 0.3, riskPct: 1 },
   limits: {
+    accountName: "FTMO 200K",
     startBalance: 200_000,
     openingBalance: 193_933.27,
     maxRiskPct: 0.5,
@@ -227,6 +227,7 @@ export const GOLD_MODEL: Omit<Rulebook, "version"> = {
     dailyLossPct: 5,
     maxLossPct: 10,
     targetPct: 10,
+    linked: [{ name: "FTMO 100K", opening: 98_274.52 }],
   },
   daysOff: 1,
   news: {
@@ -249,7 +250,6 @@ export const GOLD_MODEL: Omit<Rulebook, "version"> = {
 
   flow: {
     gates: [
-      "Check-in: cleared to trade?",
       "Daily bias decided?",
       "An allowed day, not a skip day?",
       "One box side swept inside the entry window?",

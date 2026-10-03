@@ -34,12 +34,17 @@ open http://localhost:3847
 Every tab opens the same way: its name, one line on what it is for, and its controls on the
 right. The Today dock sits bottom-right on every tab.
 
-- **Check-in** — nine questions each weekday morning: *Cleared to trade* or *Stand down*
-  (which closes the day). Then today's status and the Coach's briefing.
+- **Check-in** — nine questions each weekday morning: *Clear to trade*, *Trade with care* or
+  *Better to leave the charts*. It advises and never blocks — the choice to trade is yours.
+  Then today's status and the Coach's briefing.
 - **Today dock** — where the day stands right now: entries open, release window, skip day,
   day off, done for today. Rest the mouse on it for the whole day, the budgets and the account.
 - **Journal** — every trade, and every setup logged as not taken, with why it got its grade,
-  its session (from the entry time), exit, rules held, risk and result.
+  its session (from the entry time), exit, rules held, risk, result and P&L across accounts.
+- **Accounts** — you log the dollars of the FTMO 200K; the FTMO 100K takes the same % on its
+  own balance. Journal, Calendar, Stats and the dock show each account and the total, counted
+  from the day the journal started (the drawdown before it is never shown). Both are set in
+  the Rulebook's Limits section.
 - **New trade** — step 1 grades the setup (base rules, then the five factors) and says what
   it may risk today. Step 2 logs it: taken, or not taken with what it would have made.
 - **Daily Bias** — the morning's gold briefing drawn over live price, with the rulebook's CRT

@@ -140,7 +140,6 @@ export type TradeInput = Omit<Trade, "id" | "createdAt" | "updatedAt" | "resultR
 export type TradeFlag =
   | "over_risk"
   | "non_traded_grade"
-  | "traded_on_stand_down"
   | "after_daily_stop"
   | "after_weekly_stop"
   | "second_trade_today"
@@ -155,7 +154,6 @@ export type TradeFlag =
 export const FLAG_LABEL: Record<TradeFlag, string> = {
   over_risk: "Risked more than allowed",
   non_traded_grade: "Took a grade that isn't tradable",
-  traded_on_stand_down: "Traded when the check-in said stand down",
   after_daily_stop: "Traded after the daily stop",
   after_weekly_stop: "Traded after the weekly stop",
   second_trade_today: "A second trade the same day",
@@ -187,6 +185,8 @@ export interface TradeNews {
  * against the starting balance, the way FTMO states them.
  */
 export interface Limits {
+  /** The account you log trades in, e.g. "FTMO 200K". */
+  accountName: string;
   /** What the prop account was opened with; the firm's lines are measured from here. */
   startBalance: number;
   /**
@@ -206,6 +206,17 @@ export interface Limits {
   maxLossPct: number;
   /** The challenge's profit target for the phase being traded. */
   targetPct: number;
+  /**
+   * Accounts that take every trade at the same %. You log only the main account's $;
+   * theirs is worked out from it, so the desk can show each one and the total.
+   */
+  linked: LinkedAccount[];
+}
+
+export interface LinkedAccount {
+  name: string;
+  /** Its balance when the journal started. */
+  opening: number;
 }
 
 export const SESSIONS = ["Asia", "London", "New York"];
@@ -316,6 +327,9 @@ export interface SetupSnapshot extends Definition {
   answers: Record<string, string | number>;
   grade: Grade | null;
 }
+
+/** Base rules as every checklist shows them: the ones you tick first, the desk's own (auto) ones last. */
+export const autoLast = <R extends Pick<BaseRule, "auto">>(rules: R[]): R[] => [...rules.filter((r) => !r.auto), ...rules.filter((r) => r.auto)];
 
 /** How many of its base rules a trade held, from its own frozen copy of them. */
 export function rulesHeld(t: Pick<Trade, "setupSnapshot">): { held: number; of: number } | null {

@@ -25,7 +25,7 @@ export function DailyBiasView({ state, standAside, crt }: { state: DailyBiasStat
       <div className="space-y-6">
         <PageHeader
           title="Daily Bias"
-          sub="This morning's read on gold: the plan on the live chart, the scenarios, what to watch and when. It informs the trade; the rulebook decides it."
+          sub="This morning's read on gold: the plan on the live chart, the scenarios and what to watch. The rulebook still decides."
         />
         <View state={state} standAside={standAside} />
       </div>

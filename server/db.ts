@@ -11,6 +11,8 @@ import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { toVerdict } from "../src/lib/checkin.js";
+import { upgradeRulebook } from "./rulebookStore.js";
 import { isCurrentSchema, setupSchema } from "./schema.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,7 +38,7 @@ export function archive(file: string): string {
   return target;
 }
 
-/** Your own check-ins from the archived database: the demo ones stay behind. "caution" is now "sit-out". */
+/** Your own check-ins from the archived database: the demo ones stay behind. "caution" is now "careful". */
 function carryCheckins(from: string, to: Database.Database): number {
   const old = new Database(from, { readonly: true });
   try {
@@ -54,7 +56,7 @@ function carryCheckins(from: string, to: Database.Database): number {
         String(r.answers ?? "{}"),
         String(r.note ?? ""),
         Number(r.score) || 0,
-        r.verdict === "ready" ? "ready" : "sit-out",
+        toVerdict(r.verdict),
         String(r.reflection ?? ""),
         String(r.created_at ?? new Date().toISOString()),
       );
@@ -93,6 +95,8 @@ export function openDatabase(file = DB_PATH): Database.Database {
   const db = new Database(file);
   db.pragma("journal_mode = WAL");
   setupSchema(db);
+  const upgraded = upgradeRulebook(db);
+  if (upgraded) console.log(`Rulebook updated for this version of the desk: ${upgraded.reason}.`);
 
   if (archived) {
     const kept = carryCheckins(archived, db);

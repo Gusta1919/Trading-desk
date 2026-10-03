@@ -44,7 +44,7 @@ import {
 import type { RulebookState } from "@/lib/useRulebook";
 import { NEWS_CATEGORIES, NEWS_CURRENCIES, categoryLabel } from "@/lib/newsRules";
 import { deskDay } from "@/lib/tz";
-import type { Grade, Trade } from "@/lib/types";
+import { autoLast, type Grade, type Trade } from "@/lib/types";
 import { GRADE_COLOUR, GradeBadge } from "./GradeBadge";
 import { BaseRulesEditor, FactorsEditor, GradeLadder } from "./RuleEditors";
 import { Button, Chips, DecimalInput, Modal, PageHeader, cx, stagger } from "./ui";
@@ -124,7 +124,7 @@ export function RulebookView({
         title="Rulebook"
         sub={
           <>
-            {doc.name}: the rules every trade is graded and judged by. Edit a section and the whole desk follows it.
+            {doc.name}: the rules every trade is graded by.
             {current && current.createdAt !== new Date(0).toISOString() && (
               <span className="text-faint">
                 {" "}
@@ -554,7 +554,7 @@ function BaseRules() {
   const { doc } = useCtx();
   return (
     <ol className="grid gap-2 md:grid-cols-2">
-      {doc.baseRules.map((r, i) => (
+      {autoLast(doc.baseRules).map((r, i) => (
         <li key={r.id} className="anim-rise flex gap-3 rounded-xl border bg-surface/40 px-3.5 py-2.5" style={stagger(i, 45)}>
           <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-up/15 text-up">
             <Check size={12} strokeWidth={3} />
@@ -1368,20 +1368,50 @@ function AccountsCard({ draft: d, patch }: CardProps) {
   const l = d.limits;
   const limits = (p: Partial<Rulebook["limits"]>) => patch({ limits: { ...l, ...p } });
   return (
-    <Card title="The firm and the account">
-      <Row>
-        <Num label="Firm daily loss" value={l.dailyLossPct} onChange={(v) => limits({ dailyLossPct: v })} suffix="%" />
-        <Num label="Firm max loss" value={l.maxLossPct} onChange={(v) => limits({ maxLossPct: v })} suffix="%" />
-        <Num label="Profit target" value={l.targetPct} onChange={(v) => limits({ targetPct: v })} suffix="%" />
-      </Row>
-      <div className="mt-4">
+    <Card title="The accounts">
+      <div className="space-y-4">
         <Row>
-          <Num label="Start balance" value={l.startBalance} onChange={(v) => limits({ startBalance: v })} suffix="$" className="w-36" />
-          <Num label="Opening balance" value={l.openingBalance} onChange={(v) => limits({ openingBalance: v })} suffix="$" className="w-36" />
+          <label className="block">
+            <span className="eyebrow mb-2 block">Account you log</span>
+            <input className="field w-40" value={l.accountName} onChange={(e) => limits({ accountName: e.target.value })} />
+          </label>
+          <Num label="Firm start balance" value={l.startBalance} onChange={(v) => limits({ startBalance: v })} suffix="$" className="w-36" />
+          <Num label="Balance at the journal's start" value={l.openingBalance} onChange={(v) => limits({ openingBalance: v })} suffix="$" className="w-40" />
+        </Row>
+        <div>
+          <span className="eyebrow mb-2 block">Linked accounts — same trades, same %</span>
+          <div className="space-y-2">
+            {l.linked.map((acc, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  aria-label="Linked account name"
+                  className="field w-40"
+                  value={acc.name}
+                  onChange={(e) => limits({ linked: l.linked.map((x, k) => (k === i ? { ...x, name: e.target.value } : x)) })}
+                />
+                <DecimalInput
+                  className="w-40"
+                  value={acc.opening}
+                  onChange={(v) => v != null && limits({ linked: l.linked.map((x, k) => (k === i ? { ...x, opening: v } : x)) })}
+                  suffix="$"
+                />
+                <button onClick={() => limits({ linked: l.linked.filter((_, k) => k !== i) })} className="text-faint hover:text-down" title="Remove">
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+            <AddButton onClick={() => limits({ linked: [...l.linked, { name: "", opening: 100_000 }] })}>Add an account</AddButton>
+          </div>
+        </div>
+        <Row>
+          <Num label="Firm daily loss" value={l.dailyLossPct} onChange={(v) => limits({ dailyLossPct: v })} suffix="%" />
+          <Num label="Firm max loss" value={l.maxLossPct} onChange={(v) => limits({ maxLossPct: v })} suffix="%" />
+          <Num label="Profit target" value={l.targetPct} onChange={(v) => limits({ targetPct: v })} suffix="%" />
         </Row>
       </div>
       <p className="mt-3 text-caption text-faint">
-        The start balance is what the firm measures its lines from. The opening balance is the account when the journal began: every % and R is compounded from it.
+        You log the dollars of the account you log; each linked account takes the same % on its own balance. Results are counted from the
+        journal's start. The firm's lines only keep the safe risk safe — they are not shown as a drawdown.
       </p>
     </Card>
   );

@@ -488,6 +488,11 @@ export function rulebookErrors(doc: Rulebook): string[] {
     ["Trades per day", doc.maxTradesPerDay],
   ];
   for (const [what, v] of positive) if (!(Number.isFinite(v) && v > 0)) errors.push(`${what} must be above 0`);
+  if (!l.accountName?.trim()) errors.push("The main account needs a name");
+  for (const a of l.linked ?? []) {
+    if (!a.name.trim()) errors.push("Every linked account needs a name");
+    if (!(Number.isFinite(a.opening) && a.opening > 0)) errors.push(`${a.name || "A linked account"}: its balance must be above 0`);
+  }
   for (const c of doc.grades) {
     if (!(Number.isFinite(c.riskPct) && c.riskPct >= 0)) errors.push(`${c.grade} risk must be 0 or more`);
   }

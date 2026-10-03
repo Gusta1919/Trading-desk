@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { openDatabase } from "../server/db";
-import { RulebookError, currentRulebook, listVersions, saveRulebook } from "../server/rulebookStore";
+import { RulebookError, currentRulebook, insertVersion, listVersions, saveRulebook, upgradeRulebook } from "../server/rulebookStore";
 import { isCurrentSchema, setupSchema } from "../server/schema";
 import { FIRST_REASON, FIRST_VERSION, defaultRulebook } from "../src/lib/goldModel";
 
@@ -85,13 +85,13 @@ describe("an older database", () => {
     db.close();
   });
 
-  it("carries your own check-ins over, a Caution as a stand-down, and leaves the demo ones behind", () => {
+  it("carries your own check-ins over, a Caution as 'trade with care', and leaves the demo ones behind", () => {
     const dir = tmp();
     const db = openDatabase(oldDatabase(dir));
     const rows = db.prepare("SELECT date, verdict, note FROM checkins ORDER BY date").all();
     assert.deepEqual(rows, [
       { date: "2026-09-30", verdict: "ready", note: "" },
-      { date: "2026-10-01", verdict: "sit-out", note: "slept badly" },
+      { date: "2026-10-01", verdict: "careful", note: "slept badly" },
     ]);
     db.close();
   });
@@ -110,3 +110,46 @@ describe("an older database", () => {
     assert.equal(fs.existsSync(path.join(dir, "archive")), false);
   });
 });
+
+describe("a rulebook saved by the previous version of the desk", () => {
+  function earlier() {
+    const db = new Database(":memory:");
+    setupSchema(db);
+    const doc = structuredClone(currentRulebook(db).doc);
+    const { accountName: _a, linked: _l, ...limits } = doc.limits;
+    const old = {
+      ...doc,
+      limits: limits as typeof doc.limits,
+      flow: { ...doc.flow, gates: ["Check-in: cleared to trade?", ...doc.flow.gates] },
+      sections: doc.sections.map((s) =>
+        s.id === "limits" ? { ...s, body: s.body.replace(/- \*\*The check-in advises[^\n]*/, '- **The check-in comes first.** "Stand down" means no trade today.') } : s,
+      ),
+      // An edit of your own, which must survive.
+      timeStop: "11:45",
+    };
+    insertVersion(db, "1.1", "My own edit", old, "2026-10-03T12:00:00.000Z");
+    return db;
+  }
+
+  it("is brought up to date as one new version, keeping your edits", () => {
+    const db = earlier();
+    const v = upgradeRulebook(db)!;
+    assert.equal(v.version, "1.2");
+    assert.match(v.reason, /check-in advises/);
+    assert.equal(v.doc.timeStop, "11:45");
+    assert.equal(v.doc.limits.accountName, "FTMO 200K");
+    assert.deepEqual(v.doc.limits.linked.map((a) => a.name), ["FTMO 100K"]);
+    assert.ok(!v.doc.flow.gates.some((g) => /check-in/i.test(g)));
+    assert.ok(!v.doc.sections.some((s) => s.body.includes("Stand down")));
+  });
+
+  it("is left alone once it is current", () => {
+    const db = earlier();
+    upgradeRulebook(db);
+    assert.equal(upgradeRulebook(db), null);
+    const fresh = new Database(":memory:");
+    setupSchema(fresh);
+    assert.equal(upgradeRulebook(fresh), null);
+  });
+});
+

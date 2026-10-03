@@ -8,6 +8,7 @@
  */
 import cors from "cors";
 import express from "express";
+import { toVerdict } from "../src/lib/checkin.js";
 import { evaluateHistory } from "../src/lib/discipline.js";
 import { ALL_FLAGS, EXIT_REASONS, type Trade } from "../src/lib/types.js";
 import { readBias } from "./bias.js";
@@ -202,7 +203,7 @@ function recomputeFlags() {
   const trades = (db.prepare("SELECT * FROM trades").all() as Row[]).map(rowToTrade);
   const checkins = (db.prepare("SELECT date, verdict FROM checkins").all() as Row[]).map((r) => ({
     date: String(r.date),
-    verdict: (r.verdict === "ready" ? "ready" : "sit-out") as "ready" | "sit-out",
+    verdict: toVerdict(r.verdict),
   }));
   const { byId } = evaluateHistory({ trades, checkins, rulebookOf: rulebookOfDb() });
   const update = db.prepare("UPDATE trades SET flags = ?, planned_risk_pct = ? WHERE id = ?");
@@ -271,7 +272,7 @@ function rowToCheckIn(row: Row) {
     answers: parseJson(row.answers, {}),
     note: String(row.note ?? ""),
     score: Number(row.score) || 0,
-    verdict: row.verdict === "ready" ? "ready" : "sit-out",
+    verdict: toVerdict(row.verdict),
     reflection: String(row.reflection ?? ""),
     createdAt: String(row.created_at),
   };
@@ -294,12 +295,10 @@ app.put("/api/checkins/:date", (req, res) => {
     JSON.stringify(answers ?? {}),
     String(note ?? ""),
     Number(score) || 0,
-    verdict === "ready" ? "ready" : "sit-out",
+    toVerdict(verdict),
     String(reflection ?? ""),
     new Date().toISOString(),
   );
-  // The check-in decides whether that day was tradable at all.
-  recomputeFlags();
   res.json(rowToCheckIn(db.prepare("SELECT * FROM checkins WHERE date = ?").get(req.params.date) as Row));
 });
 

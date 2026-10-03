@@ -4,7 +4,7 @@ import type { DayBudget } from "@/lib/risk";
 import { Check, X } from "lucide-react";
 import type { Verdict } from "@/lib/checkin";
 import { dayOffLine, type DayOff } from "@/lib/discipline";
-import type { BaseRule, Definition, Factor, Grade, GradeCard, Limits } from "@/lib/types";
+import { autoLast, type BaseRule, type Definition, type Factor, type Grade, type GradeCard, type Limits } from "@/lib/types";
 import { GRADE_COLOUR, GradeBadge } from "./GradeBadge";
 import { Glossed } from "./Glossed";
 import { cx, stagger } from "./ui";
@@ -50,7 +50,7 @@ export function SetupCheck({
   const autoOf = (r: BaseRule) => (r.auto ? auto[r.id] : undefined);
   const isAuto = (r: BaseRule) => autoOf(r)?.holds != null;
   const holds = (r: BaseRule) => (isAuto(r) ? Boolean(autoOf(r)!.holds) : ticked.includes(r.id));
-  const rules = definition.baseRules;
+  const rules = autoLast(definition.baseRules);
   const done = rules.filter(holds).length;
   const answered = definition.factors.filter((f) => factorCap(f, answers[f.id]) != null).length;
 
@@ -344,13 +344,15 @@ export function GradePanel({
   /** Why today's allowance is 0 or reduced, most serious first. */
   const reasons: { text: string; tone: "down" | "warn" }[] = [];
   if (notTraded) reasons.push({ text: `Not tradable — log it as not taken. ${capLine.length ? `Capped by ${capLine.join(" · ")}.` : ""}`, tone: "down" });
-  if (verdict === "sit-out") reasons.push({ text: "The check-in says stand down — nothing is tradable today.", tone: "down" });
   if (dayOff) {
     reasons.push({ text: dayOffLine(dayOff, day ?? ""), tone: "down" });
   }
   if (doneToday) reasons.push({ text: "Done for today — the day's one trade is taken.", tone: "down" });
   if (budget.stopHit) reasons.push({ text: "Daily stop hit — no more trades today.", tone: "down" });
   if (week.stopHit) reasons.push({ text: "Weekly stop hit — no more trades this week.", tone: "down" });
+  // The check-in only advises: a warning, never a block.
+  if (verdict === "sit-out") reasons.push({ text: "This morning's check-in said better to leave the charts today. Your call — make it knowingly.", tone: "warn" });
+  if (verdict === "careful") reasons.push({ text: "This morning's check-in said trade with care: only the cleanest setup.", tone: "warn" });
 
   return (
     <div

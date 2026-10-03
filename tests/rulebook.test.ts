@@ -27,10 +27,11 @@ describe("the GOLD Model as it ships", () => {
     assert.equal(FIRST_VERSION, "1.0");
   });
 
-  it("has nine base rules, the desk answering the news and the budget itself", () => {
+  it("has eight base rules, the desk's own two (budget and news) last", () => {
     const d = defaultRulebook();
-    assert.equal(d.baseRules.length, 9);
-    assert.deepEqual(d.baseRules.filter((r) => r.auto).map((r) => r.auto), ["news", "daily-budget"]);
+    assert.equal(d.baseRules.length, 8);
+    assert.deepEqual(d.baseRules.slice(-2).map((r) => r.auto), ["daily-budget", "news"]);
+    assert.ok(!d.baseRules.some((r) => r.id === "opposite"));
   });
 
   it("grades on five factors, all answered by hand", () => {

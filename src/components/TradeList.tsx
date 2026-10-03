@@ -1,9 +1,10 @@
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Flag, Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import { fmtDate, fmtPct, fmtR, fmtRate, fmtTime, tone } from "@/lib/format";
+import { fmtDate, fmtPct, fmtR, fmtRate, fmtTime, fmtUsdSigned, tone } from "@/lib/format";
+import { ledger } from "@/lib/limits";
 import { answerLabel, whyGrade } from "@/lib/grading";
 import { classifyOutcome, summarize, tradePct } from "@/lib/stats";
-import { FLAG_LABEL, exitReasonLabel, isGrade, rulesHeld, type Trade } from "@/lib/types";
+import { FLAG_LABEL, exitReasonLabel, isGrade, rulesHeld, type Limits, type Trade } from "@/lib/types";
 import { GradeBadge } from "./GradeBadge";
 import { Button, Empty, Pill, Segmented, Tip, cx } from "./ui";
 
@@ -55,7 +56,19 @@ function rangeStart(range: string, now = new Date()) {
 }
 
 /** The journal: every trade and every setup logged as not taken, newest first. */
-export function TradeList({ trades, onOpen, onNew }: { trades: Trade[]; onOpen: (t: Trade) => void; onNew: () => void }) {
+export function TradeList({
+  trades,
+  limits,
+  onOpen,
+  onNew,
+}: {
+  trades: Trade[];
+  /** For the dollars: the main account's and every linked one's. */
+  limits: Limits;
+  onOpen: (t: Trade) => void;
+  onNew: () => void;
+}) {
+  const book = useMemo(() => ledger(trades, limits), [trades, limits]);
   const [query, setQuery] = useState("");
   const [f, setF] = useState<Filters>(BLANK);
   const set = (k: keyof Filters, v: string) => setF((prev) => ({ ...prev, [k]: v }));
@@ -85,6 +98,9 @@ export function TradeList({ trades, onOpen, onNew }: { trades: Trade[]; onOpen: 
 
   // Setups not taken are listed, never counted.
   const s = useMemo(() => summarize(visible.filter((t) => !t.skipped)), [visible]);
+  /** A trade's dollars across every account, and the split for the hover. */
+  const dollars = (t: Trade) => book.byTrade.get(t.id);
+  const visibleUsd = visible.reduce((a, t) => a + (dollars(t)?.reduce((x, y) => x + y, 0) ?? 0), 0);
 
   if (trades.length === 0) {
     return (
@@ -154,6 +170,9 @@ export function TradeList({ trades, onOpen, onNew }: { trades: Trade[]; onOpen: 
           <span>
             net <b className={cx("font-medium text-ink", tone(s.netPct))}>{fmtPct(s.netPct)}</b>
           </span>
+          <span>
+            <b className={cx("font-medium text-ink", tone(visibleUsd))}>{fmtUsdSigned(visibleUsd)}</b> all accounts
+          </span>
         </div>
       </div>
 
@@ -171,6 +190,7 @@ export function TradeList({ trades, onOpen, onNew }: { trades: Trade[]; onOpen: 
               <Th right>Risk</Th>
               <Th right>Result</Th>
               <Th right>Return</Th>
+              <Th right>P&amp;L</Th>
             </tr>
           </thead>
           <tbody>
@@ -243,6 +263,18 @@ export function TradeList({ trades, onOpen, onNew }: { trades: Trade[]; onOpen: 
                   </Td>
                   <Td right className={cx("font-medium", tone(open || t.skipped ? null : tradePct(t)))}>
                     {open || t.skipped ? <span className="text-faint">—</span> : fmtPct(tradePct(t))}
+                  </Td>
+                  <Td right>
+                    {(() => {
+                      const d = dollars(t);
+                      if (!d) return <span className="text-faint">—</span>;
+                      const total = d.reduce((a, b) => a + b, 0);
+                      return (
+                        <Tip text={book.accounts.map((a, k) => `${a.name} ${fmtUsdSigned(d[k])}`).join(" · ")} className={cx("font-medium", tone(total))}>
+                          {fmtUsdSigned(total)}
+                        </Tip>
+                      );
+                    })()}
                   </Td>
                 </tr>
               );

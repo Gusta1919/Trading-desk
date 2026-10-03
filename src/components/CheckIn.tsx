@@ -437,7 +437,7 @@ function Result({
 
       <div className="anim-rise mt-8" style={{ animationDelay: `${850 + flags.length * 90}ms` }}>
         <Button onClick={onEnter} className="px-6 py-2.5 text-title">
-          {verdict === "sit-out" ? "Understood — continue" : "Continue"}
+          {verdict === "ready" ? "Continue" : "Understood — continue"}
         </Button>
       </div>
     </div>

@@ -24,9 +24,10 @@ export const stagger = (i: number, step = 45, max = 700): CSSProperties => ({
 export function PageHeader({ title, sub, actions }: { title: string; sub?: ReactNode; actions?: ReactNode }) {
   return (
     <header className="anim-rise flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <h1 className="text-heading font-semibold">{title}</h1>
-        {sub && <p className="mt-1 max-w-3xl text-small text-soft">{sub}</p>}
+        {/* Always one line: written short, and cut with an ellipsis rather than wrapped. */}
+        {sub && <p className="mt-1 truncate text-small text-soft">{sub}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </header>

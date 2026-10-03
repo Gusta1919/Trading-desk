@@ -161,7 +161,7 @@
     }
     var c = path.match(/^\/api\/checkins\/(\d{4}-\d{2}-\d{2})$/);
     if (c && method === "PUT") {
-      var saved = Object.assign({ answers: {}, note: "", score: 0, verdict: "sit-out", reflection: "" }, body, {
+      var saved = Object.assign({ answers: {}, note: "", score: 0, verdict: "careful", reflection: "" }, body, {
         date: c[1],
         createdAt: new Date().toISOString(),
       });

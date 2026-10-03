@@ -19,7 +19,8 @@ export function StandAside({ doc, status, news }: { doc: Rulebook; status: DeskS
   if (status?.dayOff) {
     lines.push({ tone: "down", text: dayOffLine(status.dayOff, status.day) });
   }
-  if (status?.verdict === "sit-out") lines.push({ tone: "down", text: "The check-in says stand down — no trade today." });
+  if (status?.verdict === "sit-out") lines.push({ tone: "warn", text: "The check-in advises leaving the charts today — your call." });
+  if (status?.verdict === "careful") lines.push({ tone: "warn", text: "The check-in says trade with care." });
   if (status?.weekBudget.stopHit) lines.push({ tone: "down", text: "Weekly stop hit — stand aside for the rest of the week." });
   if (status?.doneForToday) lines.push({ tone: "soft", text: "Today's trade is done." });
   for (const w of news?.windows ?? []) {

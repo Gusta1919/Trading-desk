@@ -321,7 +321,7 @@ export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) 
     <div className="space-y-6">
       <PageHeader
         title="Risk lab"
-        sub={`Your own trading days, replayed into ${RUNS.toLocaleString("en-GB")} possible futures. Pick a question; the answer, the chart and the numbers all come from the same run.`}
+        sub={`Your own trading days, replayed into ${RUNS.toLocaleString("en-GB")} possible futures. Pick a question.`}
         actions={controls}
       />
 

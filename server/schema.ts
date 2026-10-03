@@ -72,7 +72,7 @@ export function setupSchema(db: Database.Database, now = new Date()) {
       answers    TEXT NOT NULL DEFAULT '{}',
       note       TEXT NOT NULL DEFAULT '',
       score      INTEGER NOT NULL,
-      verdict    TEXT NOT NULL,                      -- ready | sit-out
+      verdict    TEXT NOT NULL,                      -- ready | careful | sit-out (advice only)
       reflection TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );

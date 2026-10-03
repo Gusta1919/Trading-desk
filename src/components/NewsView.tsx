@@ -67,7 +67,7 @@ export function NewsView({ news, rules, entryWindows }: { news: NewsState; rules
     <div className="w-full space-y-6">
       <PageHeader
         title="News"
-        sub={`Today first, on ${DESK_LABEL} time — when the day will move, what already printed, then the rest of the week. Only red releases count for the rules.`}
+        sub={`Today first, then the rest of the week, on ${DESK_LABEL} time. Only red releases count for the rules.`}
         actions={
           <Button variant="ghost" size="sm" onClick={news.refresh} disabled={news.loadingCalendar || news.loadingWire}>
             <RefreshCw size={13} className={news.loadingWire ? "animate-spin" : undefined} /> Refresh

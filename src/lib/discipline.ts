@@ -20,7 +20,7 @@ import type { Rulebook } from "./rulebook";
 import { dayOf, minutesOf, pastTimeStop, timeOf } from "./rules";
 import { isClosed } from "./stats";
 import { deskDateLabel, deskNow } from "./tz";
-import { ALL_FLAGS, type AutoRule, type Grade, type GradeCard, type Trade, type TradeFlag } from "./types";
+import { ALL_FLAGS, type AutoRule, type Grade, type Trade, type TradeFlag } from "./types";
 
 const EPS = 1e-9;
 
@@ -96,16 +96,6 @@ export function weekSpan(day: string): { from: string; to: string } {
   return { from: addDays(day, -wd), to: addDays(day, 4 - wd) };
 }
 
-/* ── What a check-in allows ──────────────────────────────────────────── */
-
-/** "Stand down" closes the whole day; "Cleared to trade" (or no check-in yet) leaves the ladder as it is. */
-export const checkinClosesDay = (verdict: Verdict | undefined) => verdict === "sit-out";
-
-/** Whether a grade may be traded on a day with this check-in. */
-export function tradableToday(card: GradeCard | null, verdict: Verdict | undefined): boolean {
-  return Boolean(card?.traded) && !checkinClosesDay(verdict);
-}
-
 /* ── One trade's news ────────────────────────────────────────────────── */
 
 /** The news rules applied to the releases a trade saved with itself. */
@@ -127,7 +117,6 @@ const byTime = (a: Trade, b: Trade) => a.date.localeCompare(b.date) || a.created
 
 export function evaluateHistory(input: DisciplineInput): { byId: Map<string, TradeJudgement>; timeline: Timeline } {
   const nowStamp = deskNow(input.now ?? new Date());
-  const verdicts = new Map(input.checkins.map((c) => [c.date, c.verdict]));
   const taken = takenTrades(input.trades).sort(byTime);
 
   const byId = new Map<string, TradeJudgement>();
@@ -137,16 +126,13 @@ export function evaluateHistory(input: DisciplineInput): { byId: Map<string, Tra
   for (const t of taken) {
     const doc = input.rulebookOf(t.rulebookVersion);
     const day = dayOf(t.date);
-    const verdict = verdicts.get(day);
-
     const dayB = dayBudget(earlier, day, doc.limits, { before: t.date });
     const weekB = weekBudget(earlier, day, doc.limits, { before: t.date });
     const off = timeline.dayOff.get(day);
     const card = gradeCard(t.setupSnapshot ?? doc, t.grade || null);
     const gradeOk = Boolean(card?.traded);
-    const standDown = checkinClosesDay(verdict);
     const base = allowedRisk(card?.traded ? card.riskPct : 0, dayB, doc.limits, { week: weekB });
-    const allowed = off || !gradeOk || standDown ? 0 : base;
+    const allowed = off || !gradeOk ? 0 : base;
 
     const set = new Set<TradeFlag>();
     const sameDay = earlier.filter((x) => dayOf(x.date) === day).length;
@@ -154,12 +140,11 @@ export function evaluateHistory(input: DisciplineInput): { byId: Map<string, Tra
     if (weekB.stopHit) set.add("after_weekly_stop");
     if (sameDay >= doc.maxTradesPerDay) set.add("second_trade_today");
     if (!gradeOk) set.add("non_traded_grade");
-    if (standDown) set.add("traded_on_stand_down");
     if (off) set.add("during_day_off");
 
     const stopped = dayB.stopHit || weekB.stopHit;
     const overCap = t.riskPct > doc.limits.maxRiskPct + EPS;
-    const overAllowance = t.riskPct > base + EPS && !stopped && gradeOk && !standDown && !off;
+    const overAllowance = t.riskPct > base + EPS && !stopped && gradeOk && !off;
     if (overCap || overAllowance) set.add("over_risk");
 
     const news = tradeNewsDay(t, doc);
@@ -250,13 +235,11 @@ export function deskStatus(input: DisciplineInput & { doc: Rulebook; news?: News
             ? "it's a skip day"
             : takenToday.length >= doc.maxTradesPerDay
               ? "today's trade is taken"
-              : checkinClosesDay(verdict)
-                ? "the check-in says stand down"
-                : null;
+              : null;
   const allowedByGrade = {} as Record<Grade, number>;
   for (const card of doc.grades) {
     allowedByGrade[card.grade] =
-      blocked || doneForToday || !tradableToday(card, verdict) ? 0 : allowedRisk(card.riskPct, dayB, doc.limits, { week: weekB });
+      blocked || doneForToday || !card.traded ? 0 : allowedRisk(card.riskPct, dayB, doc.limits, { week: weekB });
   }
   return { day, week: weekOfDay(day), dayOff, dayBudget: dayB, weekBudget: weekB, takenToday, open, doneForToday, skipDay, verdict, allowedByGrade, blocked };
 }

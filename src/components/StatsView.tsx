@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import type { CheckIn } from "@/lib/checkin";
-import { fmtNum, fmtPct, fmtR, fmtRate, tone } from "@/lib/format";
-import { accountState } from "@/lib/limits";
+import { fmtNum, fmtPct, fmtR, fmtRate, fmtUsd as money, fmtUsdSigned as signed, tone } from "@/lib/format";
+import { accountState, ledger } from "@/lib/limits";
 import type { Rulebook } from "@/lib/rulebook";
 import { summarize } from "@/lib/stats";
 import type { Trade } from "@/lib/types";
@@ -20,7 +20,6 @@ function inRange(t: Trade, range: Range) {
   return now.getTime() - d.getTime() <= Number(range) * 86_400_000;
 }
 
-const money = (x: number) => `${x < 0 ? "−" : ""}$${Math.round(Math.abs(x)).toLocaleString("en-US")}`;
 
 /**
  * The review: how the account is doing, how you trade, and how every rule and every
@@ -33,12 +32,13 @@ export function StatsView({ trades, checkins, doc }: { trades: Trade[]; checkins
   const taken = useMemo(() => inPeriod.filter((t) => !t.skipped), [inPeriod]);
   const s = useMemo(() => summarize(taken), [taken]);
   const account = useMemo(() => accountState(trades, doc.limits), [trades, doc.limits]);
+  const money$ = useMemo(() => ledger(trades, doc.limits), [trades, doc.limits]);
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Stats"
-        sub="How the account is doing, how you trade, and how every rule and logged field has actually paid."
+        sub="How your accounts are doing, how you trade, and how every rule and logged field has actually paid."
         actions={
           <Segmented
             size="sm"
@@ -77,14 +77,30 @@ export function StatsView({ trades, checkins, doc }: { trades: Trade[]; checkins
             <Panel index={4} title="Equity curve" sub="Cumulative % return, trade by trade">
               <EquityChart points={s.equity} />
             </Panel>
-            <Panel index={5} title="The account" sub={`Against the firm's lines, from the ${money(doc.limits.startBalance)} start`}>
+            <Panel index={5} title="Your accounts" sub="Counted from the day the journal started">
               <div className="space-y-5">
-                <Stat label="Balance now" value={money(account.balance)} size="display" sub={`opened the journal at ${money(doc.limits.openingBalance)}`} />
-                <AccountBar label={`To the ${doc.limits.targetPct}% target`} value={account.progress} note={account.need > 0 ? `${money(account.need)} to go` : "reached"} colour="var(--color-accent-2)" />
-                <div className="grid grid-cols-2 gap-4">
-                  <Stat label="Above the floor" value={money(account.room)} size="title" sub={`floor ${money(account.floor)}`} tone={account.room < (doc.limits.startBalance * doc.limits.maxLossPct) / 400 ? "text-down" : ""} />
-                  <Stat label="Safe risk now" value={`${account.safeRisk.toFixed(2)}%`} size="title" sub="cap, budgets and the firm's lines" />
-                </div>
+                <Stat
+                  label="Since you started · all accounts"
+                  value={signed(money$.total.pnl)}
+                  size="display"
+                  tone={tone(money$.total.pnl)}
+                  sub={`${fmtPct(money$.total.pnlPct)} · together ${money(money$.total.balance)}`}
+                />
+                <ul className="divide-y rounded-xl border">
+                  {money$.accounts.map((a, i) => (
+                    <li key={a.name} className="anim-rise flex items-baseline justify-between gap-4 px-4 py-3" style={stagger(i + 2, 80)}>
+                      <span className="min-w-0">
+                        <span className="block text-body font-medium">{a.name}</span>
+                        <span className="num block text-caption text-faint">{money(a.balance)}</span>
+                      </span>
+                      <span className="num text-right">
+                        <span className={cx("block text-title font-medium", tone(a.pnl))}>{signed(a.pnl)}</span>
+                        <span className="block text-caption text-faint">{fmtPct(a.pnlPct)}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <Stat label="Safe risk now" value={`${account.safeRisk.toFixed(2)}%`} size="title" sub="cap, budgets and firm lines" />
               </div>
             </Panel>
           </div>
@@ -124,23 +140,6 @@ function Headline({ i, label, value, format, tone: cls, sub }: { i: number; labe
   return (
     <div className="card anim-rise px-6 py-5" style={stagger(i, 60)}>
       <Stat label={label} value={format(shown)} tone={cls} size="display" sub={sub} />
-    </div>
-  );
-}
-
-/** A thin progress line with its label and what is left. */
-function AccountBar({ label, value, note, colour }: { label: string; value: number; note: string; colour: string }) {
-  const pct = Math.max(0, Math.min(1, value)) * 100;
-  return (
-    <div>
-      <div className="flex items-baseline justify-between">
-        <span className="eyebrow">{label}</span>
-        <span className="num text-small text-soft">{note}</span>
-      </div>
-      <div className="relative mt-2 h-2 overflow-hidden rounded-full bg-subtle">
-        <span className={cx("anim-grow absolute inset-y-0 left-0 rounded-full")} style={{ width: `${pct}%`, backgroundColor: colour, boxShadow: `0 0 12px ${colour}` }} />
-      </div>
-      <div className="num mt-1 text-right text-caption text-faint">{Math.round(pct)}%</div>
     </div>
   );
 }

@@ -7,7 +7,7 @@
  * what today allows, what is running from yesterday, and what is ready to decide.
  */
 import { VERDICTS, type CheckIn } from "./checkin";
-import { dayKey, fmtPct, fmtR } from "./format";
+import { dayKey, fmtPct, fmtR, fmtUsd as money } from "./format";
 import { classifyOutcome, groupBy, isClosed, summarize, tradePct } from "./stats";
 import { accountState } from "./limits";
 import { adherence, daysOffText, deskStatus, weekSpan } from "./discipline";
@@ -205,7 +205,6 @@ export interface CoachDesk {
   news?: NewsDay | null;
 }
 
-const money = (x: number) => `${x < 0 ? "−" : ""}$${Math.round(Math.abs(x)).toLocaleString("en-US")}`;
 /** "Wednesday 30 Sept" for a New York day. */
 const dayLabel = (day: string) => deskDateLabel(`${day}T12:00:00Z`);
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
@@ -381,18 +380,22 @@ export function buildBriefing(
     });
   }
 
-  if (checkinToday?.verdict === "sit-out") {
-    const same = closed.filter((t) => byDate.get(t.date.slice(0, 10))?.verdict === "sit-out");
+  // The check-in advises; it never closes the day. The card says what your own history shows on such days.
+  if (checkinToday && checkinToday.verdict !== "ready") {
+    const v = checkinToday.verdict;
+    const same = closed.filter((t) => byDate.get(t.date.slice(0, 10))?.verdict === v);
     add({
-      id: "sit-out",
-      tone: "alert",
-      priority: 98,
-      title: "Check-in says: stand down",
+      id: "checkin",
+      tone: "warn",
+      priority: v === "sit-out" ? 98 : 90,
+      title: v === "sit-out" ? "Check-in: better to leave the charts today" : "Check-in: trade with care today",
       body:
-        "The best thing you can do today is nothing — and the rulebook agrees: on a sit-out day nothing is tradable, and any trade is logged as a rule break.",
+        v === "sit-out"
+          ? "Your answers point to a bad day for trading. Stepping away is the strong move — but the choice is yours. If you trade, take only a setup you would show someone, and stop after it."
+          : "Something is off this morning. Nothing is forbidden — be strict with yourself: the cleanest setup only, and walk away at the first sign you're forcing it.",
       stat:
         same.length >= 2
-          ? `On past sit-out days you averaged ${fmtR(mean(same.map((t) => t.resultR!)))} over ${plural(same.length, "trade")} (overall ${fmtR(allAvgR)}).`
+          ? `On past days like this you averaged ${fmtR(mean(same.map((t) => t.resultR!)))} over ${plural(same.length, "trade")} (overall ${fmtR(allAvgR)}).`
           : undefined,
       why: "Tired or stressed brains take more risk to feel relief. The check-in is your calm self giving advice to your trading self.",
     });
@@ -1041,7 +1044,7 @@ export function buildBriefing(
         : tone === "warn"
           ? "Trade with care today. Note the flags below."
           : checkinToday?.verdict === "ready"
-            ? "Cleared to trade. Hold your rules and wait for structure."
+            ? "Clear to trade. Hold your rules and wait for structure."
             : "Desk status before the session opens.";
 
   /* Reflection question, chosen by context */

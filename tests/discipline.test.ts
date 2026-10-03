@@ -20,7 +20,7 @@ const FRI = "2026-10-09";
 const NEXT_MON = "2026-10-12";
 const LATE = new Date("2026-10-20T12:00:00Z");
 
-function judge(trades: Trade[], extra: { checkins?: { date: string; verdict: "ready" | "sit-out" }[]; now?: Date } = {}) {
+function judge(trades: Trade[], extra: { checkins?: { date: string; verdict: "ready" | "careful" | "sit-out" }[]; now?: Date } = {}) {
   return evaluateHistory({ trades, checkins: extra.checkins ?? [], rulebookOf, now: extra.now ?? LATE });
 }
 const flagsOf = (trades: Trade[], t: Trade, extra = {}) => judge(trades, extra).byId.get(t.id)!.flags;
@@ -88,11 +88,12 @@ describe("flags", () => {
     assert.deepEqual(flagsOf([a], a), []);
   });
 
-  it("a stand-down check-in closes the day, even for an A+", () => {
+  it("the check-in only advises: trading on a 'leave the charts' day breaks no rule", () => {
     const top = ruledTrade(`${MON}T04:30`, { grade: "A+" });
-    assert.deepEqual(flagsOf([top], top, { checkins: [{ date: MON, verdict: "sit-out" }] }), ["traded_on_stand_down"]);
-    assert.deepEqual(flagsOf([top], top, { checkins: [{ date: MON, verdict: "ready" }] }), []);
-    assert.equal(judge([top], { checkins: [{ date: MON, verdict: "sit-out" }] }).byId.get(top.id)!.allowed, 0);
+    for (const verdict of ["sit-out", "careful", "ready"] as const) {
+      assert.deepEqual(flagsOf([top], top, { checkins: [{ date: MON, verdict }] }), []);
+      assert.equal(judge([top], { checkins: [{ date: MON, verdict }] }).byId.get(top.id)!.allowed, 0.5);
+    }
   });
 
   it("over risk: above the 0.5% cap", () => {
@@ -204,15 +205,16 @@ describe("today's status", () => {
     assert.deepEqual(s.allowedByGrade, { "A+": 0.5, A: 0.5, B: 0, C: 0 });
     assert.equal(s.blocked, null);
   });
-  it("says why nothing is allowed: the weekend, a taken trade, a sit-out check-in", () => {
+  it("says why nothing is allowed: the weekend, a taken trade — never the check-in", () => {
     const sat = deskStatus({ trades: [], checkins: [], rulebookOf, doc, now: new Date("2026-10-10T14:00:00Z") });
     assert.equal(sat.blocked, "it's the weekend");
     assert.deepEqual(sat.allowedByGrade, { "A+": 0, A: 0, B: 0, C: 0 });
     const taken = deskStatus({ trades: [ruledTrade(`${TUE}T04:30`)], checkins: [], rulebookOf, doc, now });
     assert.equal(taken.blocked, "today's trade is taken");
     const sit = deskStatus({ trades: [], checkins: [{ date: TUE, verdict: "sit-out" }], rulebookOf, doc, now });
-    assert.equal(sit.blocked, "the check-in says stand down");
-    assert.deepEqual(sit.allowedByGrade, { "A+": 0, A: 0, B: 0, C: 0 });
+    assert.equal(sit.blocked, null);
+    assert.equal(sit.verdict, "sit-out");
+    assert.deepEqual(sit.allowedByGrade, { "A+": 0.5, A: 0.5, B: 0, C: 0 });
   });
   it("names the day off after a broken rule", () => {
     const s = deskStatus({ trades: [ruledTrade(`${MON}T04:30`, { exitReason: "other" })], checkins: [], rulebookOf, doc, now });

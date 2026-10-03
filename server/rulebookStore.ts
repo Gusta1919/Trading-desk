@@ -74,3 +74,53 @@ export function saveRulebook(db: Db, doc: Rulebook, reason: string): RulebookVer
   insertVersion(db, version, why, doc, new Date().toISOString());
   return getVersion(db, version)!;
 }
+
+/** Lines an earlier rulebook used while the check-in still closed the day, and what they say now. */
+const CHECKIN_TEXT: [string, string][] = [
+  [
+    '**The check-in comes first.** "Stand down" means no trade today.',
+    "**The check-in advises, it doesn't decide.** \"Trade with care\" or \"Better to leave the charts\" are warnings to take seriously; the choice is yours.",
+  ],
+  [
+    'Anything but "Cleared to trade" ends the day before it starts.',
+    "It says how ready you are; if it warns you, take it seriously — the decision stays yours.",
+  ],
+];
+
+/**
+ * Brings the rulebook in force up to what this version of the desk reads, as one new
+ * version with a reason — every edit you made stays. Runs on each start; does nothing
+ * once the rulebook is current.
+ */
+export function upgradeRulebook(db: Db, now = new Date()): RulebookVersion | null {
+  const cur = currentRulebook(db);
+  const doc = structuredClone(cur.doc);
+  const why: string[] = [];
+
+  const l = doc.limits as Partial<Rulebook["limits"]>;
+  if (l.accountName == null || l.linked == null) {
+    const d = defaultRulebook().limits;
+    doc.limits = { ...doc.limits, accountName: l.accountName ?? d.accountName, linked: l.linked ?? d.linked };
+    why.push(`${doc.limits.linked.map((a) => a.name).join(", ") || "Linked accounts"} shown next to ${doc.limits.accountName}`);
+  }
+
+  const gates = doc.flow.gates.filter((g) => !/^check-in: cleared to trade\?$/i.test(g.trim()));
+  let text = false;
+  const sections = doc.sections.map((s) => {
+    let body = s.body;
+    for (const [old, next] of CHECKIN_TEXT) body = body.split(old).join(next);
+    if (body !== s.body) text = true;
+    return { ...s, body };
+  });
+  if (gates.length !== doc.flow.gates.length || text) {
+    doc.flow = { ...doc.flow, gates };
+    doc.sections = sections;
+    why.push("the check-in advises instead of closing the day");
+  }
+
+  if (!why.length) return null;
+  const reason = why.join("; ").replace(/^./, (c) => c.toUpperCase());
+  const version = nextVersion(cur.version);
+  insertVersion(db, version, reason, doc, now.toISOString());
+  return getVersion(db, version);
+}

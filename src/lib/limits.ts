@@ -36,6 +36,68 @@ export interface AccountState {
   safeRisk: number;
 }
 
+/** One account's money since the journal started. */
+export interface AccountMoney {
+  name: string;
+  opening: number;
+  balance: number;
+  /** Profit or loss since the journal started, in $ and %. */
+  pnl: number;
+  pnlPct: number;
+  /** Today's result in $. */
+  today: number;
+}
+
+export interface Ledger {
+  /** The main account first, then the linked ones. */
+  accounts: AccountMoney[];
+  /** All of them together. */
+  total: AccountMoney;
+  /** Each closed trade's result in $, per account (main first). */
+  byTrade: Map<string, number[]>;
+}
+
+/**
+ * Your money across every account, counted from the journal's start — the drawdown
+ * before it is never shown. You log the main account's dollars; each linked account
+ * takes the same % of its own balance on every trade.
+ */
+export function ledger(trades: Trade[], limits: Limits, now = new Date()): Ledger {
+  const closed = takenTrades(trades)
+    .filter(isClosed)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+  const today = deskDay(now);
+  const linked = limits.linked ?? [];
+  const names = [limits.accountName || "Main account", ...linked.map((a) => a.name)];
+  const opening = [limits.openingBalance, ...linked.map((a) => a.opening)];
+  const balance = [...opening];
+  const todays = opening.map(() => 0);
+  const byTrade = new Map<string, number[]>();
+
+  for (const t of closed) {
+    const main = t.pnlUsd ?? 0;
+    const share = balance[0] > 0 ? main / balance[0] : 0;
+    const dollars = balance.map((b, i) => (i === 0 ? main : b * share));
+    dollars.forEach((d, i) => {
+      balance[i] += d;
+      if (t.date.slice(0, 10) === today) todays[i] += d;
+    });
+    byTrade.set(t.id, dollars);
+  }
+
+  const money = (name: string, open: number, bal: number, day: number): AccountMoney => ({
+    name,
+    opening: open,
+    balance: bal,
+    pnl: bal - open,
+    pnlPct: open > 0 ? ((bal - open) / open) * 100 : 0,
+    today: day,
+  });
+  const accounts = names.map((n, i) => money(n, opening[i], balance[i], todays[i]));
+  const sum = (k: "opening" | "balance" | "today") => accounts.reduce((a, x) => a + x[k], 0);
+  return { accounts, total: money("All accounts", sum("opening"), sum("balance"), sum("today")), byTrade };
+}
+
 export function accountState(trades: Trade[], limits: Limits, now = new Date()): AccountState {
   const taken = takenTrades(trades);
   const closed = taken.filter(isClosed);
