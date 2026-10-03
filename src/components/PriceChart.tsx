@@ -115,7 +115,10 @@ export function PriceChart({
   map,
   layers,
   toolbar,
+  crt,
 }: {
+  /** The rulebook's box and time stop, for the CRT box and its window. */
+  crt: { box: { from: string; to: string }; until: string };
   candles: Candle[];
   tf: Timeframe;
   height: number;
@@ -137,7 +140,7 @@ export function PriceChart({
   }, []);
 
   const n = candles.length;
-  const box = useMemo(() => (layers.box ? crtBox(candles) : null), [candles, layers.box]);
+  const box = useMemo(() => (layers.box ? crtBox(candles, crt.box, crt.until) : null), [candles, layers.box, crt.box, crt.until]);
   // The box arrives with the candles: it starts when the sweep reaches its first candle and
   // keeps pace to the end of its window, the same few milliseconds per candle.
   const boxDelay = box ? Math.round((box.from / n) * INTRO_MS) : 0;
@@ -247,7 +250,7 @@ export function PriceChart({
             />
           )}
 
-          {/* CRT 3–4AM box and its 04:00–16:00 sweep window — on the first draw it is
+          {/* The CRT box and its window up to the time stop — on the first draw it is
               uncovered left to right in step with the candles beneath it. */}
           {box && (
             <g style={intro ? boxSweep : undefined}>
@@ -380,12 +383,12 @@ export function PriceChart({
               className={cx("fill-accent-2 text-[9px] font-semibold", intro && "anim-fade")}
               style={{ ...HALO, ...(intro ? { animationDelay: `${boxDelay}ms` } : {}) }}
             >
-              CRT 3–4AM
+              CRT {crt.box.from}–{crt.box.to}
             </text>
           )}
 
           {zone && (
-            <text x={plotW - 8} y={y(Math.min(zone.high, hi)) + 13} textAnchor="end" className="fill-soft text-[10px]" style={HALO}>
+            <text x={plotW - 8} y={y(Math.min(zone.high, hi)) + 13} textAnchor="end" className="fill-soft text-micro" style={HALO}>
               {zone.label} {fmt(zone.low)}–{fmt(zone.high)}
             </text>
           )}
@@ -407,7 +410,7 @@ export function PriceChart({
               {Math.abs(m.labelY + 5 - m.y) > 3 && (
                 <line x1={2} x2={8} y1={m.y} y2={m.labelY - 3} className="stroke-soft/50" strokeWidth={1} />
               )}
-              <text x={8} y={m.labelY} className="text-[10px]" style={HALO}>
+              <text x={8} y={m.labelY} className="text-micro" style={HALO}>
                 <tspan className="num fill-faint text-[9px]">{KIND_TAG[m.kind]} </tspan>
                 <tspan className="fill-soft">{m.label} </tspan>
                 <tspan className="num fill-ink">{fmt(m.price)}</tspan>
@@ -422,7 +425,7 @@ export function PriceChart({
             <g key={t.text + t.live}>
               <rect x={plotW + 6} y={t.y - 8} width={PAD.right - 12} height={16} rx={4} className={t.live ? "fill-accent/20" : "fill-raised"} />
               <circle cx={plotW + 13} cy={t.y} r={2.5} className={FILL[t.tone]} />
-              <text x={plotW + 20} y={t.y + 3.5} className={cx("num text-[10px]", t.live ? "fill-accent-2 font-semibold" : "fill-soft")}>
+              <text x={plotW + 20} y={t.y + 3.5} className={cx("num text-micro", t.live ? "fill-accent-2 font-semibold" : "fill-soft")}>
                 {t.text}
               </text>
             </g>
@@ -439,7 +442,7 @@ export function PriceChart({
           {cursor && (
             <g>
               <rect x={plotW + 6} y={cursor.y - 8} width={60} height={16} rx={4} className="fill-ink/80" />
-              <text x={plotW + 12} y={cursor.y + 3.5} className="num fill-bg text-[10px] font-semibold">
+              <text x={plotW + 12} y={cursor.y + 3.5} className="num fill-bg text-micro font-semibold">
                 {fmt(Math.round(priceAt(cursor.y) * 100) / 100)}
               </text>
             </g>
@@ -449,7 +452,7 @@ export function PriceChart({
           {cursor && (
             <g>
               <rect x={x(cursor.i) - 30} y={height - 20} width={60} height={16} rx={4} className="fill-ink/80" />
-              <text x={x(cursor.i)} y={height - 8.5} textAnchor="middle" className="num fill-bg text-[10px] font-semibold">
+              <text x={x(cursor.i)} y={height - 8.5} textAnchor="middle" className="num fill-bg text-micro font-semibold">
                 {tf === "1h" ? `${dayMark(candles[cursor.i].t)} ` : ""}
                 {deskTime(new Date(candles[cursor.i].t))}
               </text>
@@ -468,7 +471,7 @@ export function PriceChart({
         {focused && (
           <div
             role="tooltip"
-            className="anim-fade pointer-events-none absolute left-2 z-10 w-[300px] rounded-xl border bg-raised px-3.5 py-3 text-[12px] leading-snug"
+            className="anim-fade pointer-events-none absolute left-2 z-10 w-[300px] rounded-xl border bg-raised px-3.5 py-3 text-small leading-snug"
             style={{
               top: focused.labelY + (focused.labelY > height * 0.6 ? -14 : 12),
               transform: focused.labelY > height * 0.6 ? "translateY(-100%)" : undefined,
@@ -477,7 +480,7 @@ export function PriceChart({
           >
             <div className="flex items-baseline justify-between gap-3">
               <span className="font-semibold text-ink">
-                <span className="num mr-1.5 text-[10px] text-faint">{KIND_TAG[focused.kind]}</span>
+                <span className="num mr-1.5 text-micro text-faint">{KIND_TAG[focused.kind]}</span>
                 {focused.label}
               </span>
               <span className="num text-ink">{fmt(focused.price)}</span>
@@ -487,14 +490,14 @@ export function PriceChart({
                 <div className="h-1 overflow-hidden rounded-full bg-subtle">
                   <div className="h-full rounded-full bg-accent" style={{ width: `${focused.prob}%` }} />
                 </div>
-                <div className="mt-1 text-[11px] text-faint">
+                <div className="mt-1 text-caption text-faint">
                   {focused.prob}% chance price trades at it (a wick counts) before the 17:00 NY close
                 </div>
               </div>
             )}
             <p className="mt-2 text-soft">{levelEffect(focused.kind, focused.price > last.c)}</p>
             <p className="mt-1 text-soft">{verdictEffect(focused.verdict, focused.kind)}</p>
-            {focused.note && <p className="mt-1.5 text-[11px] text-faint">{focused.note}</p>}
+            {focused.note && <p className="mt-1.5 text-caption text-faint">{focused.note}</p>}
           </div>
         )}
       </div>

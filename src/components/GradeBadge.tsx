@@ -23,9 +23,9 @@ export function GradeBadge({
     <span
       className={cx(
         "num inline-flex items-center justify-center rounded-md font-semibold",
-        size === "sm" && "min-w-[26px] px-1.5 py-0.5 text-[11px]",
-        size === "md" && "min-w-[32px] px-2 py-0.5 text-[13px]",
-        size === "lg" && "min-w-[48px] px-2.5 py-1 text-[20px]",
+        size === "sm" && "min-w-[26px] px-1.5 py-0.5 text-caption",
+        size === "md" && "min-w-[32px] px-2 py-0.5 text-body",
+        size === "lg" && "min-w-[48px] px-2.5 py-1 text-heading",
         muted && "opacity-50",
       )}
       style={{

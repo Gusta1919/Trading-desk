@@ -1,21 +1,13 @@
 /**
  * The rulebook in the database: one row per version, the newest is the one in force.
  *
- * Kept apart from the routes so the tests can run it against an in-memory database.
- * A version is never edited after it is written — a change is always a new row, so
- * any trade's "graded under 1.2" keeps pointing at exactly what 1.2 said.
+ * A version is never edited after it is written — a change is always a new row, so a
+ * trade graded under one version keeps pointing at exactly what it said. The versions
+ * stay out of sight in the desk; the changelog shows their dates and reasons.
  */
 import type Database from "better-sqlite3";
-import {
-  compareVersions,
-  nextVersion,
-  parseVersion,
-  rulebookErrors,
-  type Rulebook,
-  type RulebookVersion,
-  type VersionRow,
-} from "../src/lib/rulebook.js";
-import { defaultRulebook } from "../src/lib/rulebookText.js";
+import { FIRST_VERSION, defaultRulebook } from "../src/lib/goldModel.js";
+import { compareVersions, nextVersion, rulebookErrors, type Rulebook, type RulebookVersion } from "../src/lib/rulebook.js";
 
 type Db = Database.Database;
 type Row = Record<string, unknown>;
@@ -30,10 +22,10 @@ function rowToVersion(row: Row): RulebookVersion {
   };
 }
 
-export function listVersions(db: Db): VersionRow[] {
-  const rows = db.prepare("SELECT version, reason, created_at FROM rulebook_versions").all() as Row[];
-  return rows
-    .map((r) => ({ version: String(r.version), reason: String(r.reason ?? ""), createdAt: String(r.created_at) }))
+/** Every version with its document, newest first. */
+export function listVersions(db: Db): RulebookVersion[] {
+  return (db.prepare("SELECT * FROM rulebook_versions").all() as Row[])
+    .map(rowToVersion)
     .sort((a, b) => compareVersions(a.version, b.version));
 }
 
@@ -42,22 +34,19 @@ export function getVersion(db: Db, version: string): RulebookVersion | null {
   return row ? rowToVersion(row) : null;
 }
 
-/**
- * The version in force. A database the migration has not reached yet still gets a
- * rulebook — the built-in v1.2 — so nothing downstream ever has to handle "none".
- */
+/** The version in force — the GOLD Model itself on an empty database, so nothing ever has to handle "none". */
 export function currentRulebook(db: Db): RulebookVersion {
-  const newest = listVersions(db)[0];
-  const found = newest ? getVersion(db, newest.version) : null;
-  return found ?? { version: "1.2", reason: "", createdAt: new Date(0).toISOString(), doc: defaultRulebook() };
+  return listVersions(db)[0] ?? { version: FIRST_VERSION, reason: "", createdAt: new Date(0).toISOString(), doc: defaultRulebook() };
 }
 
 export function insertVersion(db: Db, version: string, reason: string, doc: Rulebook, createdAt: string) {
-  const [major, minor] = parseVersion(version) ?? [1, 0];
   const { version: _drop, ...stored } = doc;
-  db.prepare(
-    "INSERT INTO rulebook_versions (version, major, minor, reason, doc, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(version, major, minor, reason, JSON.stringify(stored), createdAt);
+  db.prepare("INSERT INTO rulebook_versions (version, reason, doc, created_at) VALUES (?, ?, ?, ?)").run(
+    version,
+    reason,
+    JSON.stringify(stored),
+    createdAt,
+  );
 }
 
 export class RulebookError extends Error {
@@ -70,7 +59,7 @@ export class RulebookError extends Error {
  * Saves a change as the next version. Needs a one-line reason; a document with
  * problems (an unknown token, a window that ends before it starts) is refused whole.
  */
-export function saveRulebook(db: Db, doc: Rulebook, reason: string, bump: "minor" | "major" = "minor"): RulebookVersion {
+export function saveRulebook(db: Db, doc: Rulebook, reason: string): RulebookVersion {
   const why = String(reason ?? "").trim();
   if (!why) throw new RulebookError(["Every change needs a one-line reason"]);
   let problems: string[];
@@ -81,7 +70,7 @@ export function saveRulebook(db: Db, doc: Rulebook, reason: string, bump: "minor
   }
   if (problems.length) throw new RulebookError(problems);
 
-  const version = nextVersion(currentRulebook(db).version, bump);
+  const version = nextVersion(currentRulebook(db).version);
   insertVersion(db, version, why, doc, new Date().toISOString());
   return getVersion(db, version)!;
 }

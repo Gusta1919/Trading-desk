@@ -8,8 +8,9 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const CACHE_FILE = path.join(process.cwd(), "data", "news-cache.json");
+const CACHE_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "data", "news-cache.json");
 
 /*
  * The calendar is a weekly file, so refetching it often buys nothing and the feed

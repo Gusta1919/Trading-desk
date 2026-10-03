@@ -54,10 +54,13 @@ export function BiasChart({
   headline,
   day,
   writtenAt,
+  crt,
   className,
   style,
 }: {
   b: DailyBias;
+  /** The rulebook's box and time stop. */
+  crt: { box: { from: string; to: string }; until: string };
   /** Index of the scenario drawn on the chart; -1 draws none. */
   pick: number;
   onPick: (i: number) => void;
@@ -127,7 +130,7 @@ export function BiasChart({
           aria-pressed={prefs[key]}
           onClick={() => update((p) => ({ [key]: !p[key] }))}
           className={cx(
-            "flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors duration-300",
+            "flex items-center gap-1.5 rounded-md border px-2 py-1 text-caption transition-colors duration-300",
             prefs[key] ? "border-line bg-raised text-ink" : "border-transparent text-faint hover:text-soft",
           )}
         >
@@ -143,8 +146,8 @@ export function BiasChart({
       {/* Title left, the day's call in the middle, controls right. */}
       <header className="grid grid-cols-1 items-center gap-3 border-b px-5 py-3 xl:grid-cols-[1fr_auto_1fr]">
         <div>
-          <h3 className="text-[14px] font-semibold">XAU/USD · {day}</h3>
-          <p className="text-[11px] text-faint">
+          <h3 className="text-title font-semibold">XAU/USD · {day}</h3>
+          <p className="text-caption text-faint">
             {writtenAt && `Briefing written ${writtenAt} · `}
             spot {prefs.tf} · {feed.source || "live feed"}
             {feed.stale && <span className="text-warn"> · delayed</span>} · NY time
@@ -161,7 +164,7 @@ export function BiasChart({
                 aria-pressed={i === pick}
                 title={i === pick ? "Click again to hide the plan" : "Draw this scenario"}
                 className={cx(
-                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors duration-300",
+                  "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-small font-medium transition-colors duration-300",
                   i === pick ? "bg-raised text-ink shadow-[inset_0_0_0_1px_var(--color-line)]" : "text-soft hover:text-ink",
                 )}
               >
@@ -198,32 +201,33 @@ export function BiasChart({
             map={map}
             layers={prefs}
             toolbar={toggles}
+            crt={crt}
           />
         ) : (
-          <div className="flex items-center justify-center text-[13px] text-faint" style={{ height: height + 34 }}>
+          <div className="flex items-center justify-center text-body text-faint" style={{ height: height + 34 }}>
             {feed.loading
               ? "Loading candles…"
               : `Price feed unavailable${feed.error ? ` — ${feed.error}` : ""}. The briefing below is unaffected.`}
           </div>
         )}
-        <Legend />
+        <Legend crt={crt} />
       </div>
     </section>
   );
 }
 
 /** What every mark means and what it can do to price, drawn with the marks themselves. */
-function Legend() {
+function Legend({ crt }: { crt: { box: { from: string; to: string }; until: string } }) {
   const line = (cls: string, dash?: string, cap?: "round") => (
     <svg width="20" height="6" aria-hidden className="shrink-0">
       <line x1="1" x2="19" y1="3" y2="3" className={cls} strokeWidth={dash === "0.1 4" ? 1.8 : 1.5} strokeDasharray={dash} strokeLinecap={cap} />
     </svg>
   );
   const group = "flex flex-wrap items-center gap-x-4 gap-y-1.5";
-  const head = "w-16 shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint";
+  const head = "w-16 shrink-0 eyebrow";
   const item = "flex items-center gap-1.5";
   return (
-    <div className="mt-3 space-y-1.5 border-t pt-3 text-[11px] text-soft">
+    <div className="mt-3 space-y-1.5 border-t pt-3 text-caption text-soft">
       <div className={group}>
         <span className={head}>Plan</span>
         <span className={item}>{line("stroke-down", "6 4")}Target — where the scenario aims</span>
@@ -248,7 +252,7 @@ function Legend() {
         <span className={head}>Context</span>
         <span className={item}>
           <span className="h-2.5 w-4 rounded-[2px] border border-accent bg-accent/10" />
-          CRT 3–4AM box · sweep window to 16:00
+          CRT {crt.box.from}–{crt.box.to} box · its window to the {crt.until} time stop
         </span>
       </div>
     </div>

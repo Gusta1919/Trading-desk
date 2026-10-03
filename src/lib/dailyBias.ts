@@ -124,7 +124,7 @@ export interface DailyBias {
   };
   /** The whole briefing as text — shown when the structured part is unusable. */
   markdown: string;
-  /** Written by `npm run demo:bias`, not by the morning routine. */
+  /** Written by `npm run demo`, not by the morning routine. */
   demo?: boolean;
 }
 

@@ -1,44 +1,72 @@
 @import "tailwindcss";
 
 /*
- * Deep Space — a dark, institutional desk.
- * Glass surfaces over a near-black ground, neon accents reserved for data,
- * and motion measured in fractions of a second.
+ * Deep Space — a dark, quiet desk.
+ *
+ * Solid panels over a near-black ground, colour kept for meaning (green and red for
+ * results, orange for the one thing to do, cyan for London), and motion measured in
+ * fractions of a second. One theme only: the desk is always dark.
+ *
+ * Type is a fixed scale, used by role, never by eye:
+ *   micro   10px  the small uppercase labels above a value or a panel
+ *   caption 11px  a hint under a field, a footnote, a chart axis
+ *   small   12px  secondary text, table meta, buttons in a strip
+ *   body    13px  everything you read
+ *   title   15px  a panel's title, an emphasised line
+ *   heading 20px  a page's title
+ *   stat    22px  a number that matters
+ *   display 32px  the one number a page is about
  */
 @theme {
-  --font-sans:
-    "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
-  /* Light desk — a quiet fallback; the dark theme is the product. */
-  --color-bg: #f6f7f9;
-  --color-surface: #ffffff;
-  --color-raised: #ffffff;
-  --color-subtle: rgba(9, 12, 16, 0.045);
-  --color-line: rgba(9, 12, 16, 0.1);
-  --color-ink: #0b1220;
-  --color-soft: #475569;
-  --color-faint: #8894a6;
+  --text-micro: 10px;
+  --text-micro--line-height: 1.4;
+  --text-caption: 11px;
+  --text-caption--line-height: 1.45;
+  --text-small: 12px;
+  --text-small--line-height: 1.5;
+  --text-body: 13px;
+  --text-body--line-height: 1.55;
+  --text-title: 15px;
+  --text-title--line-height: 1.4;
+  --text-heading: 20px;
+  --text-heading--line-height: 1.25;
+  --text-stat: 22px;
+  --text-stat--line-height: 1.15;
+  --text-display: 32px;
+  --text-display--line-height: 1.1;
 
-  --color-up: #059669;
-  --color-down: #e11d48;
-  --color-warn: #b45309;
-  --color-accent: #e35400;
+  --color-bg: #080b10;
+  --color-surface: #10151f;
+  --color-raised: #161d2a;
+  --color-subtle: rgba(255, 255, 255, 0.045);
+  --color-line: rgba(255, 255, 255, 0.075);
+  --color-ink: #e8edf6;
+  --color-soft: #96a3b6;
+  --color-faint: #5d6a7d;
+
+  --color-up: #34d399;
+  --color-down: #f43f5e;
+  --color-warn: #fbbf24;
+  --color-accent: #ff6b00;
   --color-accent-2: #ff8a00;
-  --color-cyan: #0e7490;
+  --color-cyan: #38bdf8;
   /* Forex Factory's yellow folder. */
-  --color-low: #ca8a04;
+  --color-low: #facc15;
+  --color-violet: #a78bfa;
 
-  --glow-up: rgba(13, 148, 136, 0.2);
-  --glow-down: rgba(225, 29, 72, 0.18);
-  --glow-accent: rgba(227, 84, 0, 0.22);
+  --glow-up: rgba(52, 211, 153, 0.3);
+  --glow-down: rgba(244, 63, 94, 0.28);
+  --glow-accent: rgba(255, 107, 0, 0.35);
 
-  --mesh-warm: rgba(227, 84, 0, 0.05);
-  --mesh-cool: rgba(14, 116, 144, 0.04);
-  --mesh-deep: rgba(120, 140, 170, 0.08);
-  --shadow-card: 0 1px 2px rgba(9, 12, 16, 0.05), 0 12px 32px rgba(9, 12, 16, 0.06);
-  --shadow-lift: 0 2px 6px rgba(9, 12, 16, 0.07), 0 26px 60px rgba(9, 12, 16, 0.12);
-  --shadow-modal: 0 40px 120px rgba(9, 12, 16, 0.25);
+  --mesh-warm: rgba(255, 107, 0, 0.085);
+  --mesh-cool: rgba(56, 189, 248, 0.055);
+  --mesh-deep: rgba(46, 74, 120, 0.15);
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.025) inset, 0 1px 1px rgba(0, 0, 0, 0.55), 0 18px 48px rgba(0, 0, 0, 0.42);
+  --shadow-lift: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 2px 4px rgba(0, 0, 0, 0.7), 0 30px 70px rgba(0, 0, 0, 0.6);
+  --shadow-modal: 0 60px 160px rgba(0, 0, 0, 0.8);
 
   /* Deliberate, cinematic pacing. */
   --ease-slow: cubic-bezier(0.25, 1, 0.5, 1);
@@ -47,55 +75,22 @@
   --t-slow: 1.6s;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Sonic: deep space blue, solid panels, one hot accent. */
-    --color-bg: #090c10;
-    --color-surface: #121824;
-    --color-raised: #171f2e;
-    --color-subtle: rgba(255, 255, 255, 0.05);
-    --color-line: rgba(255, 255, 255, 0.07);
-    --color-ink: #e9eef7;
-    --color-soft: #94a3b8;
-    --color-faint: #5b6779;
-
-    --color-up: #34d399;
-    --color-down: #f43f5e;
-    --color-warn: #fbbf24;
-    --color-accent: #ff6b00;
-    --color-accent-2: #ff8a00;
-    --color-cyan: #38bdf8;
-    --color-low: #facc15;
-
-    --glow-up: rgba(52, 211, 153, 0.3);
-    --glow-down: rgba(244, 63, 94, 0.28);
-    --glow-accent: rgba(255, 107, 0, 0.35);
-
-    --mesh-warm: rgba(255, 107, 0, 0.1);
-    --mesh-cool: rgba(56, 189, 248, 0.06);
-    --mesh-deep: rgba(46, 74, 120, 0.16);
-    --shadow-card: 0 1px 1px rgba(0, 0, 0, 0.6), 0 18px 50px rgba(0, 0, 0, 0.45);
-    --shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.7), 0 30px 70px rgba(0, 0, 0, 0.6);
-    --shadow-modal: 0 60px 160px rgba(0, 0, 0, 0.8);
-  }
-}
-
 @layer base {
   * {
     @apply border-line;
   }
 
   html {
-    color-scheme: light dark;
+    color-scheme: dark;
     -webkit-font-smoothing: antialiased;
   }
 
   body {
-    @apply bg-bg text-ink font-sans text-[14px] leading-relaxed;
+    @apply bg-bg text-ink font-sans text-body;
     letter-spacing: -0.011em;
   }
 
-  /* A still mesh: two cold lights, one warm, all far away. Nothing moves. */
+  /* A still mesh: one warm light, one cold, one deep — all far away. Nothing moves. */
   body::before {
     content: "";
     position: fixed;
@@ -132,18 +127,18 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: color-mix(in oklab, var(--color-soft) 25%, transparent);
+    background: color-mix(in oklab, var(--color-soft) 22%, transparent);
     border: 3px solid transparent;
     background-clip: content-box;
     border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in oklab, var(--color-soft) 45%, transparent);
+    background: color-mix(in oklab, var(--color-soft) 42%, transparent);
     background-clip: content-box;
   }
 }
 
-/* ── Surfaces ─────────────────────────────────────────────────────────── */
+/* ── Text roles ───────────────────────────────────────────────────────── */
 
 @utility num {
   font-family: var(--font-mono);
@@ -151,6 +146,14 @@
   font-feature-settings: "tnum";
   letter-spacing: -0.02em;
 }
+
+/* The small uppercase label above a value, a field or a panel. */
+@utility eyebrow {
+  @apply text-micro font-semibold uppercase text-faint;
+  letter-spacing: 0.12em;
+}
+
+/* ── Surfaces ─────────────────────────────────────────────────────────── */
 
 @utility card {
   @apply relative rounded-2xl border;
@@ -163,42 +166,37 @@
     background-color var(--t-med) var(--ease-slow);
 }
 
-@utility card-hover {
-  &:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-lift);
-    border-color: color-mix(in oklab, var(--color-accent) 40%, transparent);
-    background-color: var(--color-raised);
-  }
+/* A panel inside a panel: a quieter well, no shadow. */
+@utility well {
+  @apply rounded-xl border;
+  background-color: color-mix(in oklab, var(--color-bg) 45%, var(--color-surface));
 }
 
 @utility glass {
-  background-color: color-mix(in oklab, var(--color-bg) 88%, transparent);
-  backdrop-filter: blur(16px);
+  background-color: color-mix(in oklab, var(--color-bg) 84%, transparent);
+  backdrop-filter: blur(18px) saturate(1.2);
 }
 
 @utility field {
-  @apply w-full rounded-xl border px-3.5 py-2.5 text-ink placeholder:text-faint;
+  @apply w-full rounded-xl border px-3.5 py-2.5 text-body text-ink placeholder:text-faint;
   /* Solid backing, not a transparent outline. */
   background-color: var(--color-raised);
   transition:
     border-color var(--t-fast) var(--ease-slow),
     box-shadow var(--t-fast) var(--ease-slow);
 
+  &:hover {
+    border-color: color-mix(in oklab, var(--color-soft) 22%, transparent);
+  }
   &:focus {
     border-color: color-mix(in oklab, var(--color-accent) 70%, transparent);
     box-shadow: 0 0 0 3px var(--glow-accent);
   }
 }
 
-@utility label {
-  @apply mb-1.5 block text-[11px] font-medium uppercase tracking-[0.08em] text-faint;
-}
-
-/* A tag: session, exit reason, entry model. */
+/* A tag: session, exit reason. */
 @utility pill {
-  @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5
-    text-[11px] font-medium;
+  @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-caption font-medium;
   background-color: var(--color-raised);
 }
 
@@ -230,7 +228,7 @@
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(12px);
     filter: blur(6px);
   }
   to {
@@ -240,79 +238,126 @@
   }
 }
 @keyframes grow {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
 }
-/* Uncovers an element from left to right — the Risk lab's crowd of futures. */
+@keyframes growY {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+/* Uncovers an element from left to right — a chart drawing itself, a box arriving with its candles. */
 @keyframes reveal {
-  from { clip-path: inset(0 100% 0 0); }
-  to { clip-path: inset(0 0 0 0); }
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
 }
 /* The Risk lab's pen: travels with the reveal, then fades once the drawing is done. */
 @keyframes pen {
-  0% { left: 0; opacity: 0; }
-  6% { opacity: 1; }
-  88% { opacity: 1; }
-  100% { left: 100%; opacity: 0; }
-}
-@keyframes wipe {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  6% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+  }
 }
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes pop {
-  from { opacity: 0; transform: translateY(18px) scale(0.97); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes viewIn {
-  from { opacity: 0; transform: translateY(16px) scale(0.995); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes cascade {
-  from { opacity: 0; transform: translateY(-18px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 @keyframes drawLine {
-  from { stroke-dashoffset: 4000; }
-  to { stroke-dashoffset: 0; }
+  from {
+    stroke-dashoffset: 4000;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 @keyframes skeleton {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 0.75; }
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
+  }
 }
 /* Lands with a small overshoot — a grade changing, a rule ticked. */
 @keyframes stamp {
-  0% { opacity: 0; transform: scale(1.6); }
-  60% { opacity: 1; transform: scale(0.94); }
-  100% { opacity: 1; transform: none; }
+  0% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
 }
-
-@utility anim-rise {
-  animation: rise var(--t-med) var(--ease-slow) both;
-}
-@utility anim-grow {
-  transform-origin: left;
-  animation: grow 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-@utility anim-wipe {
-  transform-box: fill-box;
-  transform-origin: left;
-  animation: wipe 2.6s var(--ease-slow) both;
-}
-@utility anim-view {
-  animation: viewIn var(--t-med) var(--ease-slow) both;
-}
-@utility anim-fade {
-  animation: fadeIn var(--t-med) var(--ease-slow) both;
-}
-@utility anim-pop {
-  animation: pop var(--t-med) var(--ease-slow) both;
-}
-@utility anim-stamp {
-  animation: stamp 0.45s var(--ease-slow) both;
+/* A light that breathes — a live status, never anything that needs reading. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 /* A candle growing out of its own body, for the chart's opening sweep. */
 @keyframes candleIn {
@@ -325,10 +370,53 @@
     transform: none;
   }
 }
+
+@utility anim-rise {
+  animation: rise var(--t-med) var(--ease-slow) both;
+}
+@utility anim-grow {
+  transform-origin: left;
+  animation: grow 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@utility anim-grow-y {
+  transform-origin: bottom;
+  transform-box: fill-box;
+  animation: growY 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@utility anim-wipe {
+  transform-box: fill-box;
+  transform-origin: left;
+  animation: grow 2.6s var(--ease-slow) both;
+}
+@utility anim-reveal {
+  animation: reveal 1.6s var(--ease-slow) both;
+}
+@utility anim-view {
+  animation: viewIn 0.7s var(--ease-slow) both;
+}
+@utility anim-fade {
+  animation: fadeIn var(--t-med) var(--ease-slow) both;
+}
+@utility anim-pop {
+  animation: pop var(--t-med) var(--ease-slow) both;
+}
+@utility anim-stamp {
+  animation: stamp 0.45s var(--ease-slow) both;
+}
+@utility anim-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
 @utility anim-candle {
   animation: candleIn 0.45s var(--ease-slow) both;
   transform-box: fill-box;
   transform-origin: 50% 50%;
+}
+/* Journal rows drop in from the top, one after another. */
+@utility anim-cascade {
+  animation: cascade 0.8s var(--ease-slow) both;
+}
+@utility anim-skeleton {
+  animation: skeleton 1.6s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -369,7 +457,9 @@
   cursor: grab;
 }
 
-/* Journal rows drop in from the top, one after another. */
-@utility anim-cascade {
-  animation: cascade 0.85s var(--ease-slow) both;
+/* A time or date field: the picker icon in the desk's own grey. */
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  cursor: pointer;
 }

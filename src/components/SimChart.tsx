@@ -365,7 +365,7 @@ export function SimChart({
               y={y(t)}
               dy="0.32em"
               textAnchor="end"
-              className="num fill-faint text-[11px]"
+              className="num fill-faint text-caption"
             >
               {t > 0 ? "+" : ""}
               {t}%
@@ -387,7 +387,7 @@ export function SimChart({
               x={x(m.trades - 1)}
               y={PAD.top - 6}
               textAnchor="middle"
-              className="num fill-accent/70 text-[10px]"
+              className="num fill-accent/70 text-micro"
             >
               {m.label}
             </text>
@@ -424,7 +424,7 @@ export function SimChart({
             x={x(horizon - 1) + 10}
             y={y(t.vals[horizon - 1])}
             dy="0.32em"
-            className="num text-[10px]"
+            className="num text-micro"
             fill={t.colour}
             style={{
               opacity: 0,
@@ -453,14 +453,14 @@ export function SimChart({
           />
         )}
 
-        <text x={PAD.left} y={height - 10} className="num fill-faint text-[11px]">
+        <text x={PAD.left} y={height - 10} className="num fill-faint text-caption">
           {unit} 1
         </text>
         <text
           x={x(horizon - 1)}
           y={height - 10}
           textAnchor="end"
-          className="num fill-faint text-[11px]"
+          className="num fill-faint text-caption"
         >
           {unit} {horizon}
         </text>
@@ -469,7 +469,7 @@ export function SimChart({
       {tip && (
         <div
           className={cx(
-            "pointer-events-none absolute top-2 z-10 w-[210px] rounded-lg border bg-surface px-3 py-2 text-[12px] shadow-lg",
+            "pointer-events-none absolute top-2 z-10 w-[210px] rounded-lg border bg-surface px-3 py-2 text-small shadow-lg",
             selected && !hover && "border-ink/40",
           )}
           style={cursorRight ? { left: 12 } : { right: 12 }}
@@ -483,7 +483,7 @@ export function SimChart({
           <Row label="Wins / losses" value={`${tip.wins} / ${tip.losses}`} />
           <Row label="Longest losing run" value={`${tip.longestLossStreak}`} />
           <Row label={`Best / worst ${unit}`} value={`${fmtPct(tip.best, 1)} / ${fmtPct(tip.worst, 1)}`} />
-          <div className="mt-1.5 text-[11px] text-faint">
+          <div className="mt-1.5 text-caption text-faint">
             {selected?.index === tip.index ? "Click it again to unpin" : "Click to pin this future"}
           </div>
         </div>

@@ -28,8 +28,6 @@ export const newId = () => crypto.randomUUID().slice(0, 8);
 const AUTO_RULE_LABEL: Record<AutoRule, string> = {
   "daily-budget": "budget left, no trade yet",
   news: "news rules",
-  "entry-window": "entry window",
-  plan: "plan on time",
 };
 
 /** Moves item i one place up or down. */
@@ -50,7 +48,7 @@ export function BaseRulesEditor({ value, onChange }: { value: BaseRule[]; onChan
   return (
     <div className="space-y-2">
       {value.length === 0 && (
-        <p className="text-[12px] text-faint">
+        <p className="text-small text-faint">
           No base rules yet. Add the conditions that must be true for any trade — one missing rule
           makes the setup a C.
         </p>
@@ -60,7 +58,7 @@ export function BaseRulesEditor({ value, onChange }: { value: BaseRule[]; onChan
         <div key={r.id} className="space-y-2 rounded-xl border bg-surface/30 px-2.5 py-2.5">
           <div className="flex items-center gap-2">
             <Reorder onUp={() => onChange(move(value, i, -1))} onDown={() => onChange(move(value, i, 1))} first={i === 0} last={i === value.length - 1} />
-            <span className="num w-5 shrink-0 text-right text-[12px] text-faint">{i + 1}</span>
+            <span className="num w-5 shrink-0 text-right text-small text-faint">{i + 1}</span>
             <input
               aria-label={`Rule ${i + 1}`}
               className="field min-w-0 flex-1 font-medium"
@@ -73,14 +71,14 @@ export function BaseRulesEditor({ value, onChange }: { value: BaseRule[]; onChan
           <div className="flex flex-wrap items-center gap-2 pl-[3.25rem]">
             <input
               aria-label={`Rule ${i + 1} hint`}
-              className="field min-w-[10rem] flex-1 text-[12px]"
+              className="field min-w-[10rem] flex-1 text-small"
               placeholder="hint (optional)"
               value={r.hint}
               onChange={(e) => edit(i, { hint: e.target.value })}
             />
             <select
               aria-label={`Who answers rule ${i + 1}`}
-              className="field w-48 shrink-0 text-[12px]"
+              className="field w-48 shrink-0 text-small"
               value={r.auto ?? ""}
               onChange={(e) => {
                 const v = e.target.value as AutoRule | "";
@@ -132,7 +130,7 @@ export function FactorsEditor({ value, onChange }: { value: Factor[]; onChange: 
   return (
     <div className="space-y-3">
       {value.length === 0 && (
-        <p className="text-[12px] text-faint">
+        <p className="text-small text-faint">
           No factors yet. A factor is a question you answer on every trade — "HTF reason
           timeframe", "Conviction" — where each answer decides how high the grade may go.
         </p>
@@ -148,31 +146,24 @@ export function FactorsEditor({ value, onChange }: { value: Factor[]; onChange: 
               onChange={(e) => replace(i, { ...factor, name: e.target.value })}
             />
             <input
-              className="field max-w-xs text-[12px]"
+              className="field max-w-xs text-small"
               placeholder="hint (optional)"
               value={factor.hint}
               onChange={(e) => replace(i, { ...factor, hint: e.target.value })}
             />
-            {factor.auto ? (
-              // The desk fills this one in; its shape is what the filling relies on.
-              <span className="rounded-full bg-subtle px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
-                auto · {factor.auto}
-              </span>
-            ) : (
-              <Segmented
-                size="sm"
-                value={factor.kind}
-                onChange={(k) => {
-                  if (!k || k === factor.kind) return;
-                  const fresh = k === "choice" ? newChoice() : newNumber();
-                  replace(i, { ...fresh, id: factor.id, name: factor.name, hint: factor.hint });
-                }}
-                options={[
-                  { value: "choice", label: "Choice" },
-                  { value: "number", label: "Number" },
-                ]}
-              />
-            )}
+            <Segmented
+              size="sm"
+              value={factor.kind}
+              onChange={(k) => {
+                if (!k || k === factor.kind) return;
+                const fresh = k === "choice" ? newChoice() : newNumber();
+                replace(i, { ...fresh, id: factor.id, name: factor.name, hint: factor.hint });
+              }}
+              options={[
+                { value: "choice", label: "Choice" },
+                { value: "number", label: "Number" },
+              ]}
+            />
             <span className="ml-auto" />
             <RemoveButton onClick={() => onChange(value.filter((_, k) => k !== i))} />
           </div>
@@ -207,7 +198,7 @@ function ChoiceEditor({ factor, onChange }: { factor: ChoiceFactor; onChange: (f
             value={o.label}
             onChange={(e) => edit(i, { label: e.target.value })}
           />
-          <span className="text-[12px] text-faint">caps at</span>
+          <span className="text-small text-faint">caps at</span>
           <Segmented size="sm" value={o.cap} onChange={(v) => v && edit(i, { cap: v })} options={GRADE_OPTIONS} />
           <RemoveButton
             onClick={() => onChange({ ...factor, options: factor.options.filter((_, k) => k !== i) })}
@@ -253,9 +244,9 @@ function NumberEditor({ factor, onChange }: { factor: NumberFactor; onChange: (f
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-3">
-        <span className="text-[12px] text-faint">Unit</span>
+        <span className="text-small text-faint">Unit</span>
         <input
-          className="field w-24 text-[12px]"
+          className="field w-24 text-small"
           placeholder="%"
           value={factor.unit}
           onChange={(e) => onChange({ ...factor, unit: e.target.value })}
@@ -268,12 +259,12 @@ function NumberEditor({ factor, onChange }: { factor: NumberFactor; onChange: (f
         .map(({ cap, i }) => (
           <div key={i} className="space-y-2">
             <div className="flex items-center gap-3">
-              <span className="num w-32 text-[13px] font-medium">{rangeLabel(factor, i)}</span>
-              <span className="text-[12px] text-faint">caps at</span>
+              <span className="num w-32 text-body font-medium">{rangeLabel(factor, i)}</span>
+              <span className="text-small text-faint">caps at</span>
               <Segmented size="sm" value={cap} onChange={(v) => v && setCap(i, v)} options={GRADE_OPTIONS} />
             </div>
             {i > 0 && (
-              <div className="flex flex-wrap items-center gap-2 border-l-2 border-dashed border-line py-1 pl-4 text-[12px] text-faint">
+              <div className="flex flex-wrap items-center gap-2 border-l-2 border-dashed border-line py-1 pl-4 text-small text-faint">
                 boundary
                 <DecimalInput
                   className="w-24"
@@ -320,7 +311,6 @@ export function GradeLadder({
 
   return (
     // Each card spans four shared rows, so the "Needs" lists line up across the ladder.
-    // "% FT" is what the Forex Tester backtest risks on the grade; empty means it skips it.
     <div className="grid gap-x-3 gap-y-3 md:grid-cols-2 xl:grid-cols-4">
       {grades.map((card, gi) => {
         const req = gradeRequirements(definition, card.grade);
@@ -332,7 +322,7 @@ export function GradeLadder({
               "anim-rise row-span-4 grid grid-rows-subgrid gap-3 rounded-xl border px-4 py-4",
               !card.traded && "[&>*]:opacity-75",
             )}
-            style={{ boxShadow: `inset 0 2px 0 ${colour}`, ...stagger(gi, 90) }}
+            style={{ borderColor: `color-mix(in oklab, ${colour} 30%, transparent)`, ...stagger(gi, 90) }}
           >
             <div className="flex items-center justify-between">
               <GradeBadge grade={card.grade} size="lg" />
@@ -346,27 +336,19 @@ export function GradeLadder({
                 ]}
               />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <DecimalInput
-                value={card.traded ? card.riskPct : 0}
-                disabled={!card.traded}
-                onChange={(v) => edit(card.grade, { riskPct: v ?? 0 })}
-                suffix="% live"
-              />
-              <DecimalInput
-                value={card.backtestRiskPct ?? null}
-                onChange={(v) => edit(card.grade, { backtestRiskPct: v })}
-                placeholder="no trade"
-                suffix="% FT"
-              />
-            </div>
+            <DecimalInput
+              value={card.traded ? card.riskPct : 0}
+              disabled={!card.traded}
+              onChange={(v) => edit(card.grade, { riskPct: v ?? 0 })}
+              suffix="% risk"
+            />
             <textarea
-              className="field min-h-[96px] resize-none text-[12px] leading-relaxed [field-sizing:content]"
+              className="field min-h-[96px] resize-none text-small leading-relaxed [field-sizing:content]"
               placeholder="What this grade feels like, and why it gets this risk."
               value={card.description}
               onChange={(e) => edit(card.grade, { description: e.target.value })}
             />
-            <div className="border-t pt-3 text-[12px]">
+            <div className="border-t pt-3 text-small">
               {card.grade === "A+" ? (
                 <Requirements title="Needs" items={req.requires} empty="Nothing yet — add rules or factors" />
               ) : (
@@ -386,7 +368,7 @@ export function GradeLadder({
 
 const Requirements = ({ title, items, empty }: { title: string; items: string[]; empty: string }) => (
   <div>
-    <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-faint">{title}</p>
+    <p className="mb-1 eyebrow">{title}</p>
     {items.length ? (
       <ul className="space-y-0.5 text-soft">
         {items.map((x) => (
@@ -422,7 +404,7 @@ const RemoveButton = ({ onClick }: { onClick: () => void }) => (
 );
 
 const AddButton = ({ onClick, children }: { onClick: () => void; children: ReactNode }) => (
-  <button type="button" onClick={onClick} className="flex items-center gap-1.5 text-[12px] text-faint hover:text-ink">
+  <button type="button" onClick={onClick} className="flex items-center gap-1.5 text-small text-faint hover:text-ink">
     <Plus size={13} /> {children}
   </button>
 );

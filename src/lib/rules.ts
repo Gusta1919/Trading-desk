@@ -5,8 +5,7 @@
  * ("2026-10-05T04:23"), never through a Date in this machine's timezone: Gustaw's Mac
  * runs on Amsterdam time, and a Date would quietly move a 04:23 entry to 10:23.
  */
-import { WEEKDAY_KEYS, type Rulebook, type TimeWindow, type Weekday } from "./rulebook";
-import type { Direction } from "./types";
+import { WEEKDAY_KEYS, type TimeWindow, type Weekday } from "./rulebook";
 
 /** Minutes since midnight for "HH:mm", or null. */
 export function minutesOf(hhmm: string | null | undefined): number | null {
@@ -64,102 +63,7 @@ export function weekdayOf(day: string): Weekday | null {
   return wd >= 1 && wd <= 5 ? WEEKDAY_KEYS[wd - 1] : null;
 }
 
-/* ── Grade inputs ────────────────────────────────────────────────────── */
 
-/**
- * The frozen Compass value for a trade: its weekday, and its direction — a long comes
- * after the low was swept, a short after the high. Null on a weekend (asked by hand).
- */
-export function compassFor(doc: Pick<Rulebook, "compass">, day: string, direction: Direction): number | null {
-  const wd = weekdayOf(day);
-  if (!wd) return null;
-  return doc.compass.days[wd]?.[direction] ?? null;
-}
 
-/**
- * How far the MSS candle closed beyond the swing, in 5m ATRs. Rounded to four places
- * before it is graded: 0.30 ÷ 1.20 is 0.2499999… in floating point, and an exact 0.25
- * must land on the boundary the rulebook gives it.
- */
-export function displacementMultiple(mssBeyond: number | null, atr: number | null): number | null {
-  if (mssBeyond == null || atr == null || !(atr > 0) || mssBeyond < 0) return null;
-  return Number((mssBeyond / atr).toFixed(4));
-}
 
-/* ── Prices ──────────────────────────────────────────────────────────── */
 
-/** Gross planned R:R from the three prices: reward ÷ risk. Null until all three make sense. */
-export function plannedRR(entry: number | null, stop: number | null, target: number | null): number | null {
-  if (entry == null || stop == null || target == null) return null;
-  const risk = Math.abs(entry - stop);
-  if (!(risk > 0)) return null;
-  return Number((Math.abs(target - entry) / risk).toFixed(2));
-}
-
-/**
- * Lots for a $ risk: risk ÷ (stop distance × ounces per lot). Rounded down to 0.01 —
- * the broker's step — so the size never risks more than the rules allow.
- */
-export function lotSize(riskUsd: number | null, entry: number | null, stop: number | null, ozPerLot: number): number | null {
-  if (riskUsd == null || entry == null || stop == null || !(riskUsd > 0)) return null;
-  const perLot = Math.abs(entry - stop) * ozPerLot;
-  if (!(perLot > 0)) return null;
-  return Math.floor((riskUsd / perLot) * 100 + 1e-9) / 100;
-}
-
-/** Whether the stop is on the losing side of the entry for this direction. */
-export function stopOnRightSide(direction: Direction, entry: number | null, stop: number | null): boolean | null {
-  if (entry == null || stop == null) return null;
-  return direction === "long" ? stop < entry : stop > entry;
-}
-
-/**
- * How far a price is from the entry in R, measured from the initial stop: positive in
- * your favour. MFE is this at the best price; MAE is its opposite at the worst, so a
- * trade that went 0.4R against you has an MAE of 0.4.
- */
-export function priceR(direction: Direction, entry: number | null, stop: number | null, price: number | null): number | null {
-  if (entry == null || stop == null || price == null) return null;
-  const risk = Math.abs(entry - stop);
-  if (!(risk > 0)) return null;
-  const sign = direction === "long" ? 1 : -1;
-  return Number((((price - entry) * sign) / risk).toFixed(2));
-}
-
-/** MFE and MAE in R: as logged since 2.0, or worked out from an older trade's prices. */
-export function excursions(t: {
-  direction: Direction;
-  entryPrice: number | null;
-  stopPrice: number | null;
-  mfePrice: number | null;
-  maePrice: number | null;
-  mfeR?: number | null;
-  maeR?: number | null;
-}): { mfeR: number | null; maeR: number | null } {
-  const mfe = t.mfeR ?? priceR(t.direction, t.entryPrice, t.stopPrice, t.mfePrice);
-  const fromPrice = priceR(t.direction, t.entryPrice, t.stopPrice, t.maePrice);
-  return { mfeR: mfe, maeR: t.maeR ?? (fromPrice == null ? null : Number((-fromPrice).toFixed(2))) };
-}
-
-/** For a target exit: how far it would have run by the time stop, in R — logged, or from the price. */
-export const maxFavROf = (t: {
-  direction: Direction;
-  entryPrice: number | null;
-  stopPrice: number | null;
-  maxFavPrice: number | null;
-  maxFavR?: number | null;
-}) => t.maxFavR ?? priceR(t.direction, t.entryPrice, t.stopPrice, t.maxFavPrice);
-
-/** $ beyond the box edge the sweep reached: above the high for a short, below the low for a long. */
-export function sweepDepthOf(
-  direction: Direction,
-  boxHigh: number | null,
-  boxLow: number | null,
-  extreme: number | null,
-): number | null {
-  if (extreme == null) return null;
-  const edge = direction === "short" ? boxHigh : boxLow;
-  if (edge == null) return null;
-  const depth = direction === "short" ? extreme - edge : edge - extreme;
-  return depth >= 0 ? Number(depth.toFixed(2)) : null;
-}

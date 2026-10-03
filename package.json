@@ -12,13 +12,10 @@
     "build": "tsc && vite build",
     "open": "open http://localhost:3847",
     "test": "node --import tsx --test tests/*.test.ts",
-    "demo:add": "node --import tsx scripts/demo-data.ts add",
-    "demo:more": "node --import tsx scripts/demo-data.ts more",
-    "demo:fill": "node --import tsx scripts/demo-data.ts fill",
-    "demo:bias": "node --import tsx scripts/demo-data.ts bias",
-    "demo:all": "node --import tsx scripts/demo-data.ts all",
-    "preview:build": "node --import tsx scripts/preview/build.ts",
-    "demo:remove": "node --import tsx scripts/demo-data.ts remove"
+    "demo": "node --import tsx scripts/demo-data.ts add",
+    "demo:remove": "node --import tsx scripts/demo-data.ts remove",
+    "reset": "node --import tsx scripts/reset.ts",
+    "preview:build": "node --import tsx scripts/preview/build.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

@@ -4,7 +4,7 @@ import { fmtR } from "@/lib/format";
 import { behaviour, edges, findInsights, leaks, type Insight, type Slice } from "@/lib/insights";
 import type { Rulebook } from "@/lib/rulebook";
 import type { Trade } from "@/lib/types";
-import { cx } from "./ui";
+import { Empty, Panel, cx, stagger } from "./ui";
 
 const CONF: Record<Insight["confidence"], { label: string; cls: string }> = {
   strong: { label: "strong", cls: "text-ink" },
@@ -15,15 +15,7 @@ const CONF: Record<Insight["confidence"], { label: string; cls: string }> = {
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 /** "What drives your results": the factors that most help and hurt you. */
-export function DriversCard({
-  trades,
-  checkins,
-  doc,
-}: {
-  trades: Trade[];
-  checkins: CheckIn[];
-  doc?: Rulebook;
-}) {
+export function DriversCard({ trades, checkins, doc, index = 0 }: { trades: Trade[]; checkins: CheckIn[]; doc?: Rulebook; index?: number }) {
   const insights = useMemo(
     () => findInsights(trades, checkins, doc),
     [trades, checkins, doc],
@@ -32,44 +24,38 @@ export function DriversCard({
   const bad = leaks(insights).slice(0, 6);
 
   return (
-    <section id="sec-drivers" className="card scroll-mt-24 px-6 py-5">
-      <h2 className="text-[15px] font-semibold">Edge attribution</h2>
-      <p className="text-[12px] text-faint">
-        Every field you log, compared: trades <i>with</i> it vs. trades <i>without</i> it (avg R per trade).
-      </p>
+    <Panel index={index} id="sec-drivers" title="What drives your results" sub="Every field you log, compared: trades with it against trades without it, in average R per trade.">
       {insights.length === 0 ? (
-        <p className="py-6 text-center text-soft">
-          Needs about 15–20 closed trades before patterns become visible.
-        </p>
+        <Empty title="Not enough trades yet" body="Patterns start to show after about 15–20 closed trades." className="py-8" />
       ) : (
-        <div className="mt-4 grid gap-6 md:grid-cols-2">
+        <div className="grid gap-8 md:grid-cols-2">
           <List title="Edges — do more of this" items={good} empty="No clear edges yet." />
           <List title="Leaks — do less of this" items={bad} empty="No clear leaks yet." />
         </div>
       )}
-    </section>
+    </Panel>
   );
 }
 
 function List({ title, items, empty }: { title: string; items: Insight[]; empty: string }) {
   return (
     <div>
-      <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-faint">{title}</h3>
+      <h3 className="eyebrow mb-2">{title}</h3>
       {items.length === 0 ? (
-        <p className="text-[13px] text-soft">{empty}</p>
+        <p className="text-body text-soft">{empty}</p>
       ) : (
         <ul className="divide-y divide-line">
-          {items.map((i) => (
-            <li key={i.key} className="flex items-baseline justify-between gap-3 py-2 text-[13px]">
+          {items.map((i, n) => (
+            <li key={i.key} className="anim-rise flex items-baseline justify-between gap-3 py-2 text-body" style={stagger(n, 50)}>
               <span className="min-w-0">
                 <span className="block truncate">{i.label}</span>
-                <span className="text-[11px] text-faint">
+                <span className="text-caption text-faint">
                   {i.n} trades · <span className={CONF[i.confidence].cls}>{CONF[i.confidence].label}</span>
                 </span>
               </span>
               <span className="num shrink-0 text-right">
                 <span className={cx("font-medium", i.avgR >= 0 ? "text-up" : "text-down")}>{fmtR(i.avgR)}</span>
-                <span className="block text-[11px] text-faint">vs {fmtR(i.restAvgR)}</span>
+                <span className="block text-caption text-faint">vs {fmtR(i.restAvgR)}</span>
               </span>
             </li>
           ))}
@@ -80,7 +66,7 @@ function List({ title, items, empty }: { title: string; items: Insight[]; empty:
 }
 
 /** "Habits": how you behave after wins/losses, how much of your targets you take, whether grades mean anything. */
-export function HabitsCard({ trades, checkins }: { trades: Trade[]; checkins: CheckIn[] }) {
+export function HabitsCard({ trades, checkins, index = 0 }: { trades: Trade[]; checkins: CheckIn[]; index?: number }) {
   const b = useMemo(() => behaviour(trades, checkins), [trades, checkins]);
   if (b.all.n < 8) return null;
 
@@ -93,19 +79,16 @@ export function HabitsCard({ trades, checkins }: { trades: Trade[]; checkins: Ch
   ];
 
   return (
-    <section id="sec-habits" className="card scroll-mt-24 px-6 py-5">
-      <h2 className="text-[15px] font-semibold">Behavioural profile</h2>
-      <p className="text-[12px] text-faint">How your results, discipline and sizing change with what just happened.</p>
-
-      <div className="-mx-6 mt-4 overflow-x-auto">
-        <table className="w-full text-[13px]">
+    <Panel index={index} id="sec-habits" title="How you trade after a win or a loss" sub="Your results, rule breaks and sizing, against what just happened.">
+      <div className="-mx-6 overflow-x-auto">
+        <table className="w-full text-body">
           <thead>
-            <tr className="border-b text-[11px] uppercase tracking-[0.06em] text-faint">
-              <th className="px-6 py-2.5 text-left font-medium">Situation</th>
-              <th className="px-3 py-2.5 text-right font-medium">Trades</th>
-              <th className="px-3 py-2.5 text-right font-medium">Avg R</th>
-              <th className="px-3 py-2.5 text-right font-medium">Rules broken</th>
-              <th className="px-6 py-2.5 text-right font-medium">Avg risk</th>
+            <tr className="border-b">
+              <th className="px-6 py-2.5 text-left eyebrow">Situation</th>
+              <th className="px-3 py-2.5 text-right eyebrow">Trades</th>
+              <th className="px-3 py-2.5 text-right eyebrow">Avg R</th>
+              <th className="px-3 py-2.5 text-right eyebrow">Rules broken</th>
+              <th className="px-6 py-2.5 text-right eyebrow">Avg risk</th>
             </tr>
           </thead>
           <tbody>
@@ -148,16 +131,16 @@ export function HabitsCard({ trades, checkins }: { trades: Trade[]; checkins: Ch
           warn={!!b.discipline && b.discipline.recent > b.discipline.before + 0.15}
         />
       </div>
-    </section>
+    </Panel>
   );
 }
 
 function Fact({ label, value, note, warn }: { label: string; value: string; note: string; warn?: boolean }) {
   return (
     <div>
-      <div className="text-[12px] text-faint">{label}</div>
-      <div className={cx("num text-[15px] font-medium", warn && "text-down")}>{value}</div>
-      <div className="num text-[11px] text-faint">{note}</div>
+      <div className="eyebrow">{label}</div>
+      <div className={cx("num text-title font-medium", warn && "text-down")}>{value}</div>
+      <div className="num text-caption text-faint">{note}</div>
     </div>
   );
 }

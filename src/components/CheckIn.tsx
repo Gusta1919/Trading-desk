@@ -12,7 +12,6 @@ import {
   type Verdict,
 } from "@/lib/checkin";
 import { deskStatus } from "@/lib/discipline";
-import { dayKey } from "@/lib/format";
 import type { CalendarEvent } from "@/lib/news";
 import { coveredDays, fromEvent, newsDay } from "@/lib/newsRules";
 import type { Rulebook } from "@/lib/rulebook";
@@ -20,22 +19,11 @@ import { deskDay } from "@/lib/tz";
 import type { Trade } from "@/lib/types";
 import { Briefing } from "./Briefing";
 import { TodayCard } from "./TodayStatus";
-import { Button, cx } from "./ui";
+import { verdictBg, verdictColor } from "./ReadinessMeter";
+import { Button, cx, useCountUp } from "./ui";
 
 /** Greeting → the questions → a note → the verdict → today's status and the briefing. */
 type Stage = "hello" | number | "note" | "result" | "briefing";
-
-export const verdictColor: Record<Verdict, string> = {
-  ready: "text-up",
-  caution: "text-warn",
-  "sit-out": "text-down",
-};
-
-const verdictBg: Record<Verdict, string> = {
-  ready: "bg-up",
-  caution: "bg-warn",
-  "sit-out": "bg-down",
-};
 
 /** Full-screen daily check-in: greeting → questions → note → verdict → today and the briefing. */
 export function CheckIn({
@@ -74,7 +62,7 @@ export function CheckIn({
     if (stage !== "result") return;
     api
       .saveCheckIn({
-        date: dayKey(new Date()),
+        date: deskDay(),
         answers,
         note,
         score: result.score,
@@ -115,7 +103,7 @@ export function CheckIn({
   }
 
   const current: CheckInData = {
-    date: dayKey(new Date()),
+    date: deskDay(),
     answers,
     note,
     score: result.score,
@@ -184,7 +172,7 @@ export function CheckIn({
         )}
       </div>
 
-      <div className="flex items-center justify-between px-6 py-4 text-[12px] text-faint">
+      <div className="flex items-center justify-between px-6 py-4 text-small text-faint">
         {step != null ? (
           <button onClick={back} className="flex items-center gap-1.5 hover:text-ink">
             <ArrowLeft size={14} /> Back
@@ -202,7 +190,7 @@ export function CheckIn({
       <main className="flex flex-1 flex-col overflow-y-auto px-6 pb-16">
         <div
           key={String(stage)}
-          className={cx("mx-auto my-auto w-full py-6", stage === "briefing" ? "max-w-xl" : "max-w-lg")}
+          className={cx("mx-auto my-auto w-full py-6", stage === "briefing" ? "max-w-5xl" : "max-w-lg")}
         >
           {stage === "hello" && <Hello onStart={() => setStage(0)} onKeep={onKeep} />}
 
@@ -217,7 +205,7 @@ export function CheckIn({
 
           {stage === "note" && (
             <div>
-              <h2 className="anim-rise text-[26px] font-semibold tracking-tight">
+              <h2 className="anim-rise text-stat font-semibold tracking-tight">
                 Session notes
               </h2>
               <p className="anim-rise mt-1 text-soft" style={{ animationDelay: "80ms" }}>
@@ -225,7 +213,7 @@ export function CheckIn({
               </p>
               <textarea
                 autoFocus
-                className="field anim-rise mt-6 min-h-[120px] resize-none text-[15px]"
+                className="field anim-rise mt-6 min-h-[120px] resize-none text-title"
                 style={{ animationDelay: "160ms" }}
                 placeholder="e.g. Exam tomorrow — intend to close the desk by 12:00."
                 value={note}
@@ -252,15 +240,15 @@ export function CheckIn({
             <div className="space-y-6">
               {/* Today as the rules see it, first thing in the morning. */}
               <section className="anim-rise card px-5 py-4">
-                <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">Today's status</h3>
-                <TodayCard doc={doc} status={todayStatus} news={todayNews} now={new Date()} animate />
+                <h3 className="eyebrow mb-3">Today</h3>
+                <TodayCard doc={doc} status={todayStatus} news={todayNews} now={new Date()} trades={trades} animate />
               </section>
               <Briefing
                 animate
                 briefing={briefing}
                 footer={
                   <div className="flex justify-end">
-                    <Button variant="accent" onClick={finish} className="px-7 py-3 text-[14px]">
+                    <Button variant="accent" onClick={finish} className="px-7 py-3 text-title">
                       Open the desk
                     </Button>
                   </div>
@@ -279,12 +267,12 @@ function Hello({ onStart, onKeep }: { onStart: () => void; onKeep?: () => void }
   return (
     <div className="text-center">
       <div
-        className="anim-rise mb-7 flex items-center justify-center gap-2.5 text-[11px] font-medium uppercase tracking-[0.22em] text-faint"
+        className="anim-rise mb-7 flex items-center justify-center gap-2.5 eyebrow tracking-[0.22em]"
       >
         <span className="size-1.5 rounded-full bg-accent shadow-[0_0_12px_var(--glow-accent)]" />
         {greeting()} · {USER_NAME}
       </div>
-      <h1 className="text-[34px] font-semibold tracking-tight sm:text-[44px]">
+      <h1 className="text-[44px] font-semibold tracking-tight">
         {words.map((w, i) => (
           <span
             key={i}
@@ -300,20 +288,20 @@ function Hello({ onStart, onKeep }: { onStart: () => void; onKeep?: () => void }
         style={{ animationDelay: `${400 + words.length * 140}ms` }}
       />
       <p
-        className="anim-rise mt-5 text-[15px] text-soft"
+        className="anim-rise mt-5 text-title text-soft"
         style={{ animationDelay: `${600 + words.length * 140}ms` }}
       >
-        Nine questions. They decide how much size you are allowed today.
+        Nine questions. They decide whether you trade today.
       </p>
       <div
         className="anim-rise mt-8 flex flex-col items-center gap-3"
         style={{ animationDelay: `${900 + words.length * 140}ms` }}
       >
-        <Button variant="accent" onClick={onStart} className="px-7 py-3 text-[14px]">
+        <Button variant="accent" onClick={onStart} className="px-7 py-3 text-title">
           Start check-in
         </Button>
         {onKeep && (
-          <button onClick={onKeep} className="text-[12px] text-faint hover:text-soft">
+          <button onClick={onKeep} className="text-small text-faint hover:text-soft">
             Keep today's answers
           </button>
         )}
@@ -336,7 +324,7 @@ function QuestionScreen({
   const q = QUESTIONS[index];
   return (
     <div>
-      <h2 className="anim-rise text-[26px] font-semibold leading-tight tracking-tight">{q.title}</h2>
+      <h2 className="anim-rise text-stat font-semibold leading-tight tracking-tight">{q.title}</h2>
       {q.hint && (
         <p className="anim-rise mt-1.5 text-soft" style={{ animationDelay: "60ms" }}>
           {q.hint}
@@ -350,7 +338,7 @@ function QuestionScreen({
               key={o.label}
               onClick={() => onChoose(i)}
               className={cx(
-                "anim-rise flex w-full items-center gap-4 rounded-xl border px-4 py-3.5 text-left text-[15px] transition-all",
+                "anim-rise flex w-full items-center gap-4 rounded-xl border px-4 py-3.5 text-left text-title transition-all",
                 active
                   ? "border-ink bg-ink text-bg"
                   : "bg-surface hover:-translate-y-px hover:border-soft",
@@ -359,7 +347,7 @@ function QuestionScreen({
             >
               <span
                 className={cx(
-                  "num flex size-6 items-center justify-center rounded-md border text-[11px]",
+                  "num flex size-6 items-center justify-center rounded-md border text-caption",
                   active ? "border-bg/30 text-bg" : "text-faint",
                 )}
               >
@@ -385,7 +373,7 @@ function Result({
   flags: { text: string; risk: 1 | 2 }[];
   onEnter: () => void;
 }) {
-  const shown = useCountUp(score);
+  const shown = Math.round(useCountUp(score, 1200) ?? 0);
   const R = 54;
   const C = 2 * Math.PI * R;
   const [drawn, setDrawn] = useState(false);
@@ -414,13 +402,13 @@ function Result({
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="num text-[34px] font-semibold tracking-tight">{shown}</span>
-          <span className="text-[10px] uppercase tracking-[0.16em] text-faint">readiness</span>
+          <span className="num text-display font-semibold tracking-tight">{shown}</span>
+          <span className="eyebrow">readiness</span>
         </div>
       </div>
 
       <h2
-        className={cx("anim-rise mt-6 flex items-center justify-center gap-2 text-[24px] font-semibold", verdictColor[verdict])}
+        className={cx("anim-rise mt-6 flex items-center justify-center gap-2 text-stat font-semibold", verdictColor[verdict])}
         style={{ animationDelay: "500ms" }}
       >
         <span className={cx("size-2.5 rounded-full", verdictBg[verdict])} />
@@ -435,7 +423,7 @@ function Result({
           {flags.map((f, i) => (
             <li
               key={f.text}
-              className="anim-rise flex gap-3 rounded-lg bg-surface px-4 py-3 text-[13px]"
+              className="anim-rise flex gap-3 rounded-lg bg-surface px-4 py-3 text-body"
               style={{ animationDelay: `${750 + i * 90}ms` }}
             >
               <span
@@ -448,27 +436,10 @@ function Result({
       )}
 
       <div className="anim-rise mt-8" style={{ animationDelay: `${850 + flags.length * 90}ms` }}>
-        <Button onClick={onEnter} className="px-6 py-2.5 text-[14px]">
+        <Button onClick={onEnter} className="px-6 py-2.5 text-title">
           {verdict === "sit-out" ? "Understood — continue" : "Continue"}
         </Button>
       </div>
     </div>
   );
-}
-
-/** Animates a number from 0 up to `target`. */
-function useCountUp(target: number, ms = 1200) {
-  const [v, setV] = useState(0);
-  useEffect(() => {
-    const start = performance.now();
-    let id = 0;
-    const tick = (now: number) => {
-      const t = Math.min((now - start) / ms, 1);
-      setV(Math.round(target * (1 - (1 - t) ** 3)));
-      if (t < 1) id = requestAnimationFrame(tick);
-    };
-    id = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(id);
-  }, [target, ms]);
-  return v;
 }

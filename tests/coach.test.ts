@@ -1,14 +1,14 @@
 /**
  * The Coach under the rulebook: one trade a day, the consequences running,
- * the weekly stop — and never the advice of the old rules ("B setups", "half size").
+ * the weekly stop — and never the advice of retired rules ("half size", half-risk weeks).
  *
  * 1 October 2026 is a Thursday; October is EDT, so 14:00Z is 10:00 in New York.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildBriefing, type CoachDesk } from "../src/lib/coach";
-import { BIAS_OPTION } from "../src/lib/rulebookText";
-import type { Trade, TradeFlag } from "../src/lib/types";
+import { BIAS_OPTION } from "../src/lib/goldModel";
+import type { Grade, Trade, TradeFlag } from "../src/lib/types";
 import { doc, rulebookOf, ruledTrade } from "./fixtures";
 
 const NOW = new Date("2026-10-01T14:00:00Z");
@@ -16,7 +16,7 @@ const TODAY = "2026-10-01";
 const desk = (): CoachDesk => ({ doc, rulebookOf, news: null });
 
 function trade(date: string, grade: string, resultR: number | null, flags: TradeFlag[] = [], extra: Partial<Trade> = {}): Trade {
-  return ruledTrade(date, { grade, resultR, flags, ...extra });
+  return ruledTrade(date, { grade: grade as Grade, resultR, flags, ...extra });
 }
 
 const brief = (trades: Trade[], d = desk(), now = NOW) => buildBriefing(trades, [], now, d);
@@ -65,23 +65,17 @@ describe("Coach — today", () => {
 });
 
 describe("Coach — the rulebook's consequences", () => {
-  it("never asks for a written plan — retired in v1.3", () => {
-    assert.ok(!card([], "no-plan"));
-    assert.ok(!card([], "plan-due"));
-  });
-
-  it("says day off after a second trade, until the days off end", () => {
+  it("says day off the trading day after a second trade", () => {
     const yesterday = "2026-09-30";
     const trades = [trade(`${yesterday}T04:30`, "A", 1), trade(`${yesterday}T09:45`, "A", -1, ["second_trade_today"])];
     const c = card(trades, "day-off", desk());
     assert.ok(c);
-    assert.match(c!.title, /until 2026-10-02/);
+    assert.match(c!.title, /today/i);
   });
 
-  it("warns of a half-risk week after two breaks last week", () => {
-    // Flags on rulebook trades are always re-derived from the trade itself: an "other" exit is a discretionary one.
-    const last = [trade("2026-09-21T04:30", "A", 1, [], { exitReason: "other" }), trade("2026-09-23T04:30", "A", 1, [], { exitReason: "other" })];
-    assert.ok(card(last, "half-risk", desk()));
+  it("is back to normal the day after the day off", () => {
+    const trades = [trade("2026-09-29T04:30", "A", 1, [], { exitReason: "other" })];
+    assert.ok(!card(trades, "day-off", desk()));
   });
 
   it("says the weekly stop is hit after four losses", () => {
@@ -103,7 +97,7 @@ describe("Coach — no advice from the old rules", () => {
     for (let d = 1; d <= 9; d++) history.push(trade(`2026-09-0${d}T04:30`, "A", d % 3 === 0 ? -1 : 1.5));
     history.push(trade(`2026-09-10T04:30`, "A+", 2, ["over_risk"]));
     const text = allText([...history, trade(`${TODAY}T04:30`, "A", -1)]);
-    for (const banned of ["half size", "half your", "b setups", "skip b", "positions a day", "position a day", "strategies"]) {
+    for (const banned of ["half size", "half your", "half-risk", "skip b", "positions a day", "position a day", "strategies"]) {
       assert.ok(!text.includes(banned), `found "${banned}"`);
     }
   });
@@ -142,7 +136,6 @@ describe("Coach — a long, realistic history runs cleanly", () => {
       const answers = {
         "htf-tf": i % 3 ? "htf-4h-plus" : "htf-1h",
         disp: (i % 7) / 4,
-        fvg: i % 2 ? "fvg-yes" : "fvg-no",
         bias: i % 5 ? BIAS_OPTION.matches : BIAS_OPTION.unclear,
         compass: 50 + ((i * 7) % 30),
         conviction: i % 7 ? "conv-none" : "conv-lacking",
@@ -150,12 +143,12 @@ describe("Coach — a long, realistic history runs cleanly", () => {
       const ticked = doc.baseRules.map((r) => r.id);
       trades.push(
         trade(`${day}T04:30`, i % 4 ? "A" : "A+", ((i * 37) % 11) / 3 - 1.2, i % 9 ? [] : ["early_stop_move"], {
-          checklist: ticked,
-          setupSnapshot: { rulebookVersion: "1.2", baseRules: doc.baseRules, factors: doc.factors, grades: doc.grades, ticked, answers, grade: "A" },
+          setupSnapshot: { baseRules: doc.baseRules, factors: doc.factors, grades: doc.grades, ticked, answers, grade: "A" },
           exitReason: i % 3 ? "target" : "stop",
-          mfePrice: 2000 + (i % 5),
+          mfeR: (i % 5) / 2,
           sweepDepth: (i * 3) % 40,
-          entryType: i % 4 ? "market" : "limit",
+          biasMatch: i % 4 !== 0,
+          htfReasons: [{ type: "FVG", tf: i % 3 ? "4H" : "1H" }],
         }),
       );
     }

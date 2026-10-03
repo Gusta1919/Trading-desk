@@ -1,7 +1,8 @@
 /** Shown in the greeting. */
 export const USER_NAME = "Gustaw";
 
-export type Verdict = "ready" | "caution" | "sit-out";
+/** The check-in either clears the day or stands it down — nothing in between. */
+export type Verdict = "ready" | "sit-out";
 
 export interface CheckIn {
   date: string; // "YYYY-MM-DD"
@@ -151,8 +152,8 @@ export function evaluate(answers: Record<string, number>) {
   const score = Math.round(100 - (points / max) * 100);
   const redFlags = flags.filter((f) => f.risk === 2).length;
 
-  const verdict: Verdict =
-    redFlags >= 2 || score < 55 ? "sit-out" : redFlags === 1 || score < 80 ? "caution" : "ready";
+  // One red flag, or too many amber ones, and the day is off.
+  const verdict: Verdict = redFlags >= 1 || score < 80 ? "sit-out" : "ready";
 
   flags.sort((a, b) => b.risk - a.risk);
   return { score, verdict, flags };
@@ -163,13 +164,9 @@ export const VERDICTS: Record<Verdict, { label: string; advice: string }> = {
     label: "Cleared to trade",
     advice: "Green light. Every base rule, let the grade set the size, no improvising.",
   },
-  caution: {
-    label: "Trade restricted",
-    advice: "Amber. No trade today, whatever the grade. Review the journal instead — the desk opens again tomorrow.",
-  },
   "sit-out": {
     label: "Stand down",
-    advice: "Red. Nothing is tradable today. Protecting capital is today's job — the desk opens again tomorrow.",
+    advice: "No trade today, whatever the grade. Protecting the account is today's job — review the journal instead.",
   },
 };
 

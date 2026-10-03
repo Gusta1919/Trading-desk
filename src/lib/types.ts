@@ -3,113 +3,82 @@ export type Outcome = "win" | "loss" | "be" | "open";
 
 export interface Trade {
   id: string;
-  date: string; // New York wall clock, "YYYY-MM-DDTHH:mm"
+  /** New York wall clock, "YYYY-MM-DDTHH:mm". */
+  date: string;
+  /** Always the rulebook's instrument. */
   symbol: string;
   direction: Direction;
+  /** Asia, London or New York — set from the entry time. */
   session: string;
-  /** Legacy free text from older trades; graded trades use the rulebook instead. */
-  setup: string;
-  /** Legacy: the rulebook asks for the HTF reason as a grade factor instead. */
-  htf: string;
-  /** Legacy: the rulebook asks for the entry model as a grade factor instead. */
-  entryModel: string;
-  /** The risk actually taken, % of the account. 0 on a skipped setup. */
+  /** The risk taken, % of the account. 0 on a setup that wasn't taken. */
   riskPct: number;
-  /** What the rules allowed for this grade at the time — compare with riskPct. */
+  /** What the rules allowed it to risk. Derived on the server. */
   plannedRiskPct: number | null;
   plannedRR: number | null;
-  resultR: number | null; // null = still open (or skipped)
-  followedPlan: boolean | null;
-  /** The setup's grade: computed from the rulebook's rules and factors, or picked by hand. */
-  grade: string;
-  emotion: number | null; // 1 calm … 5 tilted
-  mistakes: string[];
-  checklist: string[]; // ids of the base rules ticked
-  checklistTotal: number; // how many base rules there were at the time
+  /** In R, derived from the dollar result and the balance before it; null while open. */
+  resultR: number | null;
+  /** The broker's result in account currency, costs included. Null while open. */
+  pnlUsd: number | null;
+  /** The balance before the trade × its risk %. Derived. */
+  riskUsd: number | null;
+  /** The setup's grade, worked out from the rules and factors it was graded against. */
+  grade: Grade | "";
   /**
    * The rules and your answers, frozen when the trade was logged — so editing the
    * rulebook later never rewrites the history measured against it.
    */
   setupSnapshot: SetupSnapshot | null;
-  /** Lines this trade crossed when it was saved. Saving is never blocked; it is recorded. */
+  /** The rulebook version it was graded under. */
+  rulebookVersion: string;
+  /** Rules this trade broke. Saving is never blocked; it is recorded. Derived on the server. */
   flags: TradeFlag[];
   /** Your reason, when a flag was raised. */
   flagNote: string;
-  /** A setup you logged but did not take. Kept out of every result, only used in Compare. */
+  /** A setup logged but not taken — a B, or a pass. It never touches the account. */
   skipped: boolean;
-  /** For a skipped setup: what it would have made, in R, if you know. */
+  /** For a setup not taken: what it would have made, in R. */
   hypotheticalR: number | null;
-  /** Commission + swap as a % of the account. Null = never measured, not zero. */
-  costPct: number | null;
-  /** How wide the CRT box was, in $ (its high minus its low). */
-  boxSize: number | null;
-  /** Profit or loss in account currency. The percentage and R are derived from it. */
-  pnlUsd: number | null;
-  /** The news on the trade's New York day, copied in — the calendar only keeps a couple of weeks. */
-  news: TradeNews[];
-  notes: string;
-  screenshot: string;
-  /** The rulebook version this trade was graded under; null for trades from before the rulebook. */
-  rulebookVersion: string | null;
 
-  /* ── Setup (the journal fields of the rulebook) ── */
-  /** The CRT box's high and low, wicks included. Its size stays in `boxSize`. */
-  boxHigh: number | null;
-  boxLow: number | null;
-  /** The furthest price the sweep reached beyond the box. */
-  sweepExtreme: number | null;
-  /** $ beyond the box edge — from the sweep extreme, or typed. */
+  /* ── The setup ── */
+  /** The CRT box, high minus low, in $. */
+  boxSize: number | null;
+  /** How far the sweep reached beyond the box edge, in $. */
   sweepDepth: number | null;
   took15mSwing: boolean | null;
-  /** The type of the HTF reason that counts: the one on the highest timeframe. */
-  htfReasonType: HtfReasonType | "";
+  /** The sweep took an important level (logged, not a rule yet). */
+  levelSweep: boolean | null;
   /** Every HTF reason behind the trade, each with its timeframe; the highest one counts. */
   htfReasons: HtfReason[];
   poiTests: PoiTests | "";
-  /** The sweep took an important level (logged, not a rule yet). */
-  levelSweep: boolean | null;
-  /** Whether your daily bias matched the Daily Bias briefing's ("none": logged before, with no briefing). */
-  deskAgreed: DeskAgreed | "";
+  /** Your daily bias matched the Daily Bias briefing's. */
+  biasMatch: boolean | null;
 
-  /* ── Entry ── */
-  /** No longer asked; trades logged before keep theirs. */
-  entryType: EntryType | "";
-  entryPrice: number | null;
-  /** The initial stop — never the trailed one, so R stays measurable. */
-  stopPrice: number | null;
-  targetPrice: number | null;
-  lots: number | null;
-  /** The risk in account currency: the balance before the trade × its risk %. Derived. */
-  riskUsd: number | null;
-  /** 5m ATR(14) on the MSS candle, and how far that candle closed beyond the swing ($). */
-  atr: number | null;
-  mssBeyond: number | null;
-
-  /* ── Exit ── */
+  /* ── The exit ── */
   /** "YYYY-MM-DDTHH:mm", New York. */
   exitTime: string;
-  exitPrice: number | null;
   exitReason: ExitReason | "";
-  /** The stop was moved before price covered half the way to the target. */
+  /** The stop was moved before price covered the trail distance. */
   earlyStopMove: boolean | null;
   /** When a red release fell inside the trade: was the stop at breakeven or better? */
   releaseAtBe: boolean | null;
-  /** The best and worst prices between entry and exit; R comes from the initial stop. */
-  mfePrice: number | null;
-  maePrice: number | null;
-  /** For early exits: would the target have been hit before the stop by the time stop? */
-  targetBeforeStop: "yes" | "no" | "unknown" | "";
-  /** For target exits: the furthest favourable price until the time stop. */
-  maxFavPrice: number | null;
-  /**
-   * Since 2.0 the excursions are logged in R, no prices needed: how far the trade went
-   * your way (MFE) and against you (MAE, positive), and for a target exit how far it
-   * would have gone by the time stop. Older trades work these out from their prices.
-   */
+  /** How far it went your way (MFE) and against you (MAE, positive), in R. */
   mfeR: number | null;
   maeR: number | null;
+  /** For a target exit: how far it would have run by the time stop, in R. */
   maxFavR: number | null;
+  /** For an early exit: would the target have been hit before the stop by the time stop? */
+  targetBeforeStop: "yes" | "no" | "unknown" | "";
+
+  /* ── Review ── */
+  /** 1 calm … 5 tilted. */
+  emotion: number | null;
+  mistakes: string[];
+  notes: string;
+  /** TradingView snapshot links. */
+  screenshot: string;
   screenshotAfter: string;
+  /** The news on the trade's New York day, copied in — the calendar only keeps a couple of weeks. */
+  news: TradeNews[];
 
   createdAt: string;
   updatedAt: string;
@@ -149,14 +118,6 @@ export const POI_TESTS: { value: PoiTests; label: string }[] = [
   { value: "once", label: "Tested once" },
   { value: "2+", label: "Tested 2+" },
 ];
-export type DeskAgreed = "yes" | "no" | "none";
-/** Did your daily bias match the briefing's? "none" stays only on trades logged with no briefing. */
-export const DESK_AGREED: { value: DeskAgreed; label: string }[] = [
-  { value: "yes", label: "Matched" },
-  { value: "no", label: "Differed" },
-  { value: "none", label: "No briefing" },
-];
-export type EntryType = "market" | "limit";
 export type ExitReason = "target" | "stop" | "breakeven" | "trail" | "time" | "release" | "other";
 export const EXIT_REASONS: { value: ExitReason; label: string }[] = [
   { value: "target", label: "Target" },
@@ -169,43 +130,8 @@ export const EXIT_REASONS: { value: ExitReason; label: string }[] = [
 ];
 export const exitReasonLabel = (r: string) => EXIT_REASONS.find((x) => x.value === r)?.label ?? "";
 
-/** Every rulebook field a trade carries, empty — what an older or blank trade starts with. */
-export const EMPTY_RULEBOOK_FIELDS = {
-  rulebookVersion: null,
-  boxHigh: null,
-  boxLow: null,
-  sweepExtreme: null,
-  sweepDepth: null,
-  took15mSwing: null,
-  htfReasonType: "",
-  htfReasons: [] as HtfReason[],
-  poiTests: "",
-  levelSweep: null,
-  deskAgreed: "",
-  entryType: "",
-  entryPrice: null,
-  stopPrice: null,
-  targetPrice: null,
-  lots: null,
-  riskUsd: null,
-  atr: null,
-  mssBeyond: null,
-  exitTime: "",
-  exitPrice: null,
-  exitReason: "",
-  earlyStopMove: null,
-  releaseAtBe: null,
-  mfePrice: null,
-  maePrice: null,
-  targetBeforeStop: "",
-  maxFavPrice: null,
-  mfeR: null,
-  maeR: null,
-  maxFavR: null,
-  screenshotAfter: "",
-} satisfies Partial<Trade>;
-
-export type TradeInput = Omit<Trade, "id" | "createdAt" | "updatedAt">;
+/** What the form sends; the server derives the rest (R, risk $, flags, what was allowed). */
+export type TradeInput = Omit<Trade, "id" | "createdAt" | "updatedAt" | "resultR" | "riskUsd" | "flags" | "plannedRiskPct">;
 
 /**
  * A rule a trade broke. Saving is never blocked by one; it is recorded, and every
@@ -214,10 +140,10 @@ export type TradeInput = Omit<Trade, "id" | "createdAt" | "updatedAt">;
 export type TradeFlag =
   | "over_risk"
   | "non_traded_grade"
+  | "traded_on_stand_down"
   | "after_daily_stop"
   | "after_weekly_stop"
   | "second_trade_today"
-  | "outside_entry_window"
   | "skip_day"
   | "in_release_window"
   | "held_risk_through_release"
@@ -229,17 +155,17 @@ export type TradeFlag =
 export const FLAG_LABEL: Record<TradeFlag, string> = {
   over_risk: "Risked more than allowed",
   non_traded_grade: "Took a grade that isn't tradable",
+  traded_on_stand_down: "Traded when the check-in said stand down",
   after_daily_stop: "Traded after the daily stop",
   after_weekly_stop: "Traded after the weekly stop",
   second_trade_today: "A second trade the same day",
-  outside_entry_window: "Entered outside the entry window",
   skip_day: "Traded on a skip day",
   in_release_window: "Entered inside a release window",
   held_risk_through_release: "Held through a release without breakeven",
   past_time_stop: "Held past the time stop",
   discretionary_exit: "Closed on a discretionary exit",
-  early_stop_move: "Moved the stop before halfway",
-  during_day_off: "Traded on a day off, or above half risk",
+  early_stop_move: "Moved the stop too early",
+  during_day_off: "Traded on a day off",
 };
 
 export const ALL_FLAGS = Object.keys(FLAG_LABEL) as TradeFlag[];
@@ -261,7 +187,6 @@ export interface TradeNews {
  * against the starting balance, the way FTMO states them.
  */
 export interface Limits {
-  enabled: boolean;
   /** What the prop account was opened with; the firm's lines are measured from here. */
   startBalance: number;
   /**
@@ -269,8 +194,6 @@ export interface Limits {
    * account had already moved before the first trade logged in the desk.
    */
   openingBalance: number;
-  /** The second account, traded at the same % risk but not journaled. */
-  secondAccount: number;
   /** Your hard cap per trade. */
   maxRiskPct: number;
   /** Your daily stop: once the day has lost this much, the desk is closed. */
@@ -281,25 +204,9 @@ export interface Limits {
   dailyLossPct: number;
   /** The prop firm's overall line. */
   maxLossPct: number;
-  /** The challenge's profit targets. */
-  phase1TargetPct: number;
-  phase2TargetPct: number;
+  /** The challenge's profit target for the phase being traded. */
+  targetPct: number;
 }
-
-/** What a missing rulebook falls back to: your rules, and FTMO's standard account. */
-export const DEFAULT_LIMITS: Limits = {
-  enabled: true,
-  startBalance: 200_000,
-  openingBalance: 193_933.27,
-  secondAccount: 100_000,
-  maxRiskPct: 0.5,
-  dailyStopPct: 1,
-  weeklyStopPct: 2,
-  dailyLossPct: 5,
-  maxLossPct: 10,
-  phase1TargetPct: 10,
-  phase2TargetPct: 5,
-};
 
 export const SESSIONS = ["Asia", "London", "New York"];
 
@@ -312,36 +219,23 @@ export const GRADES: Grade[] = ["A+", "A", "B", "C"];
 export const gradeRank = (g: Grade) => GRADES.indexOf(g);
 export const isGrade = (g: unknown): g is Grade => GRADES.includes(g as Grade);
 
-/** Legacy fixed lists, kept only to order and label trades logged before grade factors. */
-export const HTFS = ["1H", "4H", "Daily", "Weekly"];
-export const ENTRY_MODELS = ["BOS", "MSS 1m", "MSS 5m"];
-
-export const MISTAKES = [
-  "FOMO entry",
-  "Late entry",
-  "Moved stop",
-  "Early exit",
-  "Oversized",
-  "Revenge trade",
-  "No setup",
-  "Ignored news",
-];
+/**
+ * What went wrong in how you traded it — the things no rule can see. A broken rule
+ * (risk, the stop, the news, the exit) is flagged by the desk on its own.
+ */
+export const MISTAKES = ["FOMO entry", "Late entry", "Hesitated", "Revenge trade", "Distracted"];
 export const EMOTIONS = ["Calm", "Focused", "Neutral", "Anxious", "Tilted"];
 
 /* ── The rulebook's grading definition ───────────────────────────────── */
 
 /**
- * Who answers a base rule when the desk can know it:
+ * A base rule the desk answers itself, because it knows:
  *  - `daily-budget`: the day's loss budget is left and no trade was taken yet today
  *  - `news`: not a skip day and not inside a release window, at the entry time
- *  - `entry-window`: the entry time is inside the entry window
- *  - `plan`: v1.2 only — a daily plan written on time. Retired in v1.3; an old
- *    snapshot's plan rule now reads as held, so the grades it gave stand.
- * When the data to decide is missing, the rule falls back to a hand tick.
+ * When the data to decide is missing (no calendar for the day), it falls back to a hand tick.
  */
-export type AutoRule = "daily-budget" | "news" | "entry-window" | "plan";
-/** The auto rules a rule can be given today — `plan` is kept only for v1.2 snapshots. */
-export const AUTO_RULES: AutoRule[] = ["daily-budget", "news", "entry-window"];
+export type AutoRule = "daily-budget" | "news";
+export const AUTO_RULES: AutoRule[] = ["daily-budget", "news"];
 
 /**
  * A yes/no condition that must hold for any trade. One unticked base rule caps the
@@ -370,20 +264,10 @@ export interface NumberCut {
   lowerGetsIt: boolean;
 }
 
-/**
- * A factor whose answer the desk fills in:
- *  - `compass`: the frozen Compass value for the trade's weekday and direction
- *  - `displacement`: the MSS close beyond the swing ÷ the 5m ATR(14)
- *  - `bias`: v1.2 only — the bias came from the daily plan. Since v1.3 the bias is
- *    answered by hand, and an old snapshot's `bias` factor is a plain choice.
- */
-export type AutoFactor = "compass" | "displacement" | "bias";
-
 interface FactorBase {
   id: string;
   name: string;
   hint: string;
-  auto?: AutoFactor;
 }
 
 /** A question answered by picking one option. */
@@ -412,11 +296,6 @@ export interface GradeCard {
   riskPct: number;
   traded: boolean;
   description: string;
-  /**
-   * What the Forex Tester backtest risks on this grade — null when the backtest skips
-   * it. Shown in the rulebook only; the desk journals live trades.
-   */
-  backtestRiskPct?: number | null;
 }
 
 /** What a trade is graded against — and what a trade freezes. */
@@ -432,41 +311,19 @@ export interface Definition {
  * `answers` holds an option id for a choice factor and a number for a number factor.
  */
 export interface SetupSnapshot extends Definition {
-  /** On trades graded before the rulebook: the name of what they were graded against. */
-  strategyName?: string;
-  /** On trades graded under the rulebook: its version. */
-  rulebookVersion?: string;
+  /** The base rules that held — ticked by hand, or held by the desk's own check. */
   ticked: string[];
   answers: Record<string, string | number>;
   grade: Grade | null;
 }
 
-/* ── Checklist (the base rules, as the rest of the app reads them) ───── */
-
-export interface ChecklistItem {
-  id: string;
-  label: string;
-  hint?: string;
+/** How many of its base rules a trade held, from its own frozen copy of them. */
+export function rulesHeld(t: Pick<Trade, "setupSnapshot">): { held: number; of: number } | null {
+  const snap = t.setupSnapshot;
+  if (!snap) return null;
+  const ids = new Set(snap.baseRules.map((r) => r.id));
+  return { held: snap.ticked.filter((id) => ids.has(id)).length, of: snap.baseRules.length };
 }
-
-/** The base rules a trade was measured against: its own frozen copy, or none for an ungraded trade. */
-export function checklistOf(trade: { setupSnapshot?: SetupSnapshot | null }): ChecklistItem[] {
-  return (trade.setupSnapshot?.baseRules ?? []).map((r) => ({ id: r.id, label: r.text, hint: r.hint || undefined }));
-}
-
-/** How many base rules the trade was measured against when it was logged. */
-export const totalChecks = (t: Pick<Trade, "checklistTotal">) => t.checklistTotal || 0;
-
-export const checklistComplete = (t: Pick<Trade, "checklist" | "checklistTotal">) =>
-  t.checklist.length >= totalChecks(t);
-
-/**
- * Whether the checklist was captured at all. An imported trade carries no checklist
- * because the broker's file has none — that is missing data, not a skipped check,
- * and counting it as a rule break would slander every trade you didn't type by hand.
- */
-export const checklistRecorded = (t: Pick<Trade, "checklist" | "checklistTotal">) =>
-  t.checklistTotal > 0 || t.checklist.length > 0;
 
 /* ── Weeks ───────────────────────────────────────────────────────────── */
 

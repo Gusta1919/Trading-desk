@@ -1,7 +1,7 @@
 /**
  * Builds the online preview: the real app, with a snapshot of the running desk baked in.
  *
- *   npm start                 the desk, with the data to show (e.g. after `npm run demo:all`)
+ *   npm start                 the desk, with the data to show (e.g. after `npm run demo`)
  *   npm run preview:build     → dist-preview/
  *
  * The page is the normal Vite build. Instead of the local server, scripts/preview/shim.js
@@ -26,54 +26,24 @@ async function get<T>(url: string): Promise<T> {
 }
 
 async function snapshot() {
-  const versions = await get<{ version: string; stored?: boolean }[]>("/rulebook/versions");
-  const versionDocs: Record<string, unknown> = {};
-  for (const v of versions) {
-    // 1.0 and 1.1 exist only as changelog rows; only stored versions can be opened.
-    const res = await fetch(`${API}/rulebook/versions/${encodeURIComponent(v.version)}`);
-    if (res.ok) versionDocs[v.version] = await res.json();
-  }
   return {
     builtDay: amsterdamClock(new Date()).date,
     trades: await get("/trades"),
-    limits: await get("/limits"),
     rulebook: await get("/rulebook"),
-    versions,
-    versionDocs,
-    openItems: await get("/open-items"),
     checkins: await get("/checkins"),
     bias: await get<{ gmail?: unknown }>("/bias").then(({ gmail: _, ...b }) => b),
-    newsRules: await get("/news/rules"),
   };
 }
 
 /*
  * The host's shell styles <body> outside any cascade layer (an off-white ground, the system
- * font, a light colour scheme), and unlayered rules beat the app's own, which Tailwind keeps
- * in `@layer base`. Restated here, unlayered too, from the app's own tokens.
+ * font), and unlayered rules beat the app's own, which Tailwind keeps in `@layer base`.
+ * Restated here, unlayered too, from the app's own tokens. The desk is dark only.
  */
 const HOST_SHELL_FIX = [
-  ":root{color-scheme:light}",
-  '@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark}}',
-  ':root[data-theme="dark"]{color-scheme:dark}',
-  "body{margin:0;background:var(--color-bg);color:var(--color-ink);font:14px/1.625 var(--font-sans)}",
+  ":root{color-scheme:dark}",
+  "body{margin:0;background:var(--color-bg);color:var(--color-ink);font:13px/1.55 var(--font-sans)}",
 ].join("");
-
-/*
- * The desk follows the system's light or dark setting. The host can also set the theme
- * itself (data-theme on the root), so the dark tokens answer to that too: an explicit
- * "light" keeps the light desk on a dark system, an explicit "dark" turns it dark.
- */
-function themeFollowsHost(file: string) {
-  const css = fs.readFileSync(file, "utf8");
-  const dark = css.match(/@media ?\(prefers-color-scheme: ?dark\) ?\{:root\{([^}]*)\}\}/);
-  if (!dark) throw new Error("The dark theme block wasn't found in the built CSS");
-  const next = css.replace(
-    dark[0],
-    `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${dark[1]}}}:root[data-theme="dark"]{${dark[1]}}`,
-  );
-  fs.writeFileSync(file, next);
-}
 
 async function main() {
   let data: Awaited<ReturnType<typeof snapshot>>;
@@ -90,8 +60,6 @@ async function main() {
   const css = [...built.matchAll(/<link rel="stylesheet"[^>]*href="([^"]+)"/g)].map((m) => m[1]);
   const js = [...built.matchAll(/<script type="module"[^>]*src="([^"]+)"/g)].map((m) => m[1]);
   if (!js.length) throw new Error("The build has no entry script");
-
-  for (const href of css) themeFollowsHost(path.join(OUT, href));
 
   // `<` is escaped so no text in the data can close the script tag.
   const json = JSON.stringify(data).replace(/</g, "\\u003c");

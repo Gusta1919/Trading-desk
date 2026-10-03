@@ -91,16 +91,16 @@ export function EquityChart({ points }: { points: EquityPoint[] }) {
               className={t === 0 ? "stroke-faint" : "stroke-line"}
               strokeDasharray={t === 0 ? "3 3" : undefined}
             />
-            <text x={PAD.left - 10} y={y(t)} dy="0.32em" textAnchor="end" className="num fill-faint text-[11px]">
+            <text x={PAD.left - 10} y={y(t)} dy="0.32em" textAnchor="end" className="num fill-faint text-caption">
               {t > 0 ? "+" : ""}
               {t}%
             </text>
           </g>
         ))}
-        <text x={PAD.left} y={H - 6} className="fill-faint text-[11px]">
+        <text x={PAD.left} y={H - 6} className="fill-faint text-caption">
           Trade 1
         </text>
-        <text x={width - PAD.right} y={H - 6} textAnchor="end" className="fill-faint text-[11px]">
+        <text x={width - PAD.right} y={H - 6} textAnchor="end" className="fill-faint text-caption">
           Trade {points.length}
         </text>
 
@@ -157,7 +157,7 @@ export function EquityChart({ points }: { points: EquityPoint[] }) {
 
       {hp && hover != null && (
         <div
-          className="pointer-events-none absolute top-2 z-10 min-w-[150px] rounded-lg border bg-surface px-3 py-2 text-[12px] shadow-md"
+          className="anim-fade pointer-events-none absolute top-2 z-10 min-w-[150px] rounded-lg border bg-raised px-3 py-2 text-small shadow-[var(--shadow-lift)]"
           style={
             x(hover) > width - 190
               ? { right: width - x(hover) + 12 }
@@ -165,7 +165,7 @@ export function EquityChart({ points }: { points: EquityPoint[] }) {
           }
         >
           <div className="mb-1 text-faint">
-            #{hp.n} · {fmtDate(hp.date)} · {hp.symbol}
+            Trade {hp.n} · {fmtDate(hp.date)}
           </div>
           <Row label="Trade" value={fmtPct(hp.pct)} cls={tone(hp.pct)} />
           <Row label="Total" value={fmtPct(hp.cum)} cls="font-semibold" />

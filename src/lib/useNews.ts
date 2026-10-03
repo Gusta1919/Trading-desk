@@ -11,7 +11,6 @@ import { newsApi, type CalendarEvent, type Headline } from "./news";
 import { fromEvent, newsDay, stanceOf } from "./newsRules";
 import { deskDay, deskTime } from "./tz";
 import type { NewsRules } from "./rulebook";
-import { defaultRulebook } from "./rulebookText";
 
 /** The squawk is polled; the calendar barely changes and the server caches it hard. */
 const HEADLINE_POLL_MS = 5 * 60 * 1000;
@@ -20,7 +19,6 @@ const CALENDAR_POLL_MS = 30 * 60 * 1000;
 export interface NewsState {
   events: CalendarEvent[];
   headlines: Headline[];
-  rules: NewsRules;
   calendarError: string | null;
   wireError: string | null;
   stale: boolean;
@@ -33,7 +31,6 @@ export interface NewsState {
 export function useNews(): NewsState {
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [headlines, setHeadlines] = useState<Headline[]>([]);
-  const [rules, setRules] = useState<NewsRules>(() => defaultRulebook().news);
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [wireError, setWireError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
@@ -68,7 +65,6 @@ export function useNews(): NewsState {
   useEffect(() => {
     loadCalendar();
     loadWire();
-    newsApi.rules().then(setRules).catch(() => {});
     const a = window.setInterval(loadWire, HEADLINE_POLL_MS);
     const b = window.setInterval(loadCalendar, CALENDAR_POLL_MS);
     return () => {
@@ -87,7 +83,6 @@ export function useNews(): NewsState {
   return {
     events,
     headlines,
-    rules,
     calendarError,
     wireError,
     stale,

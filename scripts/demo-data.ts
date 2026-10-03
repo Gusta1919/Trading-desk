@@ -1,27 +1,17 @@
 /**
- * Demo history for trying out the Rulebook, the Coach, the Risk lab and Compare.
+ * Demo data, to see the whole desk working before your own trades exist.
  *
- *   npm run demo:add      adds ~13 weeks of GOLD Model trades and check-ins, with a
- *                         few rule breaks for the Coach and the consequences, and the
- *                         two Exit-lab stories below
- *   npm run demo:more     adds only the two Exit-lab stories, before the demo begins
- *   npm run demo:fill     adds 300 trades from a disciplined, profitable trader
- *                         (`npm run demo:fill -- 500 7` for another count and seed)
- *   npm run demo:bias     writes an example Daily Bias briefing for today
- *   npm run demo:all      demo:add and demo:bias together — the whole desk filled in
- *   npm run demo:remove   removes every one of them again (and the demo briefing)
+ *   npm run demo          about 13 weeks of GOLD Model trades and check-ins: a few
+ *                         staged rule breaks (for the consequences and the Coach), B
+ *                         setups logged as not taken, two Exit-lab stories, and an
+ *                         example Daily Bias briefing for today
+ *   npm run demo:remove   removes all of it again — nothing else is touched
  *
- * Trades go through the running app's own API, so percentages, R and every flag are
- * worked out exactly as for real ones.
- *
- * Every demo trade's notes start with "[demo]" and every demo check-in's note is
- * "[demo]" — that tag is how `remove` finds them, and nothing without it is ever
- * touched. Days that already have a real check-in are skipped for those. (Older demo
- * runs also wrote daily plans; `remove` still clears those.)
- *
- * The demo briefing carries `"demo": true`. The desk never counts it as today's, so a
- * real briefing from Gmail still replaces it; any real briefing it covered is kept aside
- * and put back by `remove`.
+ * Trades go through the running desk's own API, so R, risk and every flag are worked
+ * out exactly as for real ones. Every demo trade's notes start with "[demo]" and every
+ * demo check-in's note is "[demo]": that tag is how `remove` finds them. The demo
+ * briefing carries `"demo": true`; a real briefing it covered is kept aside and put
+ * back by `remove`. The history ends on LAST_DAY, so it never lands on a real day.
  */
 import Database from "better-sqlite3";
 import fs from "node:fs";
@@ -29,16 +19,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { QUESTIONS, evaluate } from "../src/lib/checkin";
 import { amsterdamClock } from "../src/lib/dailyBias";
+import { BIAS_OPTION } from "../src/lib/goldModel";
 import { computeGrade } from "../src/lib/grading";
-import type { RulebookVersion } from "../src/lib/rulebook";
-import { BIAS_OPTION } from "../src/lib/rulebookText";
-import { compassFor, sessionAt } from "../src/lib/rules";
+import type { Rulebook, RulebookVersion } from "../src/lib/rulebook";
+import { sessionAt } from "../src/lib/rules";
 import { deskTime } from "../src/lib/tz";
 import {
-  EMPTY_RULEBOOK_FIELDS,
   HTF_TIMEFRAMES,
   htfRank,
-  topHtf,
   type Direction,
   type ExitReason,
   type HtfReason,
@@ -48,17 +36,19 @@ import {
 
 const API = "http://127.0.0.1:3848/api";
 const TAG = "[demo]";
-/**
- * The last demo day: the day before your first real check-in (30 September), so demo
- * check-ins and trades never land on a real day.
- */
+/** The last demo day: the day before the first real check-in (30 September 2026). */
 const LAST_DAY = "2026-09-29";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DB_PATH = path.join(here, "..", "data", "trade-assistant.db");
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}${url}`, { headers: { "Content-Type": "application/json" }, ...init });
+  let res: Response;
+  try {
+    res = await fetch(`${API}${url}`, { headers: { "Content-Type": "application/json" }, ...init });
+  } catch {
+    throw new Error("The desk isn't running. Start it first (npm start), then run this again.");
+  }
   if (!res.ok) throw new Error(`${init?.method ?? "GET"} ${url} → ${res.status} ${await res.text()}`);
   return (res.status === 204 ? undefined : res.json()) as T;
 }
@@ -72,8 +62,8 @@ function rng(seed: number) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-let rand = rng(20261003);
-const pick = <T,>(xs: T[]) => xs[Math.floor(rand() * xs.length)];
+const rand = rng(20261003);
+const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
 const between = (a: number, b: number) => a + rand() * (b - a);
 const chance = (p: number) => rand() < p;
 const round = (x: number, d = 2) => Number(x.toFixed(d));
@@ -99,43 +89,38 @@ function nyInstant(day: string, hhmm: string): string {
   return new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)) - 1, Number(day.slice(8, 10)), h + offset, m)).toISOString();
 }
 
-/* ── One demo trade ──────────────────────────────────────────────────── */
+/* ── One demo setup ──────────────────────────────────────────────────── */
+
+type Aim = "A+" | "A" | "B";
 
 /** How each grade plays out: the chance of a win, and the R of a winner. */
-const PROFILE: Record<string, { win: number; lo: number; hi: number }> = {
+const PROFILE: Record<Aim, { win: number; lo: number; hi: number }> = {
   "A+": { win: 0.5, lo: 1.4, hi: 3.0 },
   A: { win: 0.42, lo: 1.0, hi: 2.4 },
+  B: { win: 0.3, lo: 1.0, hi: 2.2 },
 };
 
-interface Draft {
-  day: string;
-  time: string;
-  grade: "A+" | "A";
-  direction: Direction;
-  balance: number;
-  /** Rule breaks to stage, by field. */
-  breaks?: { exitReason?: ExitReason; earlyStopMove?: boolean; exitTime?: string; riskPct?: number };
-}
-
-/** A setup's answers: the best for A+, one factor short of it for A. */
-function answersFor(grade: "A+" | "A", day: string, direction: Direction, doc: RulebookVersion["doc"]) {
-  const compass = compassFor(doc, day, direction) ?? 65;
+/** A setup's answers: the best for A+, one factor short of it for A, one factor at B for B. */
+function answersFor(aim: Aim) {
   const a: Record<string, string | number> = {
     "htf-tf": "htf-4h-plus",
-    disp: 1.3,
-    fvg: "fvg-yes",
+    disp: round(between(1.05, 2.2)),
     bias: BIAS_OPTION.matches,
-    compass,
+    compass: Math.round(between(61, 82)),
     conviction: "conv-none",
   };
-  if (grade === "A") {
-    // One factor short of A+ — among the factors this rulebook still has.
-    const has = new Set(doc.factors.map((f) => f.id));
-    const short = pick(["htf", "disp", "fvg", "conviction"].filter((id) => has.has(id === "htf" ? "htf-tf" : id)));
+  if (aim === "A") {
+    const short = pick(["htf", "disp", "conviction"] as const);
     if (short === "htf") a["htf-tf"] = "htf-1h";
     if (short === "disp") a.disp = round(between(0.3, 0.95));
-    if (short === "fvg") a.fvg = "fvg-no";
     if (short === "conviction") a.conviction = "conv-lacking";
+  }
+  if (aim === "B") {
+    const short = pick(["bias", "compass", "conviction", "disp"] as const);
+    if (short === "bias") a.bias = BIAS_OPTION.unclear;
+    if (short === "compass") a.compass = Math.round(between(42, 58));
+    if (short === "conviction") a.conviction = "conv-unsure";
+    if (short === "disp") a.disp = round(between(0.1, 0.24));
   }
   return a;
 }
@@ -144,19 +129,19 @@ function answersFor(grade: "A+" | "A", day: string, direction: Direction, doc: R
  * The HTF reasons behind a setup, agreeing with its timeframe answer: the highest one is
  * 1H for a "1H" answer, 4H or above otherwise — sometimes with a lower one beside it.
  */
-function htfFor(answers: Record<string, string | number>): Pick<TradeInput, "htfReasons" | "htfReasonType"> {
+function htfFor(answers: Record<string, string | number>): HtfReason[] {
   const types = ["FVG", "FVG", "OB", "VIMB"] as const;
-  const top = { type: pick([...types]), tf: answers["htf-tf"] === "htf-1h" ? "1H" : pick(["4H", "4H", "D", "W"]) } as HtfReason;
+  const top = { type: pick(types), tf: answers["htf-tf"] === "htf-1h" ? "1H" : pick(["4H", "4H", "D", "W"]) } as HtfReason;
   const lower = HTF_TIMEFRAMES.slice(0, htfRank(top.tf)).map((x) => x.value);
   const reasons: HtfReason[] = [top];
-  if (lower.length && chance(0.35)) reasons.push({ type: pick([...types].filter((t) => t !== top.type)), tf: pick(lower) });
-  return { htfReasons: reasons, htfReasonType: topHtf(reasons)!.type };
+  if (lower.length && chance(0.35)) reasons.push({ type: pick(types.filter((t) => t !== top.type)), tf: pick(lower) });
+  return reasons;
 }
 
-function outcomeR(grade: "A+" | "A", profile = PROFILE) {
-  const p = profile[grade];
+function outcomeR(aim: Aim) {
+  const p = PROFILE[aim];
   const r = rand();
-  if (r < 0.06) return { r: round(between(-0.05, 0.05)), reason: "breakeven" as ExitReason }; // the stop at entry, hit
+  if (r < 0.06) return { r: round(between(-0.05, 0.05)), reason: "breakeven" as ExitReason };
   if (r < 0.06 + p.win) {
     const win = round(between(p.lo, p.hi));
     return { r: win, reason: (win >= 1.8 ? "target" : pick(["target", "trail", "time"])) as ExitReason };
@@ -164,369 +149,246 @@ function outcomeR(grade: "A+" | "A", profile = PROFILE) {
   return { r: round(between(-1.02, -0.97)), reason: "stop" as ExitReason };
 }
 
-function makeTrade(d: Draft, doc: RulebookVersion["doc"], profile = PROFILE): TradeInput {
-  const { day, time, grade, direction } = d;
-  const answers = answersFor(grade, day, direction, doc);
+/** One setup as the form would log it: graded against the rulebook, taken at its grade's risk. */
+function makeSetup(day: string, time: string, aim: Aim, direction: Direction, balance: number, doc: Rulebook): TradeInput {
+  const answers = answersFor(aim);
   const ticked = doc.baseRules.map((r) => r.id);
-  const result = computeGrade(doc, { ticked, answers });
-  const risk = doc.grades.find((g) => g.grade === result.grade)?.riskPct || doc.limits.maxRiskPct;
-  const { r, reason } = outcomeR(grade, profile);
-
-  // What 2.0 logs, no prices: the box and the sweep in $, the R:R, and the excursions in R.
-  const boxSize = round(between(4, 16));
-  const depth = round(between(1.5, 26));
-  // A target exit made exactly its planned R:R; the rest planned something in the rulebook's range.
+  const { grade } = computeGrade(doc, { ticked, answers });
+  const risk = doc.grades.find((g) => g.grade === grade)?.riskPct ?? 0;
+  const { r, reason } = outcomeR(aim);
   const plannedRR = reason === "target" && r > 0 ? round(r) : round(between(1.3, 3.2));
-  const riskUsd = round((d.balance * risk) / 100);
-  const pnl = round((r * risk * d.balance) / 100);
-  const mfeR = Math.max(r, 0) + round(between(0.05, 0.9));
-  const maeR = r < 0 ? 1 : round(between(0.05, 0.8));
   const [h, m] = time.split(":").map(Number);
   const exitMin = Math.min(h * 60 + m + Math.floor(between(20, 170)), 11 * 60 + 55);
+  const notTaken = aim === "B";
 
   return {
-    ...EMPTY_RULEBOOK_FIELDS,
     date: `${day}T${time}`,
     symbol: doc.instrument,
     direction,
     session: sessionAt(time) ?? "London",
-    setup: "",
-    htf: "",
-    entryModel: "",
-    riskPct: risk,
-    plannedRiskPct: risk,
+    riskPct: notTaken ? 0 : risk,
     plannedRR,
-    resultR: null,
-    followedPlan: true,
-    grade: result.grade,
-    emotion: pick([1, 2, 2, 2, 3, 3, 4]),
-    mistakes: [],
-    checklist: ticked,
-    checklistTotal: ticked.length,
-    setupSnapshot: {
-      rulebookVersion: doc.version,
-      baseRules: doc.baseRules,
-      factors: doc.factors,
-      grades: doc.grades,
-      ticked,
-      answers,
-      grade: result.grade,
-    },
-    flags: [],
-    flagNote: "",
-    skipped: false,
-    hypotheticalR: null,
-    costPct: null,
-    boxSize,
-    pnlUsd: pnl,
-    news: [],
-    notes: `${TAG} ${result.grade} setup`,
-    screenshot: "",
+    pnlUsd: notTaken ? null : round((r * risk * balance) / 100),
+    grade: grade ?? "",
+    setupSnapshot: { baseRules: doc.baseRules, factors: doc.factors, grades: doc.grades, ticked, answers, grade },
     rulebookVersion: doc.version,
-    sweepDepth: depth,
+    flagNote: "",
+    skipped: notTaken,
+    hypotheticalR: notTaken ? r : null,
+    boxSize: round(between(4, 16)),
+    sweepDepth: round(between(1.5, 26)),
     took15mSwing: chance(0.55),
-    ...htfFor(answers),
-    poiTests: pick(["fresh", "fresh", "once", "2+"]),
     levelSweep: chance(0.2),
-    deskAgreed: pick(["yes", "yes", "yes", "no"]),
-    entryType: "",
-    riskUsd,
-    exitTime: `${day}T${pad(Math.floor(exitMin / 60))}:${pad(exitMin % 60)}`,
-    exitReason: reason,
-    earlyStopMove: false,
+    htfReasons: htfFor(answers),
+    poiTests: pick(["fresh", "fresh", "once", "2+"] as const),
+    biasMatch: chance(0.75),
+    exitTime: notTaken ? "" : `${day}T${pad(Math.floor(exitMin / 60))}:${pad(exitMin % 60)}`,
+    exitReason: notTaken ? "" : reason,
+    earlyStopMove: notTaken ? null : false,
     releaseAtBe: null,
-    mfeR: round(mfeR),
-    maeR: round(maeR),
+    mfeR: notTaken ? null : round(Math.max(r, 0) + between(0.05, 0.9)),
+    maeR: notTaken ? null : r < 0 ? 1 : round(between(0.05, 0.8)),
+    maxFavR: null,
     targetBeforeStop: "",
+    emotion: pick([1, 2, 2, 2, 3, 3, 4]),
+    mistakes: !notTaken && chance(0.08) ? [pick(["Late entry", "Hesitated", "Distracted"])] : [],
+    notes: notTaken ? `${TAG} ${grade} setup, passed on` : `${TAG} ${grade} setup`,
+    screenshot: "",
     screenshotAfter: "",
+    news: [],
   };
 }
 
 /* ── Check-ins ───────────────────────────────────────────────────────── */
 
-async function writeCheckins(days: string[], fineChance: number) {
+/** A check-in for each day; `clean` days always clear the trader to trade. */
+async function writeCheckins(days: string[], fineChance: number, clean = new Set<string>()) {
   const existing = new Set((await api<{ date: string }[]>("/checkins")).map((c) => c.date));
   for (const day of days) {
     if (existing.has(day)) continue;
     const a: Record<string, number> = {};
     for (const q of QUESTIONS) {
       const fine = q.options.map((o, i) => ({ o, i })).filter(({ o }) => o.risk === 0).map(({ i }) => i);
-      a[q.id] = chance(fineChance) && fine.length ? pick(fine) : Math.floor(rand() * q.options.length);
+      a[q.id] = (clean.has(day) || chance(fineChance)) && fine.length ? pick(fine) : Math.floor(rand() * q.options.length);
     }
     const { score, verdict } = evaluate(a);
     await api(`/checkins/${day}`, { method: "PUT", body: JSON.stringify({ answers: a, note: TAG, score, verdict, reflection: "" }) });
   }
 }
 
-/** A copy of the database before a big write — the same kind the app's own migrations leave. */
-async function snapshot(label: string) {
-  const stamp = new Date().toTimeString().slice(0, 8).replace(/:/g, "");
-  const file = path.join(here, "..", "data", `snapshot-before-${label}-${stamp}.db`);
+/** A copy of the database before the demo writes to it, in data/archive/. */
+async function backup() {
+  const dir = path.join(here, "..", "data", "archive");
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  const file = path.join(dir, `before-demo-${stamp}.db`);
   const db = new Database(DB_PATH, { readonly: true });
   await db.backup(file);
   db.close();
-  return file;
+  return path.relative(path.join(here, ".."), file);
 }
 
 /**
- * Posts a trade the way a disciplined trader would take it: the server judges it
- * against the history and the check-in; a trade the rules would not allow
- * at all is withdrawn, and one sized above what is allowed (a half-risk week) is
- * resized. Staged rule breaks are posted as they are. Returns the $ result kept.
+ * Posts a trade the way a disciplined trader takes it: the server judges it against
+ * the history and the check-in, and a trade the rules would not allow is withdrawn.
+ * Staged rule breaks stay as they are. Returns the $ result kept.
  */
-async function postDisciplined(input: TradeInput, staged: boolean): Promise<number> {
+async function post(input: TradeInput, staged = false): Promise<number> {
   const saved = await api<Trade>("/trades", { method: "POST", body: JSON.stringify(input) });
   if (staged || !saved.flags.length) return input.pnlUsd ?? 0;
-  const allowed = saved.plannedRiskPct ?? 0;
-  const onlySize = saved.flags.every((f) => f === "during_day_off" || f === "over_risk");
-  if (allowed > 0 && onlySize && input.riskPct > allowed) {
-    const k = allowed / input.riskPct;
-    const resized: TradeInput = {
-      ...input,
-      riskPct: allowed,
-      plannedRiskPct: allowed,
-      pnlUsd: round((input.pnlUsd ?? 0) * k),
-      riskUsd: input.riskUsd != null ? round(input.riskUsd * k) : null,
-      lots: input.lots != null ? Math.floor(input.lots * k * 100) / 100 : null,
-    };
-    const again = await api<Trade>(`/trades/${saved.id}`, { method: "PUT", body: JSON.stringify(resized) });
-    if (!again.flags.length) return resized.pnlUsd ?? 0;
-  }
   await api(`/trades/${saved.id}`, { method: "DELETE" });
   return 0;
 }
 
-/** A setup that grades A+ or A on this day, or null — Monday shorts cap at B on the Compass alone. */
-function tradableSetup(
-  day: string,
-  time: string,
-  balance: number,
-  doc: RulebookVersion["doc"],
-  profile = PROFILE,
-  grade?: "A+" | "A",
-) {
-  for (const direction of (chance(0.55) ? ["long", "short"] : ["short", "long"]) as Direction[]) {
-    const input = makeTrade({ day, time, grade: grade ?? (chance(0.38) ? "A+" : "A"), direction, balance }, doc, profile);
-    if (input.grade === "A+" || input.grade === "A") return input;
+/** A setup that grades at the aim on this day, trying both directions; null if none does. */
+function setupAt(day: string, time: string, balance: number, doc: Rulebook, aim: Aim) {
+  for (let tries = 0; tries < 20; tries++) {
+    const t = makeSetup(day, time, aim, chance(0.55) ? "long" : "short", balance, doc);
+    if (t.grade === aim) return t;
   }
   return null;
-}
-
-async function guard() {
-  const trades = await api<Trade[]>("/trades");
-  if (trades.some((t) => t.notes.startsWith(TAG))) {
-    console.log("Demo trades are already in — run `npm run demo:remove` first to start over.");
-    return null;
-  }
-  return api<RulebookVersion>("/rulebook");
-}
-
-/** A setup entered outside the window: its window rule unticked when you tick it yourself. */
-function outsideWindow(t: TradeInput, doc: RulebookVersion["doc"]): TradeInput {
-  if (doc.baseRules.some((r) => r.auto === "entry-window") || !t.setupSnapshot) return t;
-  const ticked = t.checklist.filter((id) => id !== "window");
-  const { grade } = computeGrade(doc, { ticked, answers: t.setupSnapshot.answers });
-  return { ...t, checklist: ticked, grade: grade ?? "", setupSnapshot: { ...t.setupSnapshot, ticked, grade } };
 }
 
 /** An entry time inside the morning window, mostly London. */
 const morning = () => `0${pick([4, 4, 5, 5, 6, 7])}:${pad(Math.floor(between(2, 58)))}`;
 
-/* ── demo:add ────────────────────────────────────────────────────────── */
+/** The fields a staged break changes on an otherwise ordinary trade. */
+function breakFields(kind: "discretionary" | "earlyMove" | "timeStop" | "overRisk", day: string, t: TradeInput): Partial<TradeInput> {
+  const note = { flagNote: pick(["felt sure about it", "wanted to make back yesterday", "the move looked done"]), notes: `${TAG} staged rule break` };
+  switch (kind) {
+    case "discretionary":
+      return { ...note, exitReason: "other", mistakes: ["FOMO entry"] };
+    case "earlyMove":
+      return { ...note, earlyStopMove: true };
+    case "timeStop":
+      return { ...note, exitTime: `${day}T12:25` };
+    case "overRisk":
+      return { ...note, riskPct: 0.75, pnlUsd: round(((t.pnlUsd ?? 0) * 0.75) / (t.riskPct || 1)) };
+  }
+}
+
+/* ── demo ────────────────────────────────────────────────────────────── */
 
 async function add() {
-  const current = await guard();
-  if (!current) return;
+  const trades = await api<Trade[]>("/trades");
+  if (trades.some((t) => t.notes.startsWith(TAG))) {
+    console.log("The demo is already in — run `npm run demo:remove` first to start over.");
+    return;
+  }
+  const { current } = await api<{ current: RulebookVersion }>("/rulebook");
   const doc = current.doc;
-  console.log(`Backed up the database to ${path.basename(await snapshot("demo-add"))}`);
+  console.log(`Backed up the database to ${await backup()}`);
 
-  // Since 2.0 every staged break costs two trading days, so the history runs a little longer.
   const days = weekdays(64);
+  /*
+   * Staged rule breaks, a handful over the weeks — for the consequences and the Coach.
+   * Each costs the rest of its day and the trading day after it.
+   */
+  const staged = new Map<number, "discretionary" | "earlyMove" | "timeStop" | "overRisk" | "window" | "second">([
+    [9, "discretionary"],
+    [16, "window"],
+    [23, "overRisk"],
+    [31, "earlyMove"],
+    [40, "second"],
+    [49, "timeStop"],
+  ]);
+  // Check-ins first, so the trader can respect what each morning allowed. A staged day
+  // starts cleared, so its break is the only flag on it.
+  await writeCheckins(days, 0.9, new Set([...staged.keys()].map((i) => days[i])));
 
   let balance = doc.limits.openingBalance;
-  const before = (await api<Trade[]>("/trades")).length;
-
-  /*
-   * Staged rule breaks, a handful over nine weeks — for the Coach and the consequences.
-   * Never on a Monday: under this rulebook no Monday setup is tradable (the Compass caps
-   * both directions at B), so a staged Monday would simply be passed on.
-   */
-  const notMonday = (i: number) => {
-    while (i < days.length && new Date(`${days[i]}T12:00:00Z`).getUTCDay() === 1) i++;
-    return i;
-  };
-  const [discretionary, windowBreak, overRisk, earlyMove, secondTrade, timeStop] = [9, 14, 18, 24, 30, 36].map(notMonday);
-  const stagedDays = new Set([discretionary, windowBreak, overRisk, earlyMove, secondTrade, timeStop]);
-  // Check-ins first, so the trader can respect what each morning allowed.
-  await writeCheckins(days, 0.88);
-
   for (const [i, day] of days.entries()) {
-    // Most days one setup; some days none.
-    if (chance(0.15) && !stagedDays.has(i)) continue;
-    const breaks =
-      i === discretionary
-        ? { exitReason: "other" as ExitReason }
-        : i === earlyMove
-          ? { earlyStopMove: true }
-          : i === timeStop
-            ? { exitTime: `${day}T12:25` }
-            : i === overRisk
-              ? { riskPct: 0.75 }
-              : undefined;
-    const time = i === windowBreak ? "08:40" : morning(); // one entry in the 08:25–09:30 pause
-    // Staged days take an A+, which even a Caution morning allows — so the break is the only flag.
-    const staged = stagedDays.has(i);
-    const found = tradableSetup(day, time, balance, doc, PROFILE, staged ? "A+" : undefined);
+    const kind = staged.get(i);
+    if (!kind && chance(0.13)) continue; // no setup that day
+    // Now and then the morning's setup is a B: logged, not taken.
+    if (!kind && chance(0.16)) {
+      const b = setupAt(day, morning(), balance, doc, "B");
+      if (b) await post(b);
+      continue;
+    }
+    const aim: Aim = kind || chance(0.38) ? "A+" : "A";
+    const time = kind === "window" ? "08:40" : morning(); // one entry in the 08:25–09:30 pause
+    const found = setupAt(day, time, balance, doc, aim);
     if (!found) continue;
-    // With the window ticked by hand, an entry in the pause leaves that rule unticked: a C.
-    const setup = i === windowBreak ? outsideWindow(found, doc) : found;
-    const input = breaks ? { ...setup, ...breakFields(breaks, day), followedPlan: false } : setup;
-    balance += await postDisciplined(input, staged);
-    // Once: a second trade the same day — the one-trade rule, and two days off after it.
-    if (i === secondTrade) {
-      const second = tradableSetup(day, `${pick(["09", "10"])}:${pad(Math.floor(between(31, 58)))}`, balance, doc, PROFILE, "A+");
-      if (second) balance += await postDisciplined({ ...second, followedPlan: false }, true);
+    let input = found;
+    if (kind === "window") {
+      // Ticked by hand: outside the window, its rule doesn't hold — a C, taken anyway.
+      const ticked = found.setupSnapshot!.ticked.filter((id) => id !== "window");
+      const { grade } = computeGrade(doc, { ticked, answers: found.setupSnapshot!.answers });
+      input = { ...found, grade: grade ?? "", setupSnapshot: { ...found.setupSnapshot!, ticked, grade }, flagNote: "it looked too good to wait", notes: `${TAG} staged rule break` };
+    } else if (kind && kind !== "second") {
+      input = { ...found, ...breakFields(kind, day, found) };
+    }
+    balance += await post(input, !!kind);
+    // Once: a second trade the same day — the one-trade rule.
+    if (kind === "second") {
+      const second = setupAt(day, `${pick(["09", "10"])}:${pad(Math.floor(between(31, 58)))}`, balance, doc, "A+");
+      if (second) balance += await post({ ...second, flagNote: "a cleaner setup came", notes: `${TAG} staged rule break` }, true);
     }
   }
-  await exitStories(doc);
-  const n = (await api<Trade[]>("/trades")).length - before;
-  console.log(`Added ${n} demo trades over ${days.length} trading days on rulebook v${doc.version}, with check-ins.`);
+  await exitStories(doc, days[0]);
+  const all = (await api<Trade[]>("/trades")).filter((t) => t.notes.startsWith(TAG));
+  const notTaken = all.filter((t) => t.skipped).length;
+  console.log(`Added ${all.length - notTaken} demo trades and ${notTaken} setups not taken over ${days.length} trading days, with check-ins.`);
 }
 
 /* ── Two Exit-lab stories ────────────────────────────────────────────── */
 
 /**
- * Two hand-made trades whose MFE tells a story the Exit lab can show — dated on the
- * two weekdays before the first demo trade, so nothing after them changes day:
+ * Two hand-made trades whose excursions tell a story the Exit lab can show, on the
+ * two weekdays before the first demo day:
  *  - an A+ long stopped out for −1R after running +1.4R first: breakeven at 1R would
  *    have saved it;
- *  - an A short that hit its 2.1R target while price ran on to 3.6R: a bigger target
- *    would have paid.
- * Together with the regular demo they also bring the MFE count up past the Exit lab's
- * minimum, so its table opens.
+ *  - an A short that hit its 2.1R target while price ran on to 3.6R.
  */
-async function exitStories(doc: RulebookVersion["doc"]) {
-  const trades = await api<Trade[]>("/trades");
-  if (trades.some((t) => t.notes.startsWith(`${TAG} exit story`))) {
-    console.log("The two Exit-lab stories are already in.");
-    return 0;
-  }
-  const first = trades.filter((t) => t.notes.startsWith(TAG)).map((t) => t.date.slice(0, 10)).sort()[0] ?? LAST_DAY;
-  // The two weekdays before the first demo day, skipping Mondays (no setup is tradable then).
+async function exitStories(doc: Rulebook, first: string) {
   const days: string[] = [];
   for (const d = new Date(`${first}T12:00:00Z`); days.length < 2; ) {
     d.setUTCDate(d.getUTCDate() - 1);
     const wd = d.getUTCDay();
-    if (wd !== 0 && wd !== 6 && wd !== 1) days.unshift(d.toISOString().slice(0, 10));
+    if (wd !== 0 && wd !== 6) days.unshift(d.toISOString().slice(0, 10));
   }
-  // A clean morning on both days, so each A+ and A is tradable.
+  // A clean morning on both days.
   await writeCheckins(days, 1);
-
   const balance = doc.limits.openingBalance;
-  const story = (day: string, time: string, direction: Direction, grade: "A+" | "A") => {
+  const story = (day: string, time: string, aim: "A+" | "A", direction: Direction) => {
     for (let tries = 0; tries < 50; tries++) {
-      const t = makeTrade({ day, time, grade, direction, balance }, doc);
-      if (t.grade === grade) return t;
+      const t = makeSetup(day, time, aim, direction, balance, doc);
+      if (t.grade === aim) return t;
     }
-    throw new Error(`No ${grade} ${direction} setup on ${day}`);
+    throw new Error(`No ${aim} ${direction} setup on ${day}`);
   };
 
-  // 1. Ran +1.4R, came all the way back, stopped out.
-  const a = story(days[0], "05:12", "long", "A+");
-  const lossA: TradeInput = {
-    ...a,
-    exitReason: "stop",
-    exitTime: `${days[0]}T08:47`,
-    pnlUsd: round((-1 * a.riskPct * balance) / 100),
-    mfeR: 1.4,
-    maeR: 1,
-    plannedRR: 2.4,
-    notes: `${TAG} exit story · ran +1.4R before the stop — breakeven at 1R would have saved it`,
-  };
-
-  // 2. Hit the target at 2.1R; price kept going to 3.6R.
-  const b = story(days[1], "04:38", "short", "A");
-  const winB: TradeInput = {
-    ...b,
-    plannedRR: 2.1,
-    exitReason: "target",
-    exitTime: `${days[1]}T07:16`,
-    pnlUsd: round((2.1 * b.riskPct * balance) / 100),
-    mfeR: 2.1,
-    maeR: 0.3,
-    maxFavR: 3.6,
-    notes: `${TAG} exit story · target at 2.1R, price ran on to 3.6R`,
-  };
-
-  let n = 0;
-  for (const t of [lossA, winB]) {
-    const saved = await api<Trade>("/trades", { method: "POST", body: JSON.stringify(t) });
-    console.log(`  ${saved.date} ${saved.direction} ${saved.grade} → ${saved.resultR?.toFixed(2)}R${saved.flags.length ? ` · flags: ${saved.flags.join(", ")}` : ""}`);
-    n++;
+  const a = story(days[0], "05:12", "A+", "long");
+  const b = story(days[1], "04:38", "A", "short");
+  for (const t of [
+    {
+      ...a,
+      exitReason: "stop" as const,
+      exitTime: `${days[0]}T08:47`,
+      pnlUsd: round((-1 * a.riskPct * balance) / 100),
+      mfeR: 1.4,
+      maeR: 1,
+      plannedRR: 2.4,
+      notes: `${TAG} exit story · ran +1.4R before the stop — breakeven at 1R would have saved it`,
+    },
+    {
+      ...b,
+      plannedRR: 2.1,
+      exitReason: "target" as const,
+      exitTime: `${days[1]}T07:16`,
+      pnlUsd: round((2.1 * b.riskPct * balance) / 100),
+      mfeR: 2.1,
+      maeR: 0.3,
+      maxFavR: 3.6,
+      notes: `${TAG} exit story · target at 2.1R, price ran on to 3.6R`,
+    },
+  ]) {
+    await post(t, true);
   }
-  return n;
 }
 
-async function more() {
-  const current = await api<RulebookVersion>("/rulebook");
-  console.log(`Backed up the database to ${path.basename(await snapshot("demo-more"))}`);
-  const n = await exitStories(current.doc);
-  if (n) console.log(`Added ${n} Exit-lab demo trades on rulebook v${current.doc.version}.`);
-}
-
-/** The fields a staged break changes on an otherwise ordinary trade. */
-function breakFields(b: NonNullable<Draft["breaks"]>, day: string): Partial<TradeInput> {
-  return {
-    ...(b.exitReason ? { exitReason: b.exitReason, mistakes: ["Early exit"] } : {}),
-    ...(b.earlyStopMove ? { earlyStopMove: true, mistakes: ["Moved stop"] } : {}),
-    ...(b.exitTime ? { exitTime: b.exitTime } : {}),
-    ...(b.riskPct ? { riskPct: b.riskPct, plannedRiskPct: b.riskPct, mistakes: ["Oversized"] } : {}),
-    flagNote: pick(["felt sure about it", "wanted to make back yesterday", "the move looked done"]),
-    notes: `${TAG} staged rule break · ${day}`,
-  };
-}
-
-/* ── demo:fill ───────────────────────────────────────────────────────── */
-
-/**
- * `count` trades from a disciplined, profitable trader: one trade a day at most,
- * no rule broken — about a 45% win rate with winners near 1.8R.
- */
-const PROFITABLE: Record<string, { win: number; lo: number; hi: number }> = {
-  "A+": { win: 0.48, lo: 1.4, hi: 2.9 },
-  A: { win: 0.44, lo: 1.1, hi: 2.3 },
-};
-
-async function fill(count: number, seed?: number) {
-  if (seed) rand = rng(seed);
-  const current = await guard();
-  if (!current) return;
-  const doc = current.doc;
-  console.log(`Backed up the database to ${path.basename(await snapshot("demo-fill"))}`);
-
-  // Enough weekdays for `count` trades at ~85% of days.
-  const days = weekdays(Math.ceil(count / 0.8) + 5);
-  await writeCheckins(days, 0.92);
-  let balance = doc.limits.openingBalance;
-  let n = 0;
-  for (const day of days) {
-    if (n >= count) break;
-    if (chance(0.15)) continue; // no setup that day
-    const setup = tradableSetup(day, morning(), balance, doc, PROFITABLE);
-    if (!setup) continue;
-    const kept = await postDisciplined(setup, false);
-    if (kept === 0 && setup.pnlUsd !== 0) continue; // withdrawn: the rules would not have allowed it
-    balance += kept;
-    n++;
-    if (n % 100 === 0) console.log(`  ${n} trades…`);
-  }
-  console.log(
-    `Added ${n} demo trades up to ${LAST_DAY}. ` +
-      `Balance $${Math.round(doc.limits.openingBalance).toLocaleString()} → $${Math.round(balance).toLocaleString()}.`,
-  );
-}
-
-/* ── demo:bias ───────────────────────────────────────────────────────── */
+/* ── The briefing ───────────────────────────────────────────────────────── */
 
 const BIAS_FILE = path.join(here, "..", "data", "daily-bias.json");
 const BIAS_KEPT = path.join(here, "..", "data", "daily-bias.before-demo.json");
@@ -543,7 +405,7 @@ const isDemoBriefing = (file: string) => {
 async function liveSpot(): Promise<number | null> {
   try {
     const { candles } = await api<{ candles: { c: number }[] }>("/candles?tf=15m");
-    return candles.at(-1)?.c ?? null;
+    return candles[candles.length - 1]?.c ?? null;
   } catch {
     return null;
   }
@@ -567,7 +429,7 @@ function demoBriefing(day: string, spot: number) {
     "",
     `**TL;DR:** Bullish lean (55%). Buy a London sweep of the Asia low into the 4H FVG at ${at(-14)}–${at(-9)}; first target the PDH at ${at(18)}. Stand aside 15 minutes either side of US PCE at 08:30 NY.`,
     "",
-    "This is a demo briefing written by `npm run demo:bias`. The analysts are invented; nothing here is a real view.",
+    "This is a demo briefing written by `npm run demo`. The analysts are invented; nothing here is a real view.",
   ].join("\n");
 
   return {
@@ -721,14 +583,13 @@ async function bias() {
 async function remove() {
   const trades = await api<Trade[]>("/trades");
   const demo = trades.filter((t) => t.notes.startsWith(TAG));
-  // Check-ins (and plans from older demo runs) have no delete route; remove only the tagged ones, straight from the file.
-  const db = new Database(DB_PATH);
-  const checkins = db.prepare("DELETE FROM checkins WHERE note = ?").run(TAG).changes;
-  const plans = db.prepare("DELETE FROM plans WHERE notes = ?").run(TAG).changes;
-  db.close();
   // Through the API, so the balance and every later trade's % and flags are recalculated.
   for (const t of demo) await api(`/trades/${t.id}`, { method: "DELETE" });
-  console.log(`Removed ${demo.length} demo trades, ${checkins} demo check-ins and ${plans} demo plans.`);
+  // Check-ins have no delete route; only the tagged ones go, straight from the file.
+  const db = new Database(DB_PATH);
+  const checkins = db.prepare("DELETE FROM checkins WHERE note = ?").run(TAG).changes;
+  db.close();
+  console.log(`Removed ${demo.length} demo trades and setups, and ${checkins} demo check-ins.`);
 
   // The demo briefing goes; a real one it covered comes back. A real briefing that has
   // since replaced the demo stays where it is.
@@ -742,20 +603,7 @@ async function remove() {
 }
 
 const mode = process.argv[2];
-const run =
-  mode === "remove"
-    ? remove()
-    : mode === "add"
-      ? add()
-      : mode === "more"
-        ? more()
-      : mode === "fill"
-        ? fill(Number(process.argv[3]) || 300, Number(process.argv[4]) || undefined)
-      : mode === "bias"
-        ? bias()
-      : mode === "all"
-        ? add().then(bias)
-        : Promise.reject(new Error("Use: add | more | fill [count] [seed] | bias | all | remove"));
+const run = mode === "remove" ? remove() : mode === "add" ? add().then(bias) : Promise.reject(new Error("Use: add | remove"));
 run.catch((e) => {
   console.error(e.message);
   process.exit(1);

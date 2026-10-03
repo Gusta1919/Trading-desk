@@ -36,7 +36,7 @@ import {
 } from "@/lib/newsRules";
 import type { NewsRules, TimeWindow } from "@/lib/rulebook";
 import { DESK_LABEL, deskDateLabel, deskDay, deskStamp, deskTime } from "@/lib/tz";
-import { Chips, cx, stagger } from "./ui";
+import { Button, Chips, Empty, PageHeader, cx, stagger } from "./ui";
 
 /** Everything is shown on the desk's clock, whatever timezone the feed used. */
 const time = (iso: string) => deskTime(iso);
@@ -57,33 +57,24 @@ const ago = (iso: string | null) => {
   return hours < 24 ? `${hours}h ago` : `${Math.round(hours / 24)}d ago`;
 };
 
-export function NewsView({ news, entryWindows = [] }: { news: NewsState; entryWindows?: TimeWindow[] }) {
+/**
+ * The news, the way a day trader reads it: today first, on New York time — when the day
+ * will move, what already printed — then the rest of the week, with the days the rulebook
+ * closes marked. The raw wire underneath.
+ */
+export function NewsView({ news, rules, entryWindows }: { news: NewsState; rules: NewsRules; entryWindows: TimeWindow[] }) {
   return (
-    <div className="w-full space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 className="text-[15px] font-semibold">News</h2>
-          <p className="text-[12px] text-faint">
-            Today first, on {DESK_LABEL} time — when the day will move, what already
-            printed, then the rest of the week. The raw wire underneath.
-          </p>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={news.refresh}
-            disabled={news.loadingCalendar || news.loadingWire}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink disabled:opacity-50"
-          >
-            <RefreshCw
-              size={13}
-              className={news.loadingWire ? "animate-spin" : undefined}
-            />{" "}
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      <Calendar news={news} entryWindows={entryWindows} />
+    <div className="w-full space-y-6">
+      <PageHeader
+        title="News"
+        sub={`Today first, on ${DESK_LABEL} time — when the day will move, what already printed, then the rest of the week. Only red releases count for the rules.`}
+        actions={
+          <Button variant="ghost" size="sm" onClick={news.refresh} disabled={news.loadingCalendar || news.loadingWire}>
+            <RefreshCw size={13} className={news.loadingWire ? "animate-spin" : undefined} /> Refresh
+          </Button>
+        }
+      />
+      <Calendar news={news} rules={rules} entryWindows={entryWindows} />
       <Wire news={news} />
     </div>
   );
@@ -105,7 +96,7 @@ function useNow(everyMs = 30_000) {
  * Built for a day trader: today on top, answering "when will it move?", and the
  * rest of the week folded away underneath.
  */
-function Calendar({ news, entryWindows }: { news: NewsState; entryWindows: TimeWindow[] }) {
+function Calendar({ news, rules, entryWindows }: { news: NewsState; rules: NewsRules; entryWindows: TimeWindow[] }) {
   const [filters, setFilters] = useState<CalendarFilters>(loadFilters);
   /* Closed by default: the map and the day are what you come for, not the knobs. */
   const [filtersOpen, setFiltersOpen] = useState(loadFiltersOpen);
@@ -126,12 +117,12 @@ function Calendar({ news, entryWindows }: { news: NewsState; entryWindows: TimeW
   /* What the rulebook makes of today — judged on every release, not only the ones the filters show. */
   const todayRules = useMemo(() => {
     const today = deskDay(new Date(now));
-    return newsDay(today, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === today).map(fromEvent), news.rules);
-  }, [news.events, news.rules, now]);
+    return newsDay(today, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === today).map(fromEvent), rules);
+  }, [news.events, rules, now]);
   const windows = useMemo(() => volatilityWindows(split.today), [split.today]);
   /** Why the rulebook closes a day, judged on every release that day, not only the ones shown. */
   const skipOf = (day: string) =>
-    newsDay(day, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === day).map(fromEvent), news.rules).skip;
+    newsDay(day, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === day).map(fromEvent), rules).skip;
   const upcoming = split.today.filter((e) => Date.parse(e.at!) >= now);
   const done = split.today.filter((e) => Date.parse(e.at!) < now);
 
@@ -151,13 +142,13 @@ function Calendar({ news, entryWindows }: { news: NewsState; entryWindows: TimeW
   );
 
   return (
-    <section className="card overflow-hidden">
-      <header className="flex items-baseline justify-between border-b px-5 py-3.5">
-        <h3 className="flex items-center gap-2.5 text-[14px] font-semibold">
+    <section className="card anim-rise overflow-hidden" style={stagger(1, 70)}>
+      <header className="flex items-baseline justify-between border-b px-6 py-4">
+        <h3 className="flex items-center gap-2.5 text-title font-semibold">
           Today · {deskDateLabel(new Date(now))}
           {todayRules.skip.length > 0 && <SkipBadge reasons={todayRules.skip} />}
         </h3>
-        <div className="flex items-center gap-3 text-[11px] text-faint">
+        <div className="flex items-center gap-3 text-caption text-faint">
           <span>
             {loading ? (
               "loading"
@@ -172,7 +163,7 @@ function Calendar({ news, entryWindows }: { news: NewsState; entryWindows: TimeW
             onClick={() => setFiltersOpen((v) => !v)}
             aria-expanded={filtersOpen}
             className={cx(
-              "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] transition-colors duration-200",
+              "flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-small transition-colors duration-200",
               filtersOpen ? "border-soft text-ink" : "text-soft hover:text-ink",
             )}
           >
@@ -208,7 +199,7 @@ function Calendar({ news, entryWindows }: { news: NewsState; entryWindows: TimeW
             <div className="min-w-0 xl:border-l">
               <Section title="Still to come today" count={upcoming.length}>
                 {upcoming.length ? (
-                  upcoming.map((e, i) => <Row key={e.id} event={e} now={now} index={i} countdown rules={news.rules} />)
+                  upcoming.map((e, i) => <Row key={e.id} event={e} now={now} index={i} countdown rules={rules} />)
                 ) : (
                   <Quiet>Nothing left today with these filters.</Quiet>
                 )}
@@ -217,7 +208,7 @@ function Calendar({ news, entryWindows }: { news: NewsState; entryWindows: TimeW
               {!filters.hidePast && done.length > 0 && (
                 <Section title="Already happened today" count={done.length}>
                   {done.map((e, i) => (
-                    <Row key={e.id} event={e} now={now} index={upcoming.length + i} rules={news.rules} />
+                    <Row key={e.id} event={e} now={now} index={upcoming.length + i} rules={rules} />
                   ))}
                 </Section>
               )}
@@ -230,12 +221,12 @@ function Calendar({ news, entryWindows }: { news: NewsState; entryWindows: TimeW
                   events={d.events}
                   now={now}
                   index={i}
-                  rules={news.rules}
+                  rules={rules}
                   skip={skipOf(d.day)}
                 />
               ))}
               {split.undated.length > 0 && (
-                <DaySection label="No set time" events={split.undated} now={now} index={split.later.length} rules={news.rules} skip={[]} />
+                <DaySection label="No set time" events={split.undated} now={now} index={split.later.length} rules={rules} skip={[]} />
               )}
             </div>
           </div>
@@ -293,7 +284,7 @@ function FilterBar({
                   })
                 }
                 className={cx(
-                  "flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] transition-[color,opacity,border-color] duration-200 active:scale-[0.97]",
+                  "flex items-center gap-1.5 rounded-full border px-3 py-1 text-small transition-[color,opacity,border-color] duration-200 active:scale-[0.97]",
                   on ? "border-soft text-ink" : "text-faint opacity-55 hover:opacity-100",
                 )}
               >
@@ -351,7 +342,7 @@ function FilterBar({
         />
       </FilterRow>
 
-      <div className="flex items-center gap-4 pt-0.5 text-[11px] text-faint">
+      <div className="flex items-center gap-4 pt-0.5 text-caption text-faint">
         <button onClick={() => onChange(DEFAULT_FILTERS)} className="hover:text-ink">
           reset filters
         </button>
@@ -370,7 +361,7 @@ const FilterRow = ({
   children: React.ReactNode;
 }) => (
   <div className="flex items-start gap-3">
-    <span className="w-16 shrink-0 pt-1.5 text-[11px] uppercase tracking-[0.08em] text-faint">
+    <span className="w-16 shrink-0 pt-1.5 eyebrow">
       {label}
     </span>
     <div className="min-w-0 flex-1">{children}</div>
@@ -379,7 +370,7 @@ const FilterRow = ({
 );
 
 const QuickPicks = ({ picks }: { picks: [string, () => void][] }) => (
-  <div className="flex shrink-0 gap-2 pt-1.5 text-[11px] text-faint">
+  <div className="flex shrink-0 gap-2 pt-1.5 text-caption text-faint">
     {picks.map(([label, onClick]) => (
       <button key={label} onClick={onClick} className="hover:text-ink">
         {label}
@@ -405,7 +396,7 @@ function SkipBadge({ reasons }: { reasons: string[] }) {
   return (
     <span
       title={`No trading at all: ${reasons.join(", ")}`}
-      className="anim-fade inline-flex min-w-0 items-center gap-1.5 rounded-full bg-down/12 px-2.5 py-0.5 text-[11.5px] font-semibold text-down"
+      className="anim-fade inline-flex min-w-0 items-center gap-1.5 rounded-full bg-down/12 px-2.5 py-0.5 text-caption font-semibold text-down"
     >
       <Ban size={11} className="shrink-0" />
       No trading
@@ -451,7 +442,7 @@ function DayMap({
 
   return (
     <div className="border-b px-5 pb-3 pt-4">
-      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[11px] text-faint">
+      <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-caption text-faint">
         <span className="font-medium uppercase tracking-[0.08em]">Volatility map</span>
         {/* The key, so every mark on the strip reads without a hover. */}
         <span className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
@@ -525,7 +516,7 @@ function DayMap({
         ))}
         {rules.skip.length > 0 && (
           <div className="absolute inset-0 flex items-center justify-center bg-down/[0.07]">
-            <span className="flex items-center gap-1.5 rounded-full bg-raised/80 px-3 py-1 text-[11px] font-semibold text-down backdrop-blur-sm">
+            <span className="flex items-center gap-1.5 rounded-full bg-raised/80 px-3 py-1 text-caption font-semibold text-down backdrop-blur-sm">
               <Ban size={12} /> No trading today · {rules.skip[0]}
             </span>
           </div>
@@ -559,7 +550,7 @@ function DayMap({
       </div>
 
       {/* The hours — and "now" as a tag under its line, clear of the session names. */}
-      <div className="num relative mt-1.5 h-5 text-[10px] text-faint">
+      <div className="num relative mt-1.5 h-5 text-micro text-faint">
         {TICKS.map((h) => (
           <span
             key={h}
@@ -570,7 +561,7 @@ function DayMap({
           </span>
         ))}
         <span
-          className="absolute top-0 -translate-x-1/2 rounded-full bg-ink px-1.5 py-px text-[10px] font-semibold text-bg"
+          className="absolute top-0 -translate-x-1/2 rounded-full bg-ink px-1.5 py-px text-micro font-semibold text-bg"
           style={{ left: `clamp(1.5rem, ${pct(nowMin)}, calc(100% - 1.5rem))` }}
         >
           {deskTime(new Date(now))}
@@ -598,34 +589,34 @@ function NextUp({
       {nextRed ? (
         <div className="anim-rise relative overflow-hidden rounded-xl border border-down/25 bg-down/[0.06] px-4 py-3">
           <div className="flex items-baseline justify-between gap-3">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-down">Next red</span>
-            <span className="num text-[15px] font-semibold text-down">{untilLabel(Date.parse(nextRed.at!) - now)}</span>
+            <span className="text-micro font-semibold uppercase tracking-[0.14em] text-down">Next red</span>
+            <span className="num text-title font-semibold text-down">{untilLabel(Date.parse(nextRed.at!) - now)}</span>
           </div>
-          <p className="mt-1 text-[14px] font-medium leading-snug text-ink">
+          <p className="mt-1 text-title font-medium leading-snug text-ink">
             <span className="num mr-1.5 text-soft">{nextRed.currency}</span>
             {nextRed.title}
           </p>
-          <p className="num mt-0.5 text-[12px] text-soft">
+          <p className="num mt-0.5 text-small text-soft">
             {deskDay(new Date(nextRed.at!)) === deskDay(new Date(now))
               ? `Today ${time(nextRed.at!)}`
               : `${dayLabel(nextRed.at!, new Date(now))} ${time(nextRed.at!)}`}
           </p>
         </div>
       ) : (
-        <p className="text-[12px] text-soft">No more red releases in the feed.</p>
+        <p className="text-small text-soft">No more red releases in the feed.</p>
       )}
 
       <div>
-        <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-faint">Volatile windows today</div>
+        <div className="mb-1.5 eyebrow">Volatile windows today</div>
         {windows.length === 0 ? (
-          <p className="text-[12px] text-soft">No red or orange releases today with these filters.</p>
+          <p className="text-small text-soft">No red or orange releases today with these filters.</p>
         ) : (
           windows.map((w, wi) => {
             const phase = windowPhase(w, now);
             return (
               <div
                 key={w.start}
-                className={cx("anim-rise flex items-center gap-3 rounded-lg px-2 py-1.5 text-[12px]", phase === "live" && "bg-down/10", phase === "done" && "opacity-45")}
+                className={cx("anim-rise flex items-center gap-3 rounded-lg px-2 py-1.5 text-small", phase === "live" && "bg-down/10", phase === "done" && "opacity-45")}
                 style={stagger(wi, 70)}
               >
                 <span className="num w-[88px] shrink-0 text-ink">
@@ -653,7 +644,7 @@ function ImpactCounts({ events, impacts }: { events: CalendarEvent[]; impacts: I
       {impacts.map((i) => {
         const n = events.filter((e) => e.impact === i).length;
         return n > 0 ? (
-          <span key={i} className="num flex items-center gap-1 text-[11px] text-soft">
+          <span key={i} className="num flex items-center gap-1 text-caption text-soft">
             <span
               className="size-2 rounded-full"
               style={{ backgroundColor: impactColour(i), boxShadow: i === "High" ? `0 0 6px ${impactColour(i)}` : undefined }}
@@ -678,7 +669,7 @@ const Section = ({
   children: React.ReactNode;
 }) => (
   <div>
-    <div className="flex justify-between border-b bg-subtle px-5 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-faint">
+    <div className="flex justify-between border-b bg-subtle px-5 py-2 eyebrow">
       <span>{title}</span>
       <span className="num">{count}</span>
     </div>
@@ -687,7 +678,7 @@ const Section = ({
 );
 
 const Quiet = ({ children }: { children: React.ReactNode }) => (
-  <p className="border-b px-5 py-4 text-[12px] text-soft">{children}</p>
+  <p className="border-b px-5 py-4 text-small text-soft">{children}</p>
 );
 
 /** "Tomorrow · Thursday 1 Oct", or just the date further out. */
@@ -726,11 +717,11 @@ function DaySection({
           skip.length ? "bg-down/[0.08]" : "bg-subtle",
         )}
       >
-        <span className="text-[12.5px] font-semibold text-ink">{label}</span>
+        <span className="text-small font-semibold text-ink">{label}</span>
         {skip.length > 0 && <SkipBadge reasons={skip} />}
         <ImpactCounts events={events} impacts={["High", "Medium", "Low", "Holiday"]} />
         {busiest && (
-          <span className="num ml-auto text-[11px] text-faint">
+          <span className="num ml-auto text-caption text-faint">
             busiest {deskTime(new Date(busiest.start))}
             {busiest.end > busiest.start && `–${deskTime(new Date(busiest.end))}`}
           </span>
@@ -771,7 +762,7 @@ function Row({
         title={[IMPACTS.find((i) => i.id === e.impact)?.hint, cat && categoryLabel(cat)].filter(Boolean).join(" · ")}
         className={cx("flex items-center gap-3 px-5 py-2.5 transition-colors duration-300 hover:bg-raised", past && "opacity-45")}
       >
-        <span className="num w-11 shrink-0 text-[12px] text-soft">{e.at ? time(e.at) : "—"}</span>
+        <span className="num w-11 shrink-0 text-small text-soft">{e.at ? time(e.at) : "—"}</span>
         <span
           className="size-2 shrink-0 rounded-full"
           style={{
@@ -779,21 +770,21 @@ function Row({
             boxShadow: e.impact === "High" ? `0 0 8px ${impactColour(e.impact)}` : undefined,
           }}
         />
-        <span className="num w-9 shrink-0 text-[12px] font-medium text-ink">{e.currency}</span>
+        <span className="num w-9 shrink-0 text-small font-medium text-ink">{e.currency}</span>
         <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate text-[13px] text-ink">{e.title}</span>
+          <span className="truncate text-body text-ink">{e.title}</span>
           {stance === "skip" && (
-            <span className="shrink-0 rounded-full bg-down/12 px-2 py-0.5 text-[10.5px] font-semibold text-down" title="The rulebook skips this day">
+            <span className="shrink-0 rounded-full bg-down/12 px-2 py-0.5 text-micro font-semibold text-down" title="The rulebook skips this day">
               No trading
             </span>
           )}
           {stance === "window" && at != null && (
-            <span className="num shrink-0 rounded-full bg-warn/12 px-2 py-0.5 text-[10.5px] font-medium text-warn" title="No new entries in this window">
+            <span className="num shrink-0 rounded-full bg-warn/12 px-2 py-0.5 text-micro font-medium text-warn" title="No new entries in this window">
               no entries {deskTime(new Date(at - rules.beforeMin * 60_000))}–{deskTime(new Date(at + rules.afterMin * 60_000))}
             </span>
           )}
         </span>
-        <span className="num hidden w-[76px] shrink-0 text-right text-[11.5px] sm:block">
+        <span className="num hidden w-[76px] shrink-0 text-right text-caption sm:block">
           {e.forecast && (
             <>
               <span className="text-faint">f/c </span>
@@ -801,7 +792,7 @@ function Row({
             </>
           )}
         </span>
-        <span className="num hidden w-[84px] shrink-0 text-right text-[11.5px] sm:block">
+        <span className="num hidden w-[84px] shrink-0 text-right text-caption sm:block">
           {e.previous && (
             <>
               <span className="text-faint">prev </span>
@@ -810,7 +801,7 @@ function Row({
           )}
         </span>
         {countdown && at != null && (
-          <span className="num w-[62px] shrink-0 text-right text-[11px] font-medium text-soft">{untilLabel(at - now)}</span>
+          <span className="num w-[62px] shrink-0 text-right text-caption font-medium text-soft">{untilLabel(at - now)}</span>
         )}
       </div>
     </div>
@@ -830,8 +821,8 @@ function Wire({ news }: { news: NewsState }) {
   return (
     <section className="card flex flex-col overflow-hidden">
       <header className="flex items-baseline justify-between border-b px-5 py-3.5">
-        <h3 className="text-[14px] font-semibold">Wire</h3>
-        <div className="flex items-center gap-3 text-[11px] text-faint">
+        <h3 className="text-title font-semibold">Wire</h3>
+        <div className="flex items-center gap-3 text-caption text-faint">
           <button
             onClick={() => setShowAll((v) => !v)}
             title={showAll ? "Only what matters" : "Include routine prints and broker notes"}
@@ -867,7 +858,7 @@ function Wire({ news }: { news: NewsState }) {
             return (
               <div key={h.id}>
                 {newDay && (
-                  <div className="glass sticky top-0 z-10 border-b px-5 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-faint">
+                  <div className="glass sticky top-0 z-10 border-b px-5 py-2 eyebrow">
                     {h.at ? wireDayLabel(h.at) : "Undated"}
                   </div>
                 )}
@@ -902,10 +893,10 @@ function Flash({ flash, index }: { flash: Headline; index: number }) {
       className="anim-rise group flex gap-3 border-b px-5 py-2.5 transition-colors duration-300 last:border-0 hover:bg-raised"
       style={{ animationDelay: `${Math.min(index * 35, 700)}ms` }}
     >
-      <span className="num shrink-0 pt-px text-[11px] tabular-nums text-faint">
+      <span className="num shrink-0 pt-px text-caption tabular-nums text-faint">
         {stamp(flash.at)}
       </span>
-      <span className="min-w-0 text-[13px] leading-snug text-ink">
+      <span className="min-w-0 text-body leading-snug text-ink">
         {parts.map((p, i) =>
           p.tone ? (
             <b
@@ -959,15 +950,6 @@ const SkeletonCards = ({ cards }: { cards: number }) => (
 
 /** A pulsing bar, not a spinner — it shows the shape of what is coming. */
 const Bar = ({ className, delay }: { className?: string; delay: number }) => (
-  <div
-    className={cx("h-3 rounded bg-subtle", className)}
-    style={{ animation: `skeleton 1.8s ${delay}ms ease-in-out infinite` }}
-  />
+  <div className={cx("anim-skeleton h-3 rounded bg-subtle", className)} style={{ animationDelay: `${delay}ms` }} />
 );
 
-const Empty = ({ title, body }: { title: string; body: string }) => (
-  <div className="px-5 py-12 text-center">
-    <p className="text-[14px] font-medium">{title}</p>
-    <p className="mx-auto mt-1.5 max-w-sm text-[12px] leading-relaxed text-soft">{body}</p>
-  </div>
-);

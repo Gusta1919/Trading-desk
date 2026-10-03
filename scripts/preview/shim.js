@@ -8,9 +8,9 @@
  *  - gold candles are synthetic, drawn around the briefing's spot;
  *  - the news week is a small sample, its releases on this week's days (next week's at
  *    the weekend, like the Calendar's week strip), with two skip days in it.
- * Check-ins, open items and rulebook edits save in memory for the visit, so the
- * changelog fills as you edit; trades are refused with a message, since their maths and
- * flags live in the server.
+ * Check-ins and rulebook edits save in memory for the visit, so the changelog fills as
+ * you edit; trades are refused with a message, since their maths and flags live in the
+ * server.
  */
 (function () {
   var S = window.__PREVIEW__;
@@ -126,21 +126,16 @@
   /* ── Routing ──────────────────────────────────────────────────────────── */
 
   var checkins = S.checkins.slice();
-  var openItems = S.openItems.slice();
   var READ_ONLY = "This preview doesn't save trades. Run the desk on your Mac to log one.";
 
-  /* Rulebook versions, newest first; an edit adds one, as the server would. */
-  var current = S.rulebook;
-  var versions = S.versions.slice();
-  function nextVersion(v, bump) {
-    var m = /^(\d+)\.(\d+)$/.exec(v) || [0, "1", "0"];
-    return bump === "major" ? Number(m[1]) + 1 + ".0" : m[1] + "." + (Number(m[2]) + 1);
-  }
-  function addVersion(doc, reason, bump) {
-    var version = nextVersion(current.version, bump);
+  /* The rulebook: the version in force and every version, newest first. An edit adds one, as the server would. */
+  var current = S.rulebook.current;
+  var versions = S.rulebook.versions.slice();
+  function addVersion(doc, reason) {
+    var m = /^(\d+)\.(\d+)$/.exec(current.version) || [0, "1", "0"];
+    var version = m[1] + "." + (Number(m[2]) + 1);
     current = { version: version, reason: reason, createdAt: new Date().toISOString(), doc: Object.assign({}, doc, { version: version }) };
-    S.versionDocs[version] = current;
-    versions.unshift({ version: version, reason: reason, createdAt: current.createdAt });
+    versions.unshift(current);
     return current;
   }
 
@@ -156,27 +151,17 @@
   function answer(path, query, method, body) {
     if (method === "GET") {
       if (path === "/api/trades") return reply(200, S.trades);
-      if (path === "/api/limits") return reply(200, current.doc.limits);
-      if (path === "/api/rulebook") return reply(200, current);
-      if (path === "/api/rulebook/versions") return reply(200, versions);
-      var v = path.match(/^\/api\/rulebook\/versions\/(.+)$/);
-      if (v) {
-        var doc = S.versionDocs[decodeURIComponent(v[1])];
-        return doc ? reply(200, doc) : reply(404, { error: "Not found" });
-      }
-      if (path === "/api/open-items") return reply(200, openItems);
+      if (path === "/api/rulebook") return reply(200, { current: current, versions: versions });
       if (path === "/api/checkins") return reply(200, checkins);
       if (path === "/api/bias") return reply(200, bias);
       if (path === "/api/candles") return reply(200, candles(query.get("tf") || "15m"));
-      if (path === "/api/news/rules") return reply(200, current.doc.news);
       if (path === "/api/news/calendar") return reply(200, calendar());
       if (path === "/api/news/headlines") return reply(200, headlines());
-      if (path === "/api/health") return reply(200, { ok: true });
       return reply(404, { error: "Not in the preview" });
     }
     var c = path.match(/^\/api\/checkins\/(\d{4}-\d{2}-\d{2})$/);
     if (c && method === "PUT") {
-      var saved = Object.assign({ answers: {}, note: "", score: 0, verdict: "caution", reflection: "" }, body, {
+      var saved = Object.assign({ answers: {}, note: "", score: 0, verdict: "sit-out", reflection: "" }, body, {
         date: c[1],
         createdAt: new Date().toISOString(),
       });
@@ -185,25 +170,7 @@
     }
     if (path === "/api/rulebook" && method === "PUT") {
       if (!String(body.reason || "").trim()) return reply(400, { error: "Every change needs a one-line reason" });
-      return reply(200, addVersion(body.doc, String(body.reason).trim(), body.bump));
-    }
-    if (path === "/api/limits" && method === "PUT") {
-      var reason = String(body.reason || "").trim();
-      if (!reason) return reply(400, { error: "Every change needs a one-line reason" });
-      var limits = Object.assign({}, body);
-      delete limits.reason;
-      addVersion(Object.assign({}, current.doc, { limits: limits }), reason, "minor");
-      return reply(200, limits);
-    }
-    var o = path.match(/^\/api\/open-items\/(.+)$/);
-    if (o && method === "PUT") {
-      var item = null;
-      openItems = openItems.map(function (x) {
-        if (x.id !== o[1]) return x;
-        item = Object.assign({}, x, { done: !!body.done, doneAt: body.done ? new Date().toISOString() : null });
-        return item;
-      });
-      return item ? reply(200, item) : reply(404, { error: "Not found" });
+      return reply(201, addVersion(body.doc, String(body.reason).trim()));
     }
     return reply(403, { error: READ_ONLY });
   }

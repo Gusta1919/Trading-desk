@@ -1,6 +1,6 @@
 /**
  * The arithmetic behind the Daily Bias price chart, kept apart from the drawing so
- * it can be tested: which session a candle belongs to, where the CRT 3–4AM box is,
+ * it can be tested: which session a candle belongs to, where the CRT box is,
  * what zone a scenario is talking about, and what price range to show.
  */
 import type { LevelKind, Verdict } from "./dailyBias";
@@ -50,15 +50,19 @@ export function sessionRuns(candles: Candle[]) {
   return runs;
 }
 
+/** "HH:MM" as minutes after midnight. */
+const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
 /**
- * The GOLD Model's CRT box: the high and low of the 03:00–04:00 NY hour on the most
- * recent day that has it, and the bars of its sweep window (04:00–16:00 NY) that are
- * on the chart so far.
+ * The rulebook's CRT box: the high and low of the box hour (03:00–04:00 NY in the GOLD
+ * Model) on the most recent day that has it, and the bars of its trading window — from
+ * the box's end to the time stop — that are on the chart so far.
  */
-export function crtBox(candles: Candle[]) {
+export function crtBox(candles: Candle[], box = { from: "03:00", to: "04:00" }, until = "12:00") {
+  const [from, to, end] = [minutesOf(box.from), minutesOf(box.to), minutesOf(until)];
   const inBox = (c: Candle) => {
     const m = deskMinutes(c.t);
-    return m >= 3 * 60 && m < 4 * 60;
+    return m >= from && m < to;
   };
   const days = [...new Set(candles.filter(inBox).map((c) => deskDay(new Date(c.t))))];
   const day = days[days.length - 1];
@@ -68,16 +72,16 @@ export function crtBox(candles: Candle[]) {
     .filter(({ c }) => inBox(c) && deskDay(new Date(c.t)) === day)
     .map(({ i }) => i);
   const bars = idx.map((i) => candles[i]);
-  const windowEnd = candles.reduce((end, c, i) => {
+  const windowEnd = candles.reduce((last, c, i) => {
     const m = deskMinutes(c.t);
-    return deskDay(new Date(c.t)) === day && m >= 4 * 60 && m < 16 * 60 ? i : end;
+    return deskDay(new Date(c.t)) === day && m >= to && m < end ? i : last;
   }, idx[idx.length - 1]);
   return {
     high: Math.max(...bars.map((b) => b.h)),
     low: Math.min(...bars.map((b) => b.l)),
     from: idx[0],
     to: idx[idx.length - 1],
-    /** Last bar of the 04:00–16:00 sweep window on the chart. */
+    /** Last bar of the window up to the time stop on the chart. */
     windowEnd,
   };
 }
