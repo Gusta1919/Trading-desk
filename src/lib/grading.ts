@@ -1,10 +1,10 @@
 /**
- * Grades a setup against its strategy's own definition.
+ * Grades a setup against the rulebook's definition — or a trade's frozen copy of it.
  *
- * Nothing here knows about any particular strategy: a base rule, a choice factor
- * and a number factor are all read from the definition passed in. The rule is the
- * same for every strategy — each base rule and each answer caps the best grade the
- * trade can reach, and the final grade is the lowest of those caps.
+ * Nothing here knows about any particular rule: a base rule, a choice factor and a
+ * number factor are all read from the definition passed in. Each base rule and each
+ * answer caps the best grade the trade can reach, and the final grade is the lowest
+ * of those caps.
  */
 import {
   GRADES,
@@ -102,7 +102,7 @@ export function numberFactorErrors(f: NumberFactor): string[] {
   return errors;
 }
 
-/** Problems anywhere in a definition, for the strategy form. Empty = valid. */
+/** Problems anywhere in a definition, for the rulebook editor. Empty = valid. */
 export function definitionErrors(def: Pick<Definition, "baseRules" | "factors">): string[] {
   const errors: string[] = [];
   def.baseRules.forEach((r, i) => {
@@ -255,7 +255,7 @@ export function gradeRequirements(def: Pick<Definition, "baseRules" | "factors">
   return { requires, cappedHere };
 }
 
-/** One line per rung, for compact places like the strategy card. */
+/** One line per rung, for compact places. */
 export function gradeOneLiner(def: Pick<Definition, "baseRules" | "factors">, grade: Grade): string {
   const r = gradeRequirements(def, grade);
   if (grade === "A+") return r.requires.length ? r.requires.join(" · ") : "No conditions defined yet";

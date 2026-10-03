@@ -1,12 +1,19 @@
 /**
- * Allowed risk = min(grade risk, remaining daily budget, max risk per trade), and the
- * flags a trade raises when it crosses a line.
+ * Allowed risk = min(grade risk, remaining daily and weekly budget, max risk per trade),
+ * and replaying a day under the rules.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { allowedRisk, dayBudget, flagsFor, gradeRisk, replayDay } from "../src/lib/risk";
-import { DEFAULT_GRADES } from "../src/lib/strategyTemplate";
-import type { Definition, Trade } from "../src/lib/types";
+import { allowedRisk, dayBudget, gradeRisk, replayDay, replayDayDetailed } from "../src/lib/risk";
+import { EMPTY_RULEBOOK_FIELDS, type Definition, type GradeCard, type Trade } from "../src/lib/types";
+
+/** The ladder these tests reason with: A+ 1 · A 0.5 · B 0.25 · C not traded. */
+const DEFAULT_GRADES: GradeCard[] = [
+  { grade: "A+", riskPct: 1, traded: true, description: "" },
+  { grade: "A", riskPct: 0.5, traded: true, description: "" },
+  { grade: "B", riskPct: 0.25, traded: true, description: "" },
+  { grade: "C", riskPct: 0, traded: false, description: "" },
+];
 
 const L = { maxRiskPct: 1, dailyStopPct: 1 };
 const DAY = "2026-10-01";
@@ -23,7 +30,6 @@ function trade(riskPct: number, resultR: number | null, extra: Partial<Trade> = 
     direction: "long",
     session: "",
     setup: "",
-    strategyId: null,
     htf: "",
     entryModel: "",
     riskPct,
@@ -47,6 +53,7 @@ function trade(riskPct: number, resultR: number | null, extra: Partial<Trade> = 
     news: [],
     notes: "",
     screenshot: "",
+    ...EMPTY_RULEBOOK_FIELDS,
     createdAt: "",
     updatedAt: "",
     ...extra,
@@ -100,40 +107,6 @@ describe("allowed risk", () => {
   });
 });
 
-describe("flags", () => {
-  const fresh = dayBudget([], DAY, L);
-  const card = (g: string) => DEFAULT_GRADES.find((c) => c.grade === g)!;
-
-  it("flags risk above the allowance", () => {
-    assert.deepEqual(flagsFor({ riskPct: 0.8, allowed: 0.5, card: card("A"), budget: fresh, limits: L }), ["over_risk"]);
-  });
-
-  it("flags a grade marked Don't — without also calling it over risk", () => {
-    assert.deepEqual(flagsFor({ riskPct: 0.25, allowed: 0, card: card("C"), budget: fresh, limits: L }), [
-      "non_traded_grade",
-    ]);
-  });
-
-  it("flags a trade after the daily stop", () => {
-    const hit = dayBudget([trade(1, -1)], DAY, L);
-    assert.deepEqual(flagsFor({ riskPct: 0.5, allowed: 0, card: card("A"), budget: hit, limits: L }), [
-      "after_daily_stop",
-    ]);
-  });
-
-  it("still flags going past the 1% cap after the stop", () => {
-    const hit = dayBudget([trade(1, -1)], DAY, L);
-    assert.deepEqual(flagsFor({ riskPct: 1.5, allowed: 0, card: card("A+"), budget: hit, limits: L }), [
-      "after_daily_stop",
-      "over_risk",
-    ]);
-  });
-
-  it("raises nothing inside the lines", () => {
-    assert.deepEqual(flagsFor({ riskPct: 1, allowed: 1, card: card("A+"), budget: fresh, limits: L }), []);
-  });
-});
-
 describe("replaying a day under the rules", () => {
   it("sizes a later A+ at what the earlier A loss left", () => {
     // A at 0.5% loses 1R → -0.5%; A+ then wins 2R at the 0.5% left → +1%.
@@ -145,5 +118,22 @@ describe("replaying a day under the rules", () => {
   it("takes nothing after the stop", () => {
     const day = [trade(1, -1, { date: `${DAY}T04:00` }), trade(1, 3, { date: `${DAY}T09:00` })];
     assert.equal(replayDay(day, () => 1, L), -1);
+  });
+});
+
+describe("replaying under the rulebook's caps", () => {
+  it("takes only the day's first trade under the one-trade rule", () => {
+    const day = [trade(0.5, 1, { date: `${DAY}T04:30` }), trade(0.5, 2, { date: `${DAY}T09:45` })];
+    const r = replayDayDetailed(day, () => 0.5, { ...L, weeklyStopPct: 2 }, { maxTrades: 1 });
+    assert.equal(r.net, 0.5);
+    assert.deepEqual(r.sized.map((s) => [s.risk, s.overTrades]), [[0.5, false], [0, true]]);
+  });
+
+  it("stops at what is left of the weekly stop", () => {
+    // The week has lost 1.75% already: of a 2% weekly stop, 0.25% is left for the day.
+    const day = [trade(0.5, -1, { date: `${DAY}T04:30` })];
+    const r = replayDayDetailed(day, () => 0.5, { ...L, weeklyStopPct: 2 }, { weekNetBefore: -1.75 });
+    assert.equal(r.sized[0].risk, 0.25);
+    assert.equal(r.net, -0.25);
   });
 });

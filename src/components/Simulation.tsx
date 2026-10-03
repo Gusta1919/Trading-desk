@@ -10,10 +10,12 @@ import {
   tradesPerMonth,
   type Sim,
 } from "@/lib/montecarlo";
-import { gradeCard, replayDayDetailed, rulesRisk, tradingDays } from "@/lib/risk";
+import { exitLab } from "@/lib/exitLab";
+import { gradeCard, replayDayDetailed, rulesRisk, tradingDays, weekOfDay } from "@/lib/risk";
+import type { Rulebook } from "@/lib/rulebook";
 import { classifyOutcome, isClosed, tradePct } from "@/lib/stats";
 import { deskDay } from "@/lib/tz";
-import { DEFAULT_LIMITS, GRADES, SESSIONS, isGrade, type Limits, type Strategy, type Trade } from "@/lib/types";
+import { GRADES, SESSIONS, isGrade, type Limits, type Trade } from "@/lib/types";
 import { SimChart, type PathStats } from "./SimChart";
 import { Chips, Segmented, cx, stagger, useCountUp } from "./ui";
 
@@ -82,28 +84,14 @@ const QUESTIONS: Question[] = [
     available: () => true,
   },
   {
-    id: "no-b",
-    chip: "Stop trading B?",
-    ask: "What if I stopped taking B setups?",
-    now: { filters: { ...NO_FILTERS, grades: NO_FILTERS.grades.filter((g) => g !== "B") }, sizing: "rules", label: "without B" },
-    base: { ...EVERYTHING, label: "with B" },
-    answer: {
-      better: "Yes — you would do better without B. Consider switching B to Don't in Strategies.",
-      worse: "No — your B setups earn their place. Keep taking them.",
-      mixed: "Unclear — dropping B helps in some ways and hurts in others. Keep collecting B trades.",
-      none: "It makes little difference either way. No reason to change yet.",
-    },
-    available: (ts) => has(ts, (t) => t.grade === "B") && has(ts, (t) => t.grade !== "B"),
-  },
-  {
     id: "a-plus",
     chip: "Only A+?",
     ask: "What if I only took textbook A+ setups?",
     now: { filters: { ...NO_FILTERS, grades: ["A+"] }, sizing: "rules", label: "only A+" },
     base: { ...EVERYTHING, label: "all setups" },
     answer: {
-      better: "Yes — being pickier would pay. Your A and B setups cost more than they add.",
-      worse: "No — your A and B setups add more than they cost. Don't narrow down to A+ only.",
+      better: "Yes — being pickier would pay. Your A setups cost more than they add.",
+      worse: "No — your A setups add more than they cost. Don't narrow down to A+ only.",
       mixed: "Unclear — fewer trades, some numbers better, some worse. Not a clear case to change.",
       none: "It makes little difference. No reason to become pickier yet.",
     },
@@ -176,35 +164,35 @@ interface DayCompare {
  * is a trade you would not have taken — so a day left with nothing is a flat day at 0,
  * not a day that never happened. (Dropping it would quietly make the history look better.)
  */
-function replayDays(
-  closed: Trade[],
-  filters: Filters,
-  strategies: Strategy[],
-  L: Limits,
-): DayCompare[] {
+function replayDays(closed: Trade[], filters: Filters, doc: Rulebook, L: Limits): DayCompare[] {
   const cutoff = filters.period === "all" ? null : deskDay(new Date(Date.now() - Number(filters.period) * 86_400_000));
   const inPeriod = closed.filter((t) => cutoff == null || t.date.slice(0, 10) >= cutoff);
   const keep = (t: Trade) =>
     filters.grades.includes(isGrade(t.grade) ? t.grade : "none") &&
     filters.sessions.includes(SESSIONS.includes(t.session) ? t.session : "none") &&
     !(filters.cleanOnly && t.flags.length);
-  const riskOf = rulesRisk(strategies);
-  const byId = new Map(strategies.map((s) => [s.id, s]));
+  const riskOf = rulesRisk(doc);
+  // The weekly stop carries across days: each week's result so far, under the rules.
+  const weekNet = new Map<string, number>();
 
   return tradingDays(inPeriod).map((all) => {
     const list = all.filter(keep);
     const day = all[0].date.slice(0, 10);
     if (!list.length) return { day, actual: 0, rules: 0, flat: true, count: 0, changes: [] };
-    const replay = replayDayDetailed(list, riskOf, L);
+    const week = weekOfDay(day);
+    const replay = replayDayDetailed(list, riskOf, L, { weekNetBefore: weekNet.get(week) ?? 0, maxTrades: doc.maxTradesPerDay });
+    weekNet.set(week, (weekNet.get(week) ?? 0) + replay.net);
     const changes = replay.sized
       .filter(({ trade, risk }) => Math.abs(risk - trade.riskPct) > 1e-9)
-      .map(({ trade, risk, stopHit }) => {
-        const card = gradeCard(trade.strategyId ? (byId.get(trade.strategyId) ?? null) : null, trade.grade);
+      .map(({ trade, risk, stopHit, overTrades }) => {
+        const card = gradeCard(doc, trade.grade);
         const why =
-          risk === 0 && stopHit
-            ? "taken after the daily stop — the rules skip it"
+          risk === 0 && overTrades
+            ? "a second trade that day — the rules take one"
+            : risk === 0 && stopHit
+            ? "taken after the daily or weekly stop — the rules skip it"
             : risk === 0 && card && !card.traded
-              ? `${trade.grade} is marked Don't — the rules skip it`
+              ? `${trade.grade} is not tradable — the rules skip it`
               : risk < trade.riskPct
                 ? `${trade.grade || "trade"} at ${+trade.riskPct.toFixed(2)}% — the rules allow ${risk}%`
                 : `${trade.grade || "trade"} at ${+trade.riskPct.toFixed(2)}% — the rules would use ${risk}%`;
@@ -231,28 +219,16 @@ interface Result {
   trades: number;
 }
 
-export function Simulation({
-  trades,
-  strategies = [],
-  limits,
-}: {
-  trades: Trade[];
-  strategies?: Strategy[];
-  limits: Limits | null;
-}) {
-  const L = limits ?? DEFAULT_LIMITS;
+export function Simulation({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
+  const L = doc.limits;
   const [look, setLook] = useState(63);
   const [qid, setQid] = useState("future");
   const [custom, setCustom] = useState<Scenario>({ ...EVERYTHING, label: "your filters" });
-  const [strategyId, setStrategyId] = useState<string>("all");
   const [expanded, setExpanded] = useState(false);
   const [details, setDetails] = useState(false);
   const [picked, setPicked] = useState<PathStats | null>(null);
 
-  const allClosed = useMemo(() => {
-    const all = trades.filter(isClosed);
-    return strategyId === "all" ? all : all.filter((t) => t.strategyId === strategyId);
-  }, [trades, strategyId]);
+  const allClosed = useMemo(() => trades.filter(isClosed), [trades]);
 
   const questions = useMemo(() => QUESTIONS.filter((q) => q.available(allClosed)), [allClosed]);
   const q: Question = useMemo(() => {
@@ -276,10 +252,10 @@ export function Simulation({
     return questions.find((x) => x.id === qid) ?? questions[0];
   }, [qid, custom, questions]);
 
-  const nowDays = useMemo(() => replayDays(allClosed, q.now.filters, strategies, L), [allClosed, q, strategies, L]);
+  const nowDays = useMemo(() => replayDays(allClosed, q.now.filters, doc, L), [allClosed, q, doc, L]);
   const baseDays = useMemo(
-    () => (q.base ? replayDays(allClosed, q.base.filters, strategies, L) : null),
-    [allClosed, q, strategies, L],
+    () => (q.base ? replayDays(allClosed, q.base.filters, doc, L) : null),
+    [allClosed, q, doc, L],
   );
   const samples = useMemo(() => nowDays.map((d) => (q.now.sizing === "rules" ? d.rules : d.actual)), [nowDays, q]);
   const baseSamples = useMemo(
@@ -338,21 +314,6 @@ export function Simulation({
         onChange={(v) => v && setLook(v)}
         options={LOOK_AHEAD.map((h) => ({ value: h.days, label: h.label }))}
       />
-      {strategies.length > 1 && (
-        <select
-          className="field w-auto py-1.5 text-[12px]"
-          value={strategyId}
-          onChange={(e) => setStrategyId(e.target.value)}
-          title="Look at one strategy on its own"
-        >
-          <option value="all">All strategies</option>
-          {strategies.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      )}
       <button
         onClick={() => setExpanded((e) => !e)}
         title={expanded ? "Close (Esc)" : "Expand the chart"}
@@ -469,7 +430,88 @@ export function Simulation({
           {result && <KeyNumbers key={result.id} sim={result.sim} base={result.base} />}
         </div>
       )}
+
+      <ExitLabCard trades={trades} doc={doc} />
     </>
+  );
+}
+
+/**
+ * "Which target would have paid best?" — the trades already taken, replayed with other
+ * targets and with breakeven at 1R, from the MFE each one logged. Approximate by
+ * nature, so it says so, and it waits for enough trades with MFE before answering.
+ */
+function ExitLabCard({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
+  const lab = useMemo(() => exitLab(trades, doc.exitLabMin), [trades, doc.exitLabMin]);
+  const best = lab.enough
+    ? lab.rows.filter((r) => r.id !== "actual" && r.avgR != null && r.n >= doc.exitLabMin).sort((a, b) => b.avgR! - a.avgR!)[0]
+    : null;
+  const actual = lab.rows.find((r) => r.id === "actual")!;
+  return (
+    <section id="sec-exit-lab" className="card mt-4 scroll-mt-24 px-6 py-5">
+      <div className="mb-4">
+        <h2 className="text-[15px] font-semibold">Exit lab</h2>
+        <p className="text-[12px] text-faint">
+          Which target would have paid best? Your taken trades, replayed from the MFE each one logged — approximate, since
+          the path inside a trade isn't known.
+        </p>
+      </div>
+      {!lab.enough ? (
+        <p className="py-6 text-center text-soft">
+          Needs at least {doc.exitLabMin} taken trades with MFE logged — you have {lab.n}. Log the best price on every
+          trade and this answers itself.
+        </p>
+      ) : (
+        <>
+          {best && actual.avgR != null && (
+            <p className="mb-4 text-[14px]">
+              {best.avgR! > actual.avgR + 0.05 ? (
+                <>
+                  <b className="font-semibold">{best.label}</b> would have paid best: {fmtNum(best.avgR, 2)}R a trade against{" "}
+                  {fmtNum(actual.avgR, 2)}R as traded, over {best.n} trades. Test it in Forex Tester before it becomes a rule.
+                </>
+              ) : (
+                <>Nothing beats the way you traded by enough to matter — the opposite box edge holds up.</>
+              )}
+            </p>
+          )}
+          <div className="-mx-6 overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b text-[11px] uppercase tracking-[0.06em] text-faint">
+                  <th className="px-6 py-2 text-left font-medium">Exit rule</th>
+                  <th className="px-3 py-2 text-right font-medium">Trades</th>
+                  <th className="px-3 py-2 text-right font-medium">Unknown</th>
+                  <th className="px-3 py-2 text-right font-medium">Expectancy</th>
+                  <th className="px-6 py-2 text-right font-medium">Total R</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lab.rows.map((r, i) => (
+                  <tr
+                    key={r.id}
+                    className={cx("anim-rise border-b last:border-0", r.n < doc.exitLabMin && "opacity-50", r.id === best?.id && "bg-subtle")}
+                    style={stagger(i, 50)}
+                  >
+                    <td className="px-6 py-2 font-medium">{r.label}</td>
+                    <td className="num px-3 py-2 text-right text-soft">{r.n}</td>
+                    <td className="num px-3 py-2 text-right text-faint">{r.unknown || "—"}</td>
+                    <td className={cx("num px-3 py-2 text-right font-medium", r.avgR == null ? "" : r.avgR >= 0 ? "text-up" : "text-down")}>
+                      {r.avgR == null ? "—" : `${fmtNum(r.avgR, 2)}R`}
+                    </td>
+                    <td className="num px-6 py-2 text-right text-soft">{r.totalR == null ? "—" : `${fmtNum(r.totalR, 1)}R`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-[12px] text-faint">
+            A trade reaches X R if its MFE did. A bigger target than the one a trade hit counts only when the furthest price
+            until {doc.timeStop} was logged; otherwise it is left out as unknown.
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 

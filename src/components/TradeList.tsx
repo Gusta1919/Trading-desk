@@ -7,9 +7,9 @@ import {
   FLAG_LABEL,
   checklistComplete,
   checklistRecorded,
+  exitReasonLabel,
   isGrade,
   totalChecks,
-  type Strategy,
   type Trade,
 } from "@/lib/types";
 import { GradeBadge } from "./GradeBadge";
@@ -57,7 +57,7 @@ export function setupOf(t: Trade) {
 }
 
 /** Every filter in one object, so "Clear" is a single assignment. */
-const BLANK = { range: "all", symbol: "", strategy: "", direction: "", result: "" };
+const BLANK = { range: "all", symbol: "", direction: "", result: "", flagged: "" };
 type Filters = typeof BLANK;
 
 /** The earliest date a trade may carry and still pass the range filter. */
@@ -72,13 +72,11 @@ function rangeStart(range: string, now = new Date()) {
 
 export function TradeList({
   trades,
-  strategies = [],
   onOpen,
   onNew,
   compact = false,
 }: {
   trades: Trade[];
-  strategies?: Strategy[];
   onOpen: (t: Trade) => void;
   onNew: () => void;
   /** Board mode: only the columns worth a glance. */
@@ -90,17 +88,10 @@ export function TradeList({
   const filtered =
     query.trim() !== "" || (Object.keys(BLANK) as (keyof Filters)[]).some((k) => f[k] !== BLANK[k]);
 
-  const nameOf = (t: Trade) =>
-    strategies.find((s) => s.id === t.strategyId)?.name || t.setup || "—";
-
   /* Options come from the trades themselves — never offer a filter that matches nothing. */
   const symbols = useMemo(
     () => [...new Set(trades.map((t) => t.symbol).filter(Boolean))].sort(),
     [trades],
-  );
-  const usedStrategies = useMemo(
-    () => strategies.filter((s) => trades.some((t) => t.strategyId === s.id)),
-    [trades, strategies],
   );
 
   const visible = useMemo(() => {
@@ -109,12 +100,13 @@ export function TradeList({
     return trades.filter((t) => {
       if (from && new Date(t.date) < from) return false;
       if (f.symbol && t.symbol !== f.symbol) return false;
-      if (f.strategy && t.strategyId !== f.strategy) return false;
+      if (f.flagged === "flagged" && !t.flags.length) return false;
+      if (f.flagged === "clean" && (t.flags.length || t.skipped)) return false;
       if (f.direction && t.direction !== f.direction) return false;
       if (f.result && resultOf(t) !== f.result) return false;
       if (
         q &&
-        ![t.symbol, t.setup, t.session, t.htf, t.entryModel, setupOf(t), t.notes, ...t.mistakes]
+        ![t.symbol, t.setup, t.session, t.htf, t.entryModel, setupOf(t), t.notes, exitReasonLabel(t.exitReason), ...t.mistakes, ...t.flags.map((x) => FLAG_LABEL[x])]
           .join(" ")
           .toLowerCase()
           .includes(q)
@@ -165,11 +157,15 @@ export function TradeList({
               placeholder="All symbols"
               options={symbols.map((sym) => ({ value: sym, label: sym }))}
             />
-            <FilterSelect
-              value={f.strategy}
-              onChange={(v) => set("strategy", v)}
-              placeholder="All strategies"
-              options={usedStrategies.map((st) => ({ value: st.id, label: st.name }))}
+            <Segmented
+              size="sm"
+              allowNone
+              value={f.flagged || null}
+              onChange={(v) => set("flagged", v ?? "")}
+              options={[
+                { value: "clean", label: "Clean" },
+                { value: "flagged", label: "Rule broken" },
+              ]}
             />
             <Segmented
               size="sm"
@@ -221,9 +217,9 @@ export function TradeList({
             <tr className="border-b text-[11px] uppercase tracking-[0.06em] text-faint">
               <Th>Date</Th>
               <Th>Symbol</Th>
-              {!compact && <Th>Strategy</Th>}
               <Th>Why this grade</Th>
               {!compact && <Th>Session</Th>}
+              {!compact && <Th>Exit</Th>}
               <Th right>Risk</Th>
               <Th right>Result</Th>
               <Th right>Return</Th>
@@ -248,16 +244,22 @@ export function TradeList({
                     <span className="font-medium text-ink">{t.symbol}</span>{" "}
                     <span className="text-faint">{t.direction === "long" ? "Long" : "Short"}</span>
                   </Td>
-                  {!compact && (
-                    <Td>
-                      <Pill tone="accent">{nameOf(t)}</Pill>
-                    </Td>
-                  )}
                   <Td className="max-w-[340px] truncate text-soft">
                     <span title={t.setupSnapshot ? answerLine(t) : undefined}>{setupOf(t)}</span>
                   </Td>
                   {!compact && (
                     <Td>{t.session ? <Pill>{t.session}</Pill> : <span className="text-faint">—</span>}</Td>
+                  )}
+                  {!compact && (
+                    <Td>
+                      {t.exitReason ? (
+                        <Pill tone={t.exitReason === "other" ? "down" : t.exitReason === "target" ? "up" : "neutral"}>
+                          {exitReasonLabel(t.exitReason)}
+                        </Pill>
+                      ) : (
+                        <span className="text-faint">—</span>
+                      )}
+                    </Td>
                   )}
                   {/* Risk is stored at full precision for accurate totals; show two places. */}
                   <Td right className="text-soft">
@@ -356,6 +358,11 @@ function Review({ t }: { t: Trade }) {
       {t.mistakes.length > 0 && (
         <span title={t.mistakes.join(", ")}>
           {t.mistakes.length} mistake{t.mistakes.length > 1 && "s"}
+        </span>
+      )}
+      {t.rulebookVersion && (
+        <span className="text-faint" title={`Graded under rulebook v${t.rulebookVersion}`}>
+          v{t.rulebookVersion}
         </span>
       )}
     </div>

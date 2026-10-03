@@ -21,17 +21,17 @@ import { PlanForm } from "@/components/PlanForm";
 import { StatusBanner } from "@/components/StatusBanner";
 import { StatsStrip } from "@/components/StatsStrip";
 import { StatsView } from "@/components/StatsView";
-import { StrategiesView } from "@/components/StrategiesView";
+import { RulebookView } from "@/components/RulebookView";
 import { TradeForm } from "@/components/TradeForm";
 import { TradeList } from "@/components/TradeList";
 import { Button, Modal, Segmented, cx } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { CheckIn as CheckInData } from "@/lib/checkin";
 import type { Limits } from "@/lib/types";
-import { buildBriefing, nudge } from "@/lib/coach";
+import { buildBriefing, nudge, type CoachDesk } from "@/lib/coach";
 import { takenTrades } from "@/lib/risk";
 import { dayKey } from "@/lib/format";
-import type { Strategy, Trade, WeekNote } from "@/lib/types";
+import type { Trade, WeekNote } from "@/lib/types";
 
 /** Now, refreshed every minute — the rules change at 04:00, 08:25, 11:00 and 12:00. */
 function useNow(everyMs = 60_000) {
@@ -43,13 +43,13 @@ function useNow(everyMs = 60_000) {
   return now;
 }
 
-type View = "journal" | "bias" | "calendar" | "strategies" | "stats" | "news" | "risk" | "coach";
+type View = "journal" | "bias" | "calendar" | "rulebook" | "stats" | "news" | "risk" | "coach";
 
 const TABS: { value: View; label: string }[] = [
   { value: "journal", label: "Journal" },
   { value: "bias", label: "Daily Bias" },
   { value: "calendar", label: "Calendar" },
-  { value: "strategies", label: "Strategies" },
+  { value: "rulebook", label: "Rulebook" },
   { value: "stats", label: "Stats" },
   { value: "news", label: "News" },
   { value: "risk", label: "Risk lab" },
@@ -88,7 +88,6 @@ export default function App() {
   /* The calendar shows every folder; only red news on the desk's currencies chimes. */
   const tradingEvents = useMemo(() => news.events.filter(countsForTrading), [news.events]);
   const alerts = useNewsAlerts(tradingEvents, news.headlines, news.rules, sound);
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [weeks, setWeeks] = useState<WeekNote[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -111,11 +110,6 @@ export default function App() {
   const taken = useMemo(() => takenTrades(trades), [trades]);
 
   const today = checkins.find((c) => c.date === dayKey(new Date()));
-  const coachNudge = useMemo(
-    // The Coach sets skipped setups aside itself — it uses them to judge whether skipping was right.
-    () => nudge(buildBriefing(trades, checkins, undefined, strategies, limits)),
-    [trades, checkins, strategies, limits],
-  );
 
   /** A limit is a rule: saving one writes a new rulebook version, and every flag is re-judged. */
   const saveLimits = async (next: Limits, reason: string) => {
@@ -130,10 +124,6 @@ export default function App() {
   useEffect(() => {
     loadPlans();
   }, [loadPlans]);
-
-  const loadStrategies = useCallback(async () => {
-    setStrategies(await api.strategies().catch(() => []));
-  }, []);
 
   useEffect(() => {
     api.weeks().then(setWeeks).catch(() => []);
@@ -157,6 +147,16 @@ export default function App() {
         : null,
     [trades, plans, checkins, rulebook.loaded, rulebook.rulebookOf, rulebook.doc, now, todayNews],
   );
+  /* What the Coach reads besides the trades: the rulebook, the plans, today's news. */
+  const desk: CoachDesk | null = useMemo(
+    () => (rulebook.loaded ? { doc: rulebook.doc, rulebookOf: rulebook.rulebookOf, plans, news: todayNews } : null),
+    [rulebook.loaded, rulebook.doc, rulebook.rulebookOf, plans, todayNews],
+  );
+  const coachNudge = useMemo(
+    // The Coach sets skipped setups aside itself.
+    () => nudge(buildBriefing(trades, checkins, now, desk)),
+    [trades, checkins, now, desk],
+  );
   /* The briefing's lean only counts when it is today's briefing. */
   const lean = dailyBias.freshness === "today" ? briefingLean(dailyBias.bias?.bias) : null;
   const [planOpen, setPlanOpen] = useState(false);
@@ -165,10 +165,6 @@ export default function App() {
     // A plan decides the day's no-plan flag; the server has re-judged the trades.
     load();
   };
-
-  useEffect(() => {
-    loadStrategies();
-  }, [loadStrategies]);
 
   const load = useCallback(async () => {
     try {
@@ -248,6 +244,7 @@ export default function App() {
         rulebookOf={rulebook.rulebookOf}
         calendar={news.events}
         lean={lean}
+        desk={desk}
         onPlanSaved={savePlan}
         onWeekSaved={saveWeek}
         onDone={(c) => {
@@ -360,7 +357,6 @@ export default function App() {
             {view === "journal" && (
               <TradeList
                 trades={trades}
-                strategies={strategies}
                 onNew={openNew}
                 onOpen={openEdit}
               />
@@ -379,29 +375,17 @@ export default function App() {
                 onOpen={openEdit}
               />
             )}
-            {view === "strategies" && (
-              <StrategiesView
-                strategies={strategies}
-                trades={trades}
-                limits={limits}
-                onSaved={loadStrategies}
-              />
-            )}
+            {view === "rulebook" && <RulebookView state={rulebook} trades={trades} onSaved={load} />}
             {view === "stats" && (
-              <StatsView trades={trades} checkins={checkins} strategies={strategies} />
+              <StatsView trades={trades} checkins={checkins} doc={rulebook.doc} />
             )}
             {view === "bias" && <DailyBiasView state={dailyBias} />}
             {view === "news" && <NewsView news={news} />}
             {view === "risk" && (
-              <Simulation trades={taken} strategies={strategies} limits={limits} />
+              <Simulation trades={taken} doc={rulebook.doc} />
             )}
             {view === "coach" && (
-              <CoachView
-                trades={trades}
-                checkins={checkins}
-                strategies={strategies}
-                limits={limits}
-              />
+              <CoachView trades={trades} checkins={checkins} desk={desk} />
             )}
         </div>
       </div>

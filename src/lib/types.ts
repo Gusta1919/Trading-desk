@@ -7,11 +7,11 @@ export interface Trade {
   symbol: string;
   direction: Direction;
   session: string;
-  setup: string; // free text kept from older trades; new ones use strategyId
-  strategyId: string | null;
-  /** Legacy: newer strategies ask for the HTF reason as a grade factor instead. */
+  /** Legacy free text from older trades; graded trades use the rulebook instead. */
+  setup: string;
+  /** Legacy: the rulebook asks for the HTF reason as a grade factor instead. */
   htf: string;
-  /** Legacy: newer strategies ask for the entry model as a grade factor instead. */
+  /** Legacy: the rulebook asks for the entry model as a grade factor instead. */
   entryModel: string;
   /** The risk actually taken, % of the account. 0 on a skipped setup. */
   riskPct: number;
@@ -20,15 +20,15 @@ export interface Trade {
   plannedRR: number | null;
   resultR: number | null; // null = still open (or skipped)
   followedPlan: boolean | null;
-  /** The setup's grade: computed from the strategy's rules and factors, or picked by hand. */
+  /** The setup's grade: computed from the rulebook's rules and factors, or picked by hand. */
   grade: string;
   emotion: number | null; // 1 calm … 5 tilted
   mistakes: string[];
   checklist: string[]; // ids of the base rules ticked
   checklistTotal: number; // how many base rules there were at the time
   /**
-   * The strategy's definition and your answers, frozen when the trade was logged —
-   * so editing a strategy later never rewrites the history measured against it.
+   * The rules and your answers, frozen when the trade was logged — so editing the
+   * rulebook later never rewrites the history measured against it.
    */
   setupSnapshot: SetupSnapshot | null;
   /** Lines this trade crossed when it was saved. Saving is never blocked; it is recorded. */
@@ -41,7 +41,7 @@ export interface Trade {
   hypotheticalR: number | null;
   /** Commission + swap as a % of the account. Null = never measured, not zero. */
   costPct: number | null;
-  /** How wide the strategy's box was, in that strategy's unit. */
+  /** How wide the CRT box was, in $ (its high minus its low). */
   boxSize: number | null;
   /** Profit or loss in account currency. The percentage and R are derived from it. */
   pnlUsd: number | null;
@@ -264,7 +264,7 @@ export const SESSIONS = ["Asia", "London", "New York"];
 /* ── Grades ──────────────────────────────────────────────────────────── */
 
 export type Grade = "A+" | "A" | "B" | "C";
-/** Best first. Every strategy uses this ladder; what earns each rung is the strategy's own. */
+/** Best first. What earns each rung is the rulebook's own. */
 export const GRADES: Grade[] = ["A+", "A", "B", "C"];
 /** 0 for A+ … 3 for C — a higher number is a lower grade. */
 export const gradeRank = (g: Grade) => GRADES.indexOf(g);
@@ -286,16 +286,7 @@ export const MISTAKES = [
 ];
 export const EMOTIONS = ["Calm", "Focused", "Neutral", "Anxious", "Tilted"];
 
-/**
- * A strategy's picks in the standard order — Asia → London → New York — rather than
- * the order they happened to be clicked in.
- */
-export const inOrder = (picked: string[] = [], order: string[]) => [
-  ...order.filter((o) => picked.includes(o)),
-  ...picked.filter((p) => !order.includes(p)),
-];
-
-/* ── Strategy definition ─────────────────────────────────────────────── */
+/* ── The rulebook's grading definition ───────────────────────────────── */
 
 /**
  * Who answers a base rule when the desk can know it:
@@ -383,37 +374,13 @@ export interface GradeCard {
   backtestRiskPct?: number | null;
 }
 
-/** A trading strategy: what you trade, when, and what each grade of setup looks like. */
-export interface Strategy {
-  id: string;
-  name: string;
-  instrument: string;
-  description: string;
-  hoursFrom: string; // "08:00", New York
-  hoursTo: string; // "12:00", New York
-  sessions: string[]; // e.g. ["London", "New York"]
-  invalidation: string;
-  rrFrom: number | null; // planned R:R is a range, not one number
-  rrTo: number | null;
+/** What a trade is graded against — and what a trade freezes. */
+export interface Definition {
   baseRules: BaseRule[];
   factors: Factor[];
   /** Always four cards, A+ to C. */
   grades: GradeCard[];
-  /** The range this setup is measured against — "Asia range", "opening range", "". */
-  boxLabel: string;
-  /** What the size is counted in: points, pips, ticks. */
-  boxUnit: string;
-  /** The size range you consider tradeable. Outside it the form warns you. */
-  boxMin: number | null;
-  boxMax: number | null;
-  createdAt: string;
-  updatedAt: string;
 }
-
-export type StrategyInput = Omit<Strategy, "id" | "createdAt" | "updatedAt">;
-
-/** The part of a strategy a trade is graded against — and what a trade freezes. */
-export type Definition = Pick<Strategy, "baseRules" | "factors" | "grades">;
 
 /**
  * A trade's frozen copy of the rules it was graded against, and how it was answered.
@@ -437,19 +404,9 @@ export interface ChecklistItem {
   hint?: string;
 }
 
-/**
- * The base rules a trade was measured against — its own frozen copy when it has one,
- * otherwise its strategy's current rules.
- */
-export function checklistOf(
-  trade: Pick<Trade, "strategyId"> & { setupSnapshot?: SetupSnapshot | null },
-  strategies: Strategy[] = [],
-): ChecklistItem[] {
-  const rules =
-    trade.setupSnapshot?.baseRules ??
-    strategies.find((x) => x.id === trade.strategyId)?.baseRules ??
-    [];
-  return rules.map((r) => ({ id: r.id, label: r.text, hint: r.hint || undefined }));
+/** The base rules a trade was measured against: its own frozen copy, or none for an ungraded trade. */
+export function checklistOf(trade: { setupSnapshot?: SetupSnapshot | null }): ChecklistItem[] {
+  return (trade.setupSnapshot?.baseRules ?? []).map((r) => ({ id: r.id, label: r.text, hint: r.hint || undefined }));
 }
 
 /** How many base rules the trade was measured against when it was logged. */

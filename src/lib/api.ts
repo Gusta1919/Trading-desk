@@ -3,7 +3,7 @@ import type { Candle, Timeframe } from "./chart";
 import type { BiasFile } from "./dailyBias";
 import type { Plan, PlanInput } from "./plans";
 import type { Rulebook, RulebookVersion, VersionRow } from "./rulebook";
-import type { Limits, Strategy, StrategyInput, Trade, TradeInput, WeekNote } from "./types";
+import type { Limits, Trade, TradeInput, WeekNote } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -24,13 +24,6 @@ export const api = {
   update: (id: string, t: TradeInput) =>
     request<Trade>(`/api/trades/${id}`, { method: "PUT", body: JSON.stringify(t) }),
   remove: (id: string) => request<void>(`/api/trades/${id}`, { method: "DELETE" }),
-  strategies: () => request<Strategy[]>("/api/strategies"),
-  createStrategy: (s: StrategyInput) =>
-    request<Strategy>("/api/strategies", { method: "POST", body: JSON.stringify(s) }),
-  updateStrategy: (id: string, s: StrategyInput) =>
-    request<Strategy>(`/api/strategies/${id}`, { method: "PUT", body: JSON.stringify(s) }),
-  removeStrategy: (id: string) =>
-    request<void>(`/api/strategies/${id}`, { method: "DELETE" }),
   weeks: () => request<WeekNote[]>("/api/weeks"),
   saveWeek: (w: Pick<WeekNote, "week" | "bias" | "reasoning" | "levels">) =>
     request<WeekNote>(`/api/weeks/${w.week}`, { method: "PUT", body: JSON.stringify(w) }),

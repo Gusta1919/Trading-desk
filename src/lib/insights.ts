@@ -8,14 +8,17 @@
 import { QUESTIONS, VERDICTS, type CheckIn } from "./checkin";
 import { dayKey } from "./format";
 import { answerLabel, rangeIndex, rangeLabel, withUnit } from "./grading";
+import { fromTradeNews, newsDay } from "./newsRules";
+import type { Rulebook } from "./rulebook";
 import { WEEKDAYS, classifyOutcome, isClosed, tradePct } from "./stats";
 import {
   EMOTIONS,
   FLAG_LABEL,
+  POI_TESTS,
   checklistComplete,
   checklistOf,
   checklistRecorded,
-  type Strategy,
+  exitReasonLabel,
   type Trade,
 } from "./types";
 
@@ -31,7 +34,10 @@ const variance = (xs: number[]) => {
 /** Minimum trades on each side of a comparison. */
 export const MIN_GROUP = 4;
 /** Shrinkage strength: a group of k trades counts half. Protects against lucky small samples. */
-const SHRINK_K = 5;
+export const SHRINK_K = 5;
+
+/** A difference in R, shrunk toward zero by how few trades stand behind it. */
+export const shrunk = (diff: number, n: number) => diff * (n / (n + SHRINK_K));
 /** Differences smaller than this (in R, after shrinkage) are treated as noise. */
 const MIN_EFFECT = 0.15;
 
@@ -55,64 +61,36 @@ export interface Insight {
 
 export interface TradeContext {
   trade: Trade;
-  strategyName: string | null;
-  /** The checks this trade was measured against — its strategy's, or the default. */
+  /** The base rules this trade was measured against — its own frozen copy. */
   checklist: { id: string; label: string }[];
   prev: Trade | null; // previous closed trade (any day)
   indexInDay: number; // 0 = first trade of the day
   daysSincePrev: number | null;
   checkin: CheckIn | undefined;
-  /** Where this trade's box sat in the strategy's own size distribution. */
+  /** Where this trade's box sat in your own size distribution. */
   boxBucket: string | null;
-  boxLabel: string | null;
 }
 
 const dateOf = (t: Trade) => t.date.slice(0, 10);
 const days = (a: string, b: string) =>
   Math.round((new Date(`${a}T00:00`).getTime() - new Date(`${b}T00:00`).getTime()) / 86_400_000);
 
-export function contexts(
-  trades: Trade[],
-  checkins: CheckIn[],
-  strategies: Strategy[] = [],
-): TradeContext[] {
-  const names = new Map(strategies.map((s) => [s.id, s.name]));
+export function contexts(trades: Trade[], checkins: CheckIn[]): TradeContext[] {
   // Skipped setups were never traded: they have no result to learn from here.
   const closed = trades.filter((t) => isClosed(t) && !t.skipped).sort((a, b) => a.date.localeCompare(b.date));
   const byDate = new Map(checkins.map((c) => [c.date, c]));
-  const boxLabels = new Map(strategies.map((s) => [s.id, s.boxLabel]));
-  const boxUnits = new Map(strategies.map((s) => [s.id, s.boxUnit]));
-
-  /*
-   * Box sizes are only comparable inside one strategy — a 40-point Asia range means
-   * nothing next to a 900-point index box — so each strategy gets its own thirds.
-   */
-  const boxes = new Map<string, number[]>();
-  for (const t of closed) {
-    if (t.boxSize == null) continue;
-    const key = t.strategyId ?? "none";
-    const list = boxes.get(key);
-    if (list) list.push(t.boxSize);
-    else boxes.set(key, [t.boxSize]);
-  }
-  for (const list of boxes.values()) list.sort((a, b) => a - b);
+  const boxes = closed.map((t) => t.boxSize).filter((b): b is number => b != null).sort((a, b) => a - b);
 
   return closed.map((t, i) => {
     const prev = i > 0 ? closed[i - 1] : null;
     return {
       trade: t,
-      strategyName: t.strategyId ? (names.get(t.strategyId) ?? null) : null,
-      checklist: checklistOf(t, strategies),
+      checklist: checklistOf(t),
       prev,
       indexInDay: closed.slice(0, i).filter((x) => dateOf(x) === dateOf(t)).length,
       daysSincePrev: prev ? days(dateOf(t), dateOf(prev)) : null,
       checkin: byDate.get(dateOf(t)),
-      boxBucket: boxBucketOf(
-        t.boxSize,
-        boxes.get(t.strategyId ?? "none"),
-        (t.strategyId && boxUnits.get(t.strategyId)) || "pts",
-      ),
-      boxLabel: t.strategyId ? (boxLabels.get(t.strategyId) || null) : null,
+      boxBucket: boxBucketOf(t.boxSize, boxes, "$"),
     };
   });
 }
@@ -134,10 +112,9 @@ function hourBucket(t: Trade) {
 }
 
 /**
- * Splits a box into the smallest, middle and largest third of what you have logged
- * for that strategy. Relative rather than absolute, so it needs no configuration and
- * keeps meaning as you trade different instruments — but it stays silent until there
- * are enough boxes for thirds to mean anything.
+ * Splits a box into the smallest, middle and largest third of what you have logged.
+ * Relative rather than absolute, so it needs no configuration — but it stays silent
+ * until there are enough boxes for thirds to mean anything.
  */
 function boxBucketOf(size: number | null, sorted: number[] | undefined, unit: string) {
   if (size == null || !sorted || sorted.length < 6) return null;
@@ -146,9 +123,9 @@ function boxBucketOf(size: number | null, sorted: number[] | undefined, unit: st
   const hi = at(2 / 3);
   if (lo >= hi) return null;
   // The threshold goes in the name so advice arrives with a number attached.
-  if (size <= lo) return `${lo} ${unit} or less`;
-  if (size >= hi) return `${hi} ${unit} or more`;
-  return `${lo}–${hi} ${unit}`;
+  if (size <= lo) return `${unit}${lo} or less`;
+  if (size >= hi) return `${unit}${hi} or more`;
+  return `${unit}${lo}–${hi}`;
 }
 
 function rrBucket(rr: number | null) {
@@ -158,22 +135,44 @@ function rrBucket(rr: number | null) {
   return "2.5R or more";
 }
 
+/** Sweep depth against the Compass reference: under $11, $11–18, $18–30, over $30. */
+export function depthBucket(depth: number | null, doc?: Pick<Rulebook, "sweep">): string | null {
+  if (depth == null) return null;
+  const s = doc?.sweep ?? { p70: 11, p85: 18, p95: 30 };
+  if (depth < s.p70) return `under $${s.p70}`;
+  if (depth < s.p85) return `$${s.p70}–${s.p85}`;
+  if (depth <= s.p95) return `$${s.p85}–${s.p95}`;
+  return `over $${s.p95}`;
+}
+
 /** Every factor a trade has, as [dimension, value, human label]. */
-function factorsOf(c: TradeContext): [string, string, string][] {
+function factorsOf(c: TradeContext, doc?: Rulebook): [string, string, string][] {
   const t = c.trade;
   const f: [string, string, string][] = [];
   const add = (dim: string, value: string | null | undefined, label?: string) => {
     if (value) f.push([dim, value, label ?? `${dim}: ${value}`]);
   };
 
-  add("Strategy", c.strategyName, `Strategy: ${c.strategyName}`);
   add("Entry", t.entryModel);
   add("HTF", t.htf);
   add("Session", t.session);
   add("Setup", t.setup);
-  if (c.boxBucket) {
-    add("Box size", c.boxBucket, `${c.boxLabel || "Box"} of ${c.boxBucket}`);
+  if (c.boxBucket) add("Box size", c.boxBucket, `Box of ${c.boxBucket}`);
+
+  /* The rulebook's journal fields. */
+  if (t.entryType) add("Entry type", t.entryType, t.entryType === "limit" ? "Limit entries" : "Market entries");
+  if (t.exitReason) add("Exit reason", t.exitReason, `Exit: ${exitReasonLabel(t.exitReason).toLowerCase()}`);
+  if (t.took15mSwing != null) add("15m swing", t.took15mSwing ? "yes" : "no", t.took15mSwing ? "Sweep took a 15m swing" : "Sweep took no 15m swing");
+  if (t.poiTests) add("POI", t.poiTests, `POI ${POI_TESTS.find((p) => p.value === t.poiTests)?.label.toLowerCase()}`);
+  if (t.levelSweep != null) add("Level sweep", t.levelSweep ? "yes" : "no", t.levelSweep ? "Swept an important level" : "No important-level sweep");
+  if (t.deskAgreed === "yes" || t.deskAgreed === "no") add("Desk", t.deskAgreed, t.deskAgreed === "yes" ? "The desk agreed" : "The desk disagreed");
+  const depth = depthBucket(t.sweepDepth, doc);
+  if (depth) add("Sweep depth", depth, `Sweep depth ${depth}`);
+  if (doc && t.news.length) {
+    const nd = newsDay(t.date.slice(0, 10), t.news.map(fromTradeNews), doc.news);
+    add("Release day", nd.windows.length ? "yes" : "no", nd.windows.length ? "A red release that day" : "No red release that day");
   }
+  if (t.releaseAtBe != null) add("Held through release", t.releaseAtBe ? "at BE" : "not at BE", t.releaseAtBe ? "Held through a release at breakeven" : "Held through a release, not at breakeven");
   add("Symbol", t.symbol);
   add("Direction", t.direction === "long" ? "Long" : "Short", t.direction === "long" ? "Long trades" : "Short trades");
   const wd = (new Date(t.date).getDay() + 6) % 7;
@@ -192,8 +191,8 @@ function factorsOf(c: TradeContext): [string, string, string][] {
   for (const m of t.mistakes) add("Mistake", m, `Mistake: ${m}`);
 
   /*
-   * The strategy's own grade factors, read from the trade's frozen snapshot — so any
-   * factor on any strategy is compared without this file knowing its name.
+   * The grade factors, read from the trade's frozen snapshot — so any factor, in any
+   * version of the rulebook, is compared without this file knowing its name.
    */
   const snap = t.setupSnapshot;
   if (snap) {
@@ -208,10 +207,6 @@ function factorsOf(c: TradeContext): [string, string, string][] {
     }
   }
   for (const flag of t.flags) add("Flag", flag, FLAG_LABEL[flag]);
-
-  // Combinations of the core trade fields.
-  if (t.entryModel && t.htf) add("Entry × HTF", `${t.entryModel}|${t.htf}`, `${t.entryModel} on a ${t.htf} reason`);
-  if (t.entryModel && t.session) add("Entry × Session", `${t.entryModel}|${t.session}`, `${t.entryModel} in ${t.session}`);
 
   // Sequence & behaviour.
   if (c.prev) {
@@ -240,17 +235,13 @@ function factorsOf(c: TradeContext): [string, string, string][] {
 
 /* ── Factor ranking ──────────────────────────────────────────────────── */
 
-export function findInsights(
-  trades: Trade[],
-  checkins: CheckIn[],
-  strategies: Strategy[] = [],
-): Insight[] {
-  const ctx = contexts(trades, checkins, strategies);
+export function findInsights(trades: Trade[], checkins: CheckIn[], doc?: Rulebook): Insight[] {
+  const ctx = contexts(trades, checkins);
   if (ctx.length < MIN_GROUP * 2) return [];
 
   const groups = new Map<string, { dim: string; value: string; label: string; idx: Set<number> }>();
   ctx.forEach((c, i) => {
-    for (const [dim, value, label] of factorsOf(c)) {
+    for (const [dim, value, label] of factorsOf(c, doc)) {
       const key = `${dim}::${value}`;
       if (!groups.has(key)) groups.set(key, { dim, value, label, idx: new Set() });
       groups.get(key)!.idx.add(i);
@@ -274,7 +265,7 @@ export function findInsights(
     const diff = mean(a) - mean(b);
     const se = Math.sqrt(variance(a) / a.length + variance(b) / b.length) || 1e-9;
     const tStat = Math.abs(diff / se);
-    const effect = diff * (inside.length / (inside.length + SHRINK_K));
+    const effect = shrunk(diff, inside.length);
     if (Math.abs(effect) < MIN_EFFECT) continue;
 
     const outcomes = inside.map((t) => classifyOutcome(t.resultR));

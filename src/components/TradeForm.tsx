@@ -465,7 +465,6 @@ export function TradeForm({
       session: f.session ?? "",
       // The legacy fields are carried through untouched; the form no longer asks for them.
       setup: trade?.setup ?? "",
-      strategyId: trade?.strategyId ?? null,
       htf: trade?.htf ?? "",
       entryModel: trade?.entryModel ?? "",
       riskPct: f.skipped ? 0 : (risk ?? 0),

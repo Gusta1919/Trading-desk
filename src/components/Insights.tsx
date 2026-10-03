@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import type { CheckIn } from "@/lib/checkin";
 import { fmtR } from "@/lib/format";
 import { behaviour, edges, findInsights, leaks, type Insight, type Slice } from "@/lib/insights";
-import type { Strategy, Trade } from "@/lib/types";
+import type { Rulebook } from "@/lib/rulebook";
+import type { Trade } from "@/lib/types";
 import { cx } from "./ui";
 
 const CONF: Record<Insight["confidence"], { label: string; cls: string }> = {
@@ -17,15 +18,15 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 export function DriversCard({
   trades,
   checkins,
-  strategies = [],
+  doc,
 }: {
   trades: Trade[];
   checkins: CheckIn[];
-  strategies?: Strategy[];
+  doc?: Rulebook;
 }) {
   const insights = useMemo(
-    () => findInsights(trades, checkins, strategies),
-    [trades, checkins, strategies],
+    () => findInsights(trades, checkins, doc),
+    [trades, checkins, doc],
   );
   const good = edges(insights).slice(0, 6);
   const bad = leaks(insights).slice(0, 6);

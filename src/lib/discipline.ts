@@ -332,3 +332,25 @@ export function autoRuleState(auto: AutoRule, ctx: AutoContext): boolean | null 
     }
   }
 }
+
+/* ── Adherence ───────────────────────────────────────────────────────── */
+
+/**
+ * Rule adherence: the share of taken trades that broke no rule, over New York days
+ * from `from` to `to` (inclusive). The target is 100% — reviewed weekly next to P&L.
+ */
+export function adherence(trades: Trade[], from?: string, to?: string): { n: number; clean: number; rate: number | null } {
+  const mine = takenTrades(trades).filter((t) => {
+    const d = dayOf(t.date);
+    return (from == null || d >= from) && (to == null || d <= to);
+  });
+  const clean = mine.filter((t) => !t.flags.length).length;
+  return { n: mine.length, clean, rate: mine.length ? clean / mine.length : null };
+}
+
+/** Monday and Friday of the ISO week a New York day falls in. */
+export function weekSpan(day: string): { from: string; to: string } {
+  const [y, m, d] = day.split("-").map(Number);
+  const wd = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; // 0 = Monday
+  return { from: addDays(day, -wd), to: addDays(day, 4 - wd) };
+}

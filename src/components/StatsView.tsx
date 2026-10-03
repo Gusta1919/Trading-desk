@@ -9,13 +9,13 @@ import {
   SESSIONS,
   checklistComplete,
   checklistRecorded,
-  type Strategy,
   type Trade,
 } from "@/lib/types";
+import type { Rulebook } from "@/lib/rulebook";
 import { QUESTIONS, VERDICTS, type CheckIn } from "@/lib/checkin";
 import { EquityChart } from "./EquityChart";
 import { DriversCard, HabitsCard } from "./Insights";
-import { StrategyCompare } from "./StrategyCompare";
+import { Compare } from "./Compare";
 import { Segmented, cx } from "./ui";
 
 type Range = "30" | "90" | "ytd" | "all";
@@ -79,17 +79,17 @@ function inRange(t: Trade, range: Range) {
 export function StatsView({
   trades,
   checkins,
-  strategies = [],
+  doc,
 }: {
   trades: Trade[];
   checkins: CheckIn[];
-  strategies?: Strategy[];
+  doc: Rulebook;
 }) {
   const [range, setRange] = useState<Range>("all");
   const [dim, setDim] = useState("checklist");
   const [wellDim, setWellDim] = useState("readiness");
 
-  // Skipped setups are kept aside: only the per-strategy breakdown reads them.
+  // Skipped setups are kept aside: they were never traded.
   const inPeriod = useMemo(() => trades.filter((t) => inRange(t, range)), [trades, range]);
   const filtered = useMemo(() => inPeriod.filter((t) => !t.skipped), [inPeriod]);
   const s = useMemo(() => summarize(filtered), [filtered]);
@@ -143,35 +143,25 @@ export function StatsView({
     const hi = at(2 / 3);
     if (lo >= hi) return null; // every box the same size — nothing to compare
 
-    const withBox = strategies.find((s) => s.boxLabel);
-    const unit = withBox?.boxUnit || "pts";
-    const small = `Small · ${lo} ${unit} or less`;
-    const mid = `Medium · ${lo}–${hi} ${unit}`;
-    const large = `Large · ${hi} ${unit} or more`;
+    const small = `Small · $${lo} or less`;
+    const mid = `Medium · $${lo}–${hi}`;
+    const large = `Large · $${hi} or more`;
 
     return {
       id: "box",
-      label: `${withBox?.boxLabel || "Box"} size`,
+      label: "Box size",
       key: (t: Trade) =>
         t.boxSize == null ? null : t.boxSize <= lo ? small : t.boxSize >= hi ? large : mid,
       order: [small, mid, large],
     };
-  }, [trades, strategies]);
+  }, [trades]);
 
-  // Strategy sits first: it's the thing you actually choose before a trade.
   const dimensions = useMemo(() => {
-    const names = new Map(strategies.map((s) => [s.id, s.name]));
-    const strategyDim: (typeof DIMENSIONS)[number] = {
-      id: "strategy",
-      label: "Strategy",
-      key: (t: Trade) => (t.strategyId ? (names.get(t.strategyId) ?? null) : t.setup || null),
-    };
     const withData = DIMENSIONS.filter(
       (d) => !["entry", "htf", "setup"].includes(d.id) || filtered.some((t) => d.key(t)),
     );
-    const base = strategies.length ? [strategyDim, ...withData] : withData;
-    return boxDimension ? [...base, boxDimension] : base;
-  }, [strategies, boxDimension, filtered]);
+    return boxDimension ? [...withData, boxDimension] : withData;
+  }, [boxDimension, filtered]);
 
   const dimension = dimensions.find((d) => d.id === dim) ?? dimensions[0];
   const rows = useMemo(
@@ -252,7 +242,7 @@ export function StatsView({
             <Mini label="Followed plan" value={fmtRate(s.planAdherence)} />
           </div>
 
-          <DriversCard trades={filtered} checkins={checkins} strategies={strategies} />
+          <DriversCard trades={filtered} checkins={checkins} doc={doc} />
           <HabitsCard trades={filtered} checkins={checkins} />
 
           {/* Comparison */}
@@ -272,7 +262,7 @@ export function StatsView({
             <GroupTable rows={rows} empty={`No ${dimension.label.toLowerCase()} recorded yet.`} />
           </Card>
 
-          <StrategyCompare trades={inPeriod} strategies={strategies} />
+          <Compare trades={inPeriod} doc={doc} />
 
           <Card
             id="sec-wellbeing"

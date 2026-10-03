@@ -2,24 +2,27 @@
  * The Coach — turns your own history into a pre-session briefing.
  *
  * Every message is grounded in YOUR numbers: it compares what is happening now
- * with what is statistically normal for your strategy, so you can tell
- * variance ("this happens") from a real problem ("something changed").
+ * with what is statistically normal for your trading, so you can tell variance
+ * ("this happens") from a real problem ("something changed") — and in the rulebook:
+ * what today allows, what is running from yesterday, and what is ready to decide.
  */
 import { QUESTIONS, VERDICTS, type CheckIn } from "./checkin";
 import { dayKey, fmtPct, fmtR } from "./format";
 import { classifyOutcome, groupBy, isClosed, summarize, tradePct } from "./stats";
 import { costDrag, limitState } from "./limits";
-import { allowedRisk, dayBudget, gradeRisk } from "./risk";
+import { adherence, deskStatus, weekSpan } from "./discipline";
+import { hypothesisResults } from "./hypotheses";
+import type { NewsDay } from "./newsRules";
+import type { Plan } from "./plans";
+import { dayBudget } from "./risk";
+import { tokenValues, type Rulebook } from "./rulebook";
+import { minutesOf } from "./rules";
+import { deskNow } from "./tz";
 import {
   DEFAULT_LIMITS,
   FLAG_LABEL,
-  GRADES,
   checklistOf,
   checklistRecorded,
-  isGrade,
-  type Grade,
-  type Limits,
-  type Strategy,
   type Trade,
   type TradeFlag,
 } from "./types";
@@ -201,21 +204,26 @@ const dayOfYear = (d: Date) =>
 
 /* ── The briefing ────────────────────────────────────────────────────── */
 
-/** The strategy most of your trades are logged against — its ladder is the one quoted. */
-function mainStrategy(trades: Trade[], strategies: Strategy[]): Strategy | null {
-  if (!strategies.length) return null;
-  const count = (s: Strategy) => trades.filter((t) => t.strategyId === s.id).length;
-  return [...strategies].sort((a, b) => count(b) - count(a))[0];
+/** The desk the Coach reads besides your trades: the rulebook, the plans, today's news. */
+export interface CoachDesk {
+  doc: Rulebook;
+  rulebookOf: (version: string | null) => Rulebook;
+  plans: Plan[];
+  /** Today as the news rules see it; null when the calendar doesn't cover today. */
+  news?: NewsDay | null;
 }
+
+const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 /** `allTrades` may include setups logged as skipped in the past; they are never counted. */
 export function buildBriefing(
   allTrades: Trade[],
   checkins: CheckIn[],
   now = new Date(),
-  strategies: Strategy[] = [],
-  limits?: Limits | null,
+  desk?: CoachDesk | null,
 ): Briefing {
+  const doc = desk?.doc ?? null;
+  const limits = doc?.limits ?? null;
   const trades = allTrades.filter((t) => !t.skipped);
   const today = dayKey(now);
   const closed = trades.filter(isClosed).sort((a, b) => a.date.localeCompare(b.date));
@@ -230,12 +238,12 @@ export function buildBriefing(
   const byDate = new Map(checkins.map((c) => [c.date, c]));
   const allAvgR = mean(closed.map((t) => t.resultR!));
   const brokeRules = breaksRules;
-  const insights = findInsights(trades, checkins, strategies);
+  const insights = findInsights(trades, checkins, doc ?? undefined);
   const beh = behaviour(trades, checkins);
 
   /*
-   * Today, measured against your daily budget: the day may lose at most your daily
-   * stop, and each trade may take at most min(its grade's risk, what is left, the cap).
+   * Today, as the rulebook sees it: one trade a day, a daily and a weekly stop, the
+   * consequences still running, the plan and the news.
    */
   const L = limits ?? DEFAULT_LIMITS;
   const budget = dayBudget(trades, today, L);
@@ -244,14 +252,11 @@ export function buildBriefing(
   const dayPct = todays.filter(isClosed).reduce((a, t) => a + tradePct(t), 0);
   const afterStop = todays.filter((t) => t.flags.includes("after_daily_stop"));
   const brokenToday = todays.filter((t) => t.flags.some((f) => f !== "after_daily_stop"));
-  // The ladder of the strategy you trade most, for "what is allowed now" in plain numbers.
-  const main = mainStrategy(trades, strategies);
-  const ladderNow = main
-    ? main.grades
-        .filter((g) => g.traded)
-        .map((g) => `${g.grade} ${pctStr(allowedRisk(gradeRisk(main, g.grade), budget, L))}`)
-        .join(" · ")
+  const status = desk
+    ? deskStatus({ trades: allTrades, plans: desk.plans, checkins, rulebookOf: desk.rulebookOf, doc: desk.doc, now, news: desk.news })
     : null;
+  const nowTime = deskNow(now).slice(11, 16);
+  const nowMin = minutesOf(nowTime)!;
 
   if (afterStop.length) {
     const r = afterStop.filter(isClosed).reduce((a, t) => a + tradePct(t), 0);
@@ -276,36 +281,116 @@ export function buildBriefing(
       why: "The trade that 'wins it back' is taken to repair a feeling, not because the market offered a setup. The daily stop exists to make that decision for you in advance.",
     });
   } else if (open.length) {
+    const t = open[0];
+    const stopAt = doc?.timeStop ?? "12:00";
+    const nearStop = t.date.slice(0, 10) === today && nowMin >= minutesOf(stopAt)! - 30;
     add({
-      id: "open",
-      tone: "warn",
-      priority: 99,
-      title: `You have an open trade on ${open[0].symbol}`,
-      body: `Manage it by the plan you made before entry — stop and target stay where they are. Its ${pctStr(
-        open.reduce((a, t) => a + t.riskPct, 0),
-      )} risk is already counted against today's budget: ${pctStr(budget.remaining)} is left for anything else.`,
+      id: nearStop ? "time-stop" : "open",
+      tone: nearStop ? "alert" : "warn",
+      priority: nearStop ? 102 : 99,
+      title: nearStop ? `Close ${t.symbol} by ${stopAt} — the time stop` : `You have an open trade on ${t.symbol}`,
+      body: nearStop
+        ? `Positions are closed by ${stopAt}, never held overnight. Whatever price is doing, the plan made this decision before the trade.`
+        : `Manage it by the plan you made before entry — hands off until ${doc ? tokenValues(doc)["trailAfter.word"] : "halfway"}, then trail. Its ${pctStr(
+            open.reduce((a, x) => a + x.riskPct, 0),
+          )} risk is already counted against today's and this week's budgets.`,
       why: "Once in a trade, the brain starts managing feelings instead of the position. The plan you made calm is better than the one you make under pressure.",
     });
-  } else if (todays.length && dayPct < -EPS) {
-    add({
-      id: "budget",
-      tone: "info",
-      priority: 100,
-      title: `${fmtPct(dayPct)} today — ${pctStr(budget.remaining)} of your ${pctStr(L.dailyStopPct)} budget left`,
-      body:
-        `A next trade is capped by what is left${ladderNow ? `: ${ladderNow}` : `, at most ${pctStr(budget.remaining)}`}. ` +
-        "Take it only if it grades on its own merits. A trade taken to win back the first one is the expensive one.",
-      why: "After a loss the next setup always looks better than it is. The shrinking budget is there so that the day's worst decision is also its smallest.",
-    });
+    // A red release about to print while the trade is open: close before it, unless the stop is at breakeven.
+    const coming = desk?.news?.windows.find((w) => w.at > nowMin && w.at - nowMin <= 30);
+    if (coming && t.date.slice(0, 10) === today && doc) {
+      add({
+        id: "release-coming",
+        tone: "alert",
+        priority: 101,
+        title: `${coming.currency} ${coming.title} at ${hhmm(coming.at)}`,
+        body: `Close by ${hhmm(coming.at - doc.news.beforeMin)} — unless the stop is already at breakeven or better. Then it may stay through.`,
+        why: "In the pilot, trades that rode a release with a breakeven stop could only gain from the spike; the ones without one were exposed to it.",
+      });
+    }
   } else if (todays.length) {
     add({
-      id: "green-day",
-      tone: "good",
+      id: "done-today",
+      tone: dayPct >= 0 ? "good" : "info",
       priority: 100,
-      title: `${todays.length > 1 ? `${todays.length} trades` : "Traded"} today — ${fmtPct(dayPct)}`,
-      body:
-        "Your budget is intact, so the rules would allow another trade — but only one that grades A or better on its own. Leaving a green day alone is a strategy too.",
-      why: "After a win, confidence rises faster than skill and setups start to look better than they are (the house-money effect). The second trade of a good day is where it is most often given back.",
+      title: `Done for today — ${fmtPct(dayPct)}`,
+      body: "One box, one thesis, one trade. Win, lose or breakeven, the desk is closed until tomorrow — close the charts.",
+      why: "After a win confidence rises faster than skill (the house-money effect); after a loss the next setup always looks better than it is. The one-trade rule makes both decisions in advance.",
+    });
+  }
+
+  /* What the rules say about today, before any trade. */
+  if (status && !todays.length) {
+    if (status.dayOff) {
+      add({
+        id: "day-off",
+        tone: "alert",
+        priority: 100,
+        title: status.dayOff.reason === "rule-break" ? "Day off — a rule was broken today" : `Day off — until ${status.dayOff.until}`,
+        body:
+          status.dayOff.reason === "rule-break"
+            ? "Any rule break ends the day. The trade is recorded; there is no next one today."
+            : `Breaking the one-trade rule or a loss limit costs ${doc ? tokenValues(doc)["consequence.daysOff.word"] : "two"} trading days. They started after ${status.dayOff.from}. Use them to review the journal, not to watch the chart.`,
+        why: "A consequence decided in advance is not a punishment, it is a circuit breaker: it takes the decision away from the state that broke the rule.",
+      });
+    }
+    if (status.skipDay) {
+      add({
+        id: "skip-day",
+        tone: "alert",
+        priority: 97,
+        title: "Skip day — no trading",
+        body: `${desk?.news?.skip.length ? desk.news.skip.join(", ") : "The year-end break"}. The rulebook doesn't trade this day at all, however clean a setup looks.`,
+      });
+    }
+    if (status.noPlan) {
+      add({
+        id: "no-plan",
+        tone: "alert",
+        priority: 98,
+        title: "No plan, no trade today",
+        body:
+          status.plan === "late"
+            ? `The plan was written after ${doc?.planBy}. It still helps tomorrow's review, but it doesn't open today.`
+            : `No plan was written by ${doc?.planBy}. That alone makes today a no-trade day.`,
+        why: "The plan is where the calm version of you decides what counts as a setup. Without it, the chart decides — and the chart always has a setup.",
+      });
+    } else if (status.plan === "missing" && doc) {
+      add({
+        id: "plan-due",
+        tone: "warn",
+        priority: 92,
+        title: `Write today's plan before ${doc.planBy}`,
+        body: "Bias, levels, release windows, the Compass — and anything that makes today a no-trade day.",
+      });
+    }
+  }
+  if (status?.weekBudget.stopHit) {
+    add({
+      id: "week-stop",
+      tone: "alert",
+      priority: 99,
+      title: "Weekly stop hit — no more trades this week",
+      body: `This week has lost ${pctStr(status.weekBudget.lossToday)}. Stop for the rest of the week and review the journal before Monday.`,
+      why: "Four losses in a week at half a percent is not bad luck to trade through; it is the moment to look at what changed.",
+    });
+  } else if (status && status.weekBudget.lossToday >= L.weeklyStopPct / 2) {
+    add({
+      id: "week-budget",
+      tone: "warn",
+      priority: 82,
+      title: `${fmtPct(-status.weekBudget.lossToday)} this week — ${pctStr(status.weekBudget.remaining)} left before the weekly stop`,
+      body: "Same rules, same size. The weekly stop is there so that a bad week stays a bad week.",
+    });
+  }
+  if (status?.halfRisk) {
+    add({
+      id: "half-risk",
+      tone: "warn",
+      priority: 86,
+      title: "Half-risk week",
+      body: `Two or more rule breaks last week put this week at reduced risk: A+ may risk ${pctStr(status.allowedByGrade["A+"] || L.maxRiskPct * (doc?.consequences.factor ?? 0.5))} at most.`,
+      why: "Smaller size after broken rules keeps a habit from becoming a drawdown while you fix it.",
     });
   }
 
@@ -331,7 +416,7 @@ export function buildBriefing(
       priority: 98,
       title: "Check-in says: stand down",
       body:
-        "The best thing you can do today is nothing. If you overrule it: A+ setups only — the ladder sizes them, and your daily stop still applies. No A, no B on a stand-down day.",
+        "The best thing you can do today is nothing — and the rulebook agrees: on a sit-out day nothing is tradable, and any trade is logged as a rule break.",
       stat:
         same.length >= 2
           ? `On past sit-out days you averaged ${fmtR(mean(same.map((t) => t.resultR!)))} over ${plural(same.length, "trade")} (overall ${fmtR(allAvgR)}).`
@@ -350,7 +435,7 @@ export function buildBriefing(
       tone: "warn",
       priority: 88,
       title: "Check-in says: trade restricted",
-      body: `Flags raised: ${flagged.join(", ")}. Raise the bar instead of trimming the size: take A+ and A setups only, skip anything that grades B today, and let the grade set the risk — no rounding up or down by feel.`,
+      body: `Flags raised: ${flagged.join(", ")}. Raise the bar instead of trimming the size: only an A+ is tradable today — an A waits for a clearer morning — and the grade sets the risk, no rounding by feel.`,
       stat:
         same.length >= 2
           ? `On past “trade with care” days you averaged ${fmtR(mean(same.map((t) => t.resultR!)))} over ${plural(same.length, "trade")} (overall ${fmtR(allAvgR)}).`
@@ -395,7 +480,7 @@ export function buildBriefing(
         priority: 95,
         title: `Your edge is negative over ${plural(decided, "trade")}`,
         body:
-          "This is not a losing streak — it is your average. Repeating it with more discipline only loses the money faster. Stop adding trades to this strategy until something changes: the setup, the exit, the instrument or the session.",
+          "This is not a losing streak — it is your average. Repeating it with more discipline only loses the money faster. Stop adding live trades until something changes: the setup, the exit or the session — and test that change in Forex Tester first.",
         stat: `${fmtR(expR)} per trade, and the whole 95% range (${fmtR(ciLo)} to ${fmtR(ciHi)}) sits below zero.${rateLine}`,
         why: "Streak and drawdown cards can only tell you whether a run is normal for your numbers. They cannot tell you whether your numbers are worth repeating. That is a separate question, and it is the more important one.",
       });
@@ -508,8 +593,6 @@ export function buildBriefing(
     if (oversized) signs.push(`${plural(oversized, "trade")} in the streak risked more than the grade allowed`);
     const streakMistakes = run.filter(breaksRules).length;
     if (streakMistakes) signs.push(`${plural(streakMistakes, "trade")} in the streak broke a rule — winning anyway teaches the wrong lesson`);
-    const lowGrade = run.filter((t) => t.grade === "B" || t.grade === "C").length;
-    if (lowGrade >= 2) signs.push(`${lowGrade} of the wins were B/C-grade setups — part of this streak is luck`);
     if (run.some((t) => (t.emotion ?? 0) >= 4)) signs.push("you logged feeling anxious or tilted during the streak");
     const history = beh.afterWinStreak;
     const badHistory = history.n >= 3 && history.avgR < beh.all.avgR - 0.3;
@@ -611,41 +694,111 @@ export function buildBriefing(
   }
 
   /*
-   * The ladder itself: does each rung earn its risk? Per strategy, because every
-   * strategy defines its own grades.
+   * The ladder: does A+ earn its place above A — and has it earned its way back to a
+   * bigger risk? Only A+ and A are traded, so those are the only rungs to judge.
    */
   // Grades the ladder card already calls out, so the leak card doesn't repeat them.
   const ladderGrades = new Set<string>();
-  for (const st of strategies) {
-    const mine = closed.filter((t) => t.strategyId === st.id && isGrade(t.grade));
-    const byGrade = new Map<Grade, Trade[]>(GRADES.map((g) => [g, mine.filter((t) => t.grade === g)]));
-    const avg = (g: Grade) => mean(byGrade.get(g)!.map((t) => t.resultR!));
-    const n = (g: Grade) => byGrade.get(g)!.length;
-
-    const losing = st.grades.find((c) => c.traded && c.grade !== "A+" && n(c.grade) >= 10 && avg(c.grade) < 0);
-    if (losing) {
-      ladderGrades.add(losing.grade);
+  if (doc) {
+    const top = closed.filter((t) => t.grade === "A+");
+    const a = closed.filter((t) => t.grade === "A");
+    const avg = (ts: Trade[]) => mean(ts.map((t) => t.resultR!));
+    if (a.length >= 10 && avg(a) < 0) {
+      ladderGrades.add("A");
       add({
-        id: `ladder-${st.id}`,
+        id: "ladder-a",
         tone: "warn",
         priority: 66,
-        title: `${losing.grade} setups in ${st.name} are losing money`,
-        body: `${losing.grade} averages ${fmtR(avg(losing.grade))} over ${plural(n(losing.grade), "trade")}. A rung with a negative expectancy costs money every time it is taken — consider switching ${losing.grade} to Don't in Strategies and leaving those setups alone.`,
-        stat: GRADES.filter((g) => n(g) >= 3).map((g) => `${g}: ${fmtR(avg(g))} (${n(g)})`).join(" · "),
+        title: "A setups are losing money",
+        body: `A averages ${fmtR(avg(a))} over ${plural(a.length, "trade")}. A rung with a negative expectancy costs money every time it is taken — lowering its risk needs no evidence; the Rulebook takes the change with a reason.`,
+        stat: `A+: ${fmtR(avg(top))} (${top.length}) · A: ${fmtR(avg(a))} (${a.length})`,
         why: "A grade is a prediction. When a prediction keeps failing, the cheapest fix is to stop paying for it.",
       });
-    } else if (n("A+") >= 8 && n("A") >= 8 && avg("A") > avg("A+") + 0.2) {
+    } else if (top.length >= 8 && a.length >= 8 && avg(a) > avg(top) + 0.2) {
       add({
-        id: `ladder-${st.id}`,
+        id: "ladder-flip",
         tone: "info",
         priority: 48,
-        title: `In ${st.name}, A is outperforming A+`,
-        body: "Your top rung is getting twice the risk for a worse result. Some factor that separates A+ from A may be measuring the wrong thing — check each factor in Compare → By strategy before changing anything.",
-        stat: `A+: ${fmtR(avg("A+"))} (${n("A+")}) · A: ${fmtR(avg("A"))} (${n("A")})`,
+        title: "A is outperforming A+",
+        body: "Some factor that separates A+ from A may be measuring the wrong thing — check each factor in Stats → Compare before changing anything.",
+        stat: `A+: ${fmtR(avg(top))} (${top.length}) · A: ${fmtR(avg(a))} (${a.length})`,
         why: "Full size belongs where the edge is strongest. If the ladder is upside down, the sizing multiplies the wrong trades.",
       });
     }
 
+    // A+ back to a bigger risk: only after enough graded trades show it beats A by enough.
+    const card = doc.grades.find((g) => g.grade === "A+");
+    const graded = top.length + a.length;
+    if (card && card.riskPct < doc.aPlus.riskPct && graded >= doc.aPlus.trades && top.length >= 4 && a.length >= 4) {
+      const edge = avg(top) - avg(a);
+      add({
+        id: "a-plus-risk",
+        tone: edge >= doc.aPlus.edgeR ? "good" : "info",
+        priority: edge >= doc.aPlus.edgeR ? 52 : 41,
+        title: edge >= doc.aPlus.edgeR ? `A+ has earned ${pctStr(doc.aPlus.riskPct)}` : `A+ stays at ${pctStr(card.riskPct)}`,
+        body:
+          edge >= doc.aPlus.edgeR
+            ? `Over ${plural(graded, "graded trade")} A+ beats A by ${fmtR(edge)} per trade — the rulebook's bar is ${fmtR(doc.aPlus.edgeR)}. Raising it is your call, in the Rulebook, with this as the reason.`
+            : `Over ${plural(graded, "graded trade")} A+ beats A by ${fmtR(edge)}; the rulebook asks for ${fmtR(doc.aPlus.edgeR)} before A+ goes back to ${pctStr(doc.aPlus.riskPct)}.`,
+        stat: `A+: ${fmtR(avg(top))} (${top.length}) · A: ${fmtR(avg(a))} (${a.length})`,
+      });
+    }
+
+    // The Compass is a frozen snapshot — and it goes stale.
+    const age = Math.floor((new Date(`${today}T12:00:00Z`).getTime() - new Date(`${doc.compass.frozenOn}T12:00:00Z`).getTime()) / 86_400_000);
+    if (age > doc.compass.refreshDays) {
+      add({
+        id: "compass-age",
+        tone: "info",
+        priority: 45,
+        title: `The Compass snapshot is ${age} days old`,
+        body: "It is due a refresh every quarter. Pull the new weekday values and update the snapshot in the Rulebook — it becomes a new version.",
+      });
+    }
+
+    // Hypotheses with enough data behind them.
+    const ready = hypothesisResults(doc, trades).filter((h) => h.status === "ready");
+    if (ready.length) {
+      const values = tokenValues(doc);
+      add({
+        id: "hypotheses",
+        tone: "info",
+        priority: 43,
+        title: `${ready.length} ${ready.length === 1 ? "hypothesis" : "hypotheses"} ready to decide`,
+        body: "Enough trades are logged to decide these. Decide in the Rulebook, with a reason — a change that adds risk needs data that didn't create the idea.",
+        stat: ready.map((h) => `${h.hypothesis.text.replace(/\{\{[^}]+\}\}/g, (m) => values[m.slice(2, -2).trim()] ?? m)} (${h.n})`).join(" · "),
+      });
+    }
+  }
+
+  /* Rule adherence, week by week — reviewed next to P&L, target 100%. */
+  if (doc) {
+    const weeks = [0, 1, 2, 3].map((k) => {
+      const d = new Date(now.getTime() - k * 7 * 86_400_000);
+      return weekSpan(deskNow(d).slice(0, 10));
+    });
+    const rates = weeks.map((w) => adherence(trades, w.from, w.to));
+    const thisWeek = rates[0];
+    const before = rates.slice(1).filter((r) => r.rate != null);
+    if (thisWeek.rate != null && thisWeek.rate < 1) {
+      add({
+        id: "adherence",
+        tone: "warn",
+        priority: 73,
+        title: `Rule adherence this week: ${pct0(thisWeek.rate)}`,
+        body: `${thisWeek.n - thisWeek.clean} of this week's ${plural(thisWeek.n, "trade")} broke a rule. The target is 100% — results follow adherence, not the other way round.`,
+        stat: before.length ? `Previous weeks: ${before.map((r) => pct0(r.rate!)).join(" · ")}` : undefined,
+      });
+    } else if (thisWeek.rate === 1 && before.some((r) => r.rate! < 1)) {
+      add({
+        id: "adherence",
+        tone: "good",
+        priority: 47,
+        title: "100% rule adherence this week",
+        body: "Every trade this week followed the rulebook. That is the part you control — keep stacking it.",
+        stat: `Previous weeks: ${before.map((r) => pct0(r.rate!)).join(" · ")}`,
+      });
+    }
   }
 
   /* Last session */
@@ -662,7 +815,7 @@ export function buildBriefing(
       const missing = [
         ...new Set(
           broken.flatMap((t) =>
-            checklistOf(t, strategies)
+            checklistOf(t)
               .filter((c) => !t.checklist.includes(c.id))
               .map((c) => c.label),
           ),
@@ -739,7 +892,7 @@ export function buildBriefing(
             : "Drawdowns like this are built into your strategy. Nothing needs fixing — keep executing."
           : tone === "warn"
             ? "Still possible with your edge, but on the deep side. Keep the ladder as it is — no sizing up to get back — and review your last trades in Compare."
-            : "This is deeper than your own history suggests. Trade only A+ setups until you find the cause — market conditions, rule breaks, or a setup that stopped working. If you want smaller size too, lower the ladder's risks in Strategies deliberately, not trade by trade.",
+            : "This is deeper than your own history suggests. Trade only A+ setups until you find the cause — market conditions, rule breaks, or a setup that stopped working. If you want smaller size too, lower the ladder's risks in the Rulebook deliberately, not trade by trade.",
       stat: `I re-shuffled your ${closed.length} results into 2,000 simulated runs of 50 trades: ${pct0(deeper)} of them went at least this deep. Your deepest so far: ${fmtPct(s.maxDrawdownPct)}.`,
       why: "Drawdowns feel personal, but they're a statistical certainty. Knowing your normal range lets you stay calm inside it — and act fast outside it.",
     });
@@ -759,7 +912,7 @@ export function buildBriefing(
         title: `Last 10 trades: ${fmtR(last10)} — ${worse < 0.05 ? "unusually weak" : "a cold patch"}`,
         body:
           worse < 0.05
-            ? "This is weaker than 95% of random 10-trade stretches from your own history. Something may have changed — check Compare → Checklist and Entry for the last few weeks."
+            ? "This is weaker than 95% of random 10-trade stretches from your own history. Something may have changed — check Stats → Compare for the last few weeks."
             : "Weaker than normal, but within what your strategy produces sometimes. Stay with the process.",
         stat: `Only ${pct0(worse)} of simulated 10-trade stretches were this bad or worse.`,
         why: "Separating variance from real change is the core skill: overreact to variance and you abandon a good strategy; ignore real change and you keep trading a broken one.",
@@ -838,11 +991,11 @@ export function buildBriefing(
   }
 
   /* Where your edge is — the setups and conditions that pay you */
-  // Each strategy's own grade factors count as structure too — whatever they are called.
+  // The rulebook's own grade factors count as structure too — whatever they are called.
   const STRUCTURE = new Set([
-    "Strategy", "Entry", "HTF", "Session", "Setup", "Symbol", "Direction", "Time", "Entry × HTF",
-    "Entry × Session", "Planned R:R", "Box size",
-    ...strategies.flatMap((x) => x.factors.map((f) => f.name)),
+    "Entry", "HTF", "Session", "Setup", "Symbol", "Direction", "Weekday", "Time", "Planned R:R", "Box size",
+    "Entry type", "Exit reason", "15m swing", "POI", "Level sweep", "Desk", "Sweep depth", "Release day",
+    ...(doc?.factors.map((f) => f.name) ?? []),
   ]);
   const bestEdges = edges(insights)
     .filter((i) => STRUCTURE.has(i.dimension) && i.confidence !== "early")
@@ -898,7 +1051,7 @@ export function buildBriefing(
       tone: "info",
       priority: 42,
       title: "Your grades don't match your results yet",
-      body: "Your lower-graded trades are doing as well as or better than your top-graded ones. Some factor in your ladder may be rewarding the wrong answers — Compare → By strategy shows each factor's results, so you can see which one before changing anything.",
+      body: "Your lower-graded trades are doing as well as or better than your top-graded ones. Some factor in your ladder may be rewarding the wrong answers — Stats → Compare shows each factor's results, so you can see which one before changing anything.",
       stat: beh.grades.map((g) => `${g.grade}: ${fmtR(g.avgR)} (${g.n})`).join(" · "),
     });
   }
@@ -948,6 +1101,7 @@ export function buildBriefing(
   /* Headline + tone */
   const top = cards[0];
   const greenDay = todays.length >= 1 && !open.length && !budget.stopHit && dayPct >= 0 && !brokenToday.length;
+  const closedToday = todays.length >= 1 && !open.length;
   const tone: Tone = greenDay
     ? "good"
     : cards.some((c) => c.tone === "alert")
@@ -962,8 +1116,14 @@ export function buildBriefing(
       ? "Past your daily stop. Close the desk now."
       : budget.stopHit && todays.length && !open.length
         ? "Daily stop hit. The desk reopens tomorrow."
-      : greenDay
-        ? "Green day. Anything more has to grade A or better."
+      : closedToday
+        ? greenDay
+          ? "Done for today. A green day, left alone."
+          : "Done for today. One trade, one thesis."
+      : status?.dayOff
+        ? "Day off. The desk is closed today."
+      : status?.noPlan
+        ? "No plan, no trade today."
       : tone === "alert"
         ? "Slow down. Read this before the session opens."
         : tone === "warn"

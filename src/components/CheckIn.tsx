@@ -1,7 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { buildBriefing } from "@/lib/coach";
+import { buildBriefing, type CoachDesk } from "@/lib/coach";
 import {
   QUESTIONS,
   USER_NAME,
@@ -50,6 +50,7 @@ export function CheckIn({
   rulebookOf,
   calendar,
   lean,
+  desk,
   onPlanSaved,
   onWeekSaved,
   onDone,
@@ -64,6 +65,8 @@ export function CheckIn({
   calendar: CalendarEvent[];
   /** Which way today's Daily Bias briefing leans, or null before it arrives. */
   lean: PlanBias | null;
+  /** The rulebook, plans and news the briefing reads. */
+  desk: CoachDesk | null;
   onPlanSaved: (p: Plan) => void;
   onWeekSaved: (w: WeekNote) => void;
   onDone: (c: CheckInData) => void;
@@ -148,7 +151,7 @@ export function CheckIn({
   const briefing = useMemo(
     () =>
       stage === "briefing"
-        ? buildBriefing(trades, [current, ...checkins.filter((c) => c.date !== current.date)])
+        ? buildBriefing(trades, [current, ...checkins.filter((c) => c.date !== current.date)], undefined, desk)
         : null,
     [stage], // eslint-disable-line react-hooks/exhaustive-deps
   );
