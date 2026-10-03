@@ -24,7 +24,17 @@ import {
 } from "@/lib/calendarView";
 import { type CalendarEvent, type Headline } from "@/lib/news";
 import type { NewsState } from "@/lib/useNews";
-import { NEWS_CATEGORIES, NEWS_CURRENCIES, categoryLabel, categoryOf } from "@/lib/newsRules";
+import {
+  NEWS_CATEGORIES,
+  NEWS_CURRENCIES,
+  categoryLabel,
+  categoryOf,
+  fromEvent,
+  newsDay,
+  stanceOf,
+  type NewsDay,
+} from "@/lib/newsRules";
+import type { NewsRules } from "@/lib/rulebook";
 import { DESK_LABEL, deskDateLabel, deskDay, deskStamp, deskTime } from "@/lib/tz";
 import { Chips, cx, stagger } from "./ui";
 
@@ -113,6 +123,11 @@ function Calendar({ news }: { news: NewsState }) {
     [news.events, filters],
   );
   const split = useMemo(() => splitByDay(shown, new Date(now)), [shown, now]);
+  /* What the rulebook makes of today — judged on every release, not only the ones the filters show. */
+  const todayRules = useMemo(() => {
+    const today = deskDay(new Date(now));
+    return newsDay(today, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === today).map(fromEvent), news.rules);
+  }, [news.events, news.rules, now]);
   const windows = useMemo(() => volatilityWindows(split.today), [split.today]);
   const upcoming = split.today.filter((e) => Date.parse(e.at!) >= now);
   const done = split.today.filter((e) => Date.parse(e.at!) < now);
@@ -135,7 +150,10 @@ function Calendar({ news }: { news: NewsState }) {
   return (
     <section className="card overflow-hidden">
       <header className="flex items-baseline justify-between border-b px-5 py-3.5">
-        <h3 className="text-[14px] font-semibold">Today · {deskDateLabel(new Date(now))}</h3>
+        <h3 className="flex items-center gap-2.5 text-[14px] font-semibold">
+          Today · {deskDateLabel(new Date(now))}
+          {todayRules.skip.length > 0 && <SkipBadge reasons={todayRules.skip} />}
+        </h3>
         <div className="flex items-center gap-3 text-[11px] text-faint">
           <span>
             {loading ? (
@@ -177,7 +195,7 @@ function Calendar({ news }: { news: NewsState }) {
         <SkeletonRows rows={7} />
       ) : (
         <div>
-          <DayMap events={split.today} now={now} />
+          <DayMap events={split.today} now={now} rules={todayRules} />
           {/* Wide screens: "when will it move" on the left, the releases on the right. */}
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(340px,2fr)_5fr]">
             <div className="border-b xl:border-b-0 xl:border-r">
@@ -187,7 +205,7 @@ function Calendar({ news }: { news: NewsState }) {
             <div className="min-w-0">
               <Section title="Still to come today" count={upcoming.length}>
                 {upcoming.length ? (
-                  upcoming.map((e, i) => <Row key={e.id} event={e} now={now} index={i} countdown />)
+                  upcoming.map((e, i) => <Row key={e.id} event={e} now={now} index={i} countdown rules={news.rules} />)
                 ) : (
                   <Quiet>Nothing left today with these filters.</Quiet>
                 )}
@@ -196,7 +214,7 @@ function Calendar({ news }: { news: NewsState }) {
               {!filters.hidePast && done.length > 0 && (
                 <Section title="Already happened today" count={done.length}>
                   {done.map((e, i) => (
-                    <Row key={e.id} event={e} now={now} index={upcoming.length + i} />
+                    <Row key={e.id} event={e} now={now} index={upcoming.length + i} rules={news.rules} />
                   ))}
                 </Section>
               )}
@@ -209,10 +227,12 @@ function Calendar({ news }: { news: NewsState }) {
                   events={d.events}
                   now={now}
                   index={i}
+                  rules={news.rules}
+                  skip={newsDay(d.day, news.events.filter((e) => e.at && deskDay(new Date(e.at)) === d.day).map(fromEvent), news.rules).skip}
                 />
               ))}
               {split.undated.length > 0 && (
-                <DaySection label="No set time" events={split.undated} now={now} index={split.later.length} />
+                <DaySection label="No set time" events={split.undated} now={now} index={split.later.length} rules={news.rules} skip={[]} />
               )}
             </div>
           </div>
@@ -381,7 +401,19 @@ const pct = (minutes: number) => `${(minutes / 1440) * 100}%`;
  * One strip for the whole New York day. The sessions are shaded bands, every release
  * is a dot in its folder colour, and where the dots pile up is where price will move.
  */
-function DayMap({ events, now }: { events: CalendarEvent[]; now: number }) {
+/** "Skip day" — the rulebook's word that nothing is traded today, with the reasons on hover. */
+function SkipBadge({ reasons }: { reasons: string[] }) {
+  return (
+    <span
+      title={`No trading at all: ${reasons.join(", ")}`}
+      className="rounded-full border border-down/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-down"
+    >
+      Skip day
+    </span>
+  );
+}
+
+function DayMap({ events, now, rules }: { events: CalendarEvent[]; now: number; rules: NewsDay }) {
   const nowMin = deskMinutes(new Date(now).toISOString());
 
   // Releases in the same minute stack, strongest at the bottom.
@@ -415,6 +447,25 @@ function DayMap({ events, now }: { events: CalendarEvent[]; now: number }) {
           />
         ))}
         <div className="absolute inset-y-0 left-0 bg-subtle" style={{ width: pct(nowMin) }} />
+        {/* The rulebook's release windows: no new entries from just before to an hour after. */}
+        {rules.windows.map((w) => (
+          <div
+            key={`${w.at}${w.title}`}
+            title={`${w.currency} ${w.title} — no new entries`}
+            className="anim-grow absolute inset-y-0"
+            style={{
+              left: pct(Math.max(0, w.start)),
+              width: pct(Math.min(24 * 60, w.end) - Math.max(0, w.start)),
+              background:
+                "repeating-linear-gradient(135deg, color-mix(in oklab, var(--color-down) 16%, transparent) 0 4px, transparent 4px 8px)",
+            }}
+          />
+        ))}
+        {rules.skip.length > 0 && (
+          <div className="absolute inset-0 flex items-center justify-center bg-down/[0.06]">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-down">Skip day — no trading</span>
+          </div>
+        )}
         {SESSIONS.map((s) => (
           <div
             key={s.label}
@@ -661,11 +712,16 @@ function DaySection({
   events,
   now,
   index,
+  rules,
+  skip,
 }: {
   label: string;
   events: CalendarEvent[];
   now: number;
   index: number;
+  rules: NewsRules;
+  /** Why the rulebook skips this day, if it does. */
+  skip: string[];
 }) {
   const count = (i: Impact) => events.filter((e) => e.impact === i).length;
   const busiest = volatilityWindows(events).sort(
@@ -676,6 +732,7 @@ function DaySection({
     <div className="anim-rise" style={stagger(index, 90)}>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-y bg-subtle px-5 py-2.5">
         <span className="text-[12px] font-semibold text-ink">{label}</span>
+        {skip.length > 0 && <SkipBadge reasons={skip} />}
         <span className="flex items-center gap-3 text-[11px] text-soft">
           {(["High", "Medium", "Low", "Holiday"] as const).map(
             (i) =>
@@ -695,7 +752,7 @@ function DaySection({
         )}
       </div>
       {events.map((e, i) => (
-        <Row key={e.id} event={e} now={now} index={i} />
+        <Row key={e.id} event={e} now={now} index={i} rules={rules} />
       ))}
     </div>
   );
@@ -706,15 +763,18 @@ function Row({
   now,
   index = 0,
   countdown = false,
+  rules,
 }: {
   event: CalendarEvent;
   now: number;
   index?: number;
   countdown?: boolean;
+  rules: NewsRules;
 }) {
   const at = e.at ? Date.parse(e.at) : null;
   const past = at != null && at < now;
   const cat = categoryOf(e);
+  const stance = stanceOf(e, rules);
 
   return (
     <div className="anim-rise border-b last:border-0" style={stagger(index)}>
@@ -740,6 +800,16 @@ function Row({
       />
       <span className="num w-9 shrink-0 text-[12px] font-medium text-ink">{e.currency}</span>
       <span className="min-w-0 flex-1 truncate text-[13px]">{e.title}</span>
+      {stance === "skip" && (
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-down" title="The rulebook skips this day">
+          skip day
+        </span>
+      )}
+      {stance === "window" && at != null && (
+        <span className="num shrink-0 text-[10px] font-medium text-warn" title="No new entries in this window">
+          no entries {deskTime(new Date(at - rules.beforeMin * 60_000))}–{deskTime(new Date(at + rules.afterMin * 60_000))}
+        </span>
+      )}
       {(e.forecast || e.previous) && (
         <span className="num hidden shrink-0 text-[11px] text-faint sm:block">
           {e.forecast && <>f/c {e.forecast}</>}

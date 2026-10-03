@@ -19,6 +19,7 @@ import { deskStatus } from "@/lib/discipline";
 import { deskDay } from "@/lib/tz";
 import { PlanForm } from "@/components/PlanForm";
 import { StatusBanner } from "@/components/StatusBanner";
+import { StandAside } from "@/components/StandAside";
 import { StatsStrip } from "@/components/StatsStrip";
 import { StatsView } from "@/components/StatsView";
 import { RulebookView } from "@/components/RulebookView";
@@ -87,7 +88,21 @@ export default function App() {
   const [audible, setAudible] = useState(false);
   /* The calendar shows every folder; only red news on the desk's currencies chimes. */
   const tradingEvents = useMemo(() => news.events.filter(countsForTrading), [news.events]);
-  const alerts = useNewsAlerts(tradingEvents, news.headlines, news.rules, sound);
+  const openToday = useMemo(
+    () => trades.some((t) => !t.skipped && t.resultR == null && !t.exitTime && t.date.slice(0, 10) === deskDay()),
+    [trades],
+  );
+  const alerts = useNewsAlerts(tradingEvents, news.headlines, news.rules, sound, {
+    timeStop: rulebook.doc.timeStop,
+    entryWindows: rulebook.doc.entryWindows,
+    openTrade: openToday,
+  });
+  const [toastGone, setToastGone] = useState(0);
+  useEffect(() => {
+    if (!alerts.lastAt) return;
+    const id = window.setTimeout(() => setToastGone(alerts.lastAt), 12_000);
+    return () => clearTimeout(id);
+  }, [alerts.lastAt]);
   const [weeks, setWeeks] = useState<WeekNote[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -317,7 +332,7 @@ export default function App() {
             !sound
               ? "Alerts off. Click to be warned before red releases."
               : audible
-                ? "Alerts on — chime 1 minute before and at each red release"
+                ? "Alerts on — 5 minutes before and at each release-window release, and at the time stop with a trade open"
                 : "Alerts on, but this browser is blocking sound. Visual warnings still work; allow sound for this site to hear the chime."
           }
           className={cx(
@@ -379,7 +394,12 @@ export default function App() {
             {view === "stats" && (
               <StatsView trades={trades} checkins={checkins} doc={rulebook.doc} />
             )}
-            {view === "bias" && <DailyBiasView state={dailyBias} />}
+            {view === "bias" && (
+              <DailyBiasView
+                state={dailyBias}
+                standAside={<StandAside doc={rulebook.doc} status={status} news={todayNews} />}
+              />
+            )}
             {view === "news" && <NewsView news={news} />}
             {view === "risk" && (
               <Simulation trades={taken} doc={rulebook.doc} />
@@ -389,6 +409,20 @@ export default function App() {
             )}
         </div>
       </div>
+
+      {/* What the last alert said, for a few seconds — the ring says something happened, this says what. */}
+      {alerts.lastMessage && alerts.lastAt !== toastGone && (
+        <div
+          key={alerts.lastAt}
+          role="status"
+          className="anim-pop glass fixed bottom-6 right-6 z-[65] max-w-sm rounded-xl border px-4 py-3 text-[13px] shadow-[var(--shadow-lift)]"
+        >
+          <button onClick={() => setToastGone(alerts.lastAt)} className="float-right ml-3 text-faint hover:text-ink" aria-label="Dismiss">
+            ×
+          </button>
+          {alerts.lastMessage}
+        </div>
+      )}
 
       {/* A one-second ring around the desk, so an alert lands even in silence. */}
       {alerts.pulse && (

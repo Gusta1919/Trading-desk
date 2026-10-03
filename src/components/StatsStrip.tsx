@@ -1,18 +1,25 @@
 import { useMemo } from "react";
 import { fmtNum, fmtPct, fmtR, fmtRate, tone } from "@/lib/format";
+import { adherence, weekSpan } from "@/lib/discipline";
 import { summarize } from "@/lib/stats";
+import { deskDay } from "@/lib/tz";
 import type { Trade } from "@/lib/types";
 import { Tip, cx, useCountUp } from "./ui";
 
 /** One row of headline numbers — the top of the board, readable from across the desk. */
 export function StatsStrip({ trades }: { trades: Trade[] }) {
   const s = useMemo(() => summarize(trades), [trades]);
+  // Rule adherence this ISO week — reviewed next to P&L, target 100%.
+  const week = useMemo(() => {
+    const span = weekSpan(deskDay());
+    return adherence(trades, span.from, span.to);
+  }, [trades]);
   const streak = s.currentStreak.outcome
     ? `${s.currentStreak.count}${s.currentStreak.outcome === "win" ? "W" : "L"}`
     : "—";
 
   return (
-    <div className="card grid grid-cols-2 gap-x-8 gap-y-4 px-6 py-4 sm:grid-cols-4 lg:grid-cols-7">
+    <div className="card grid grid-cols-2 gap-x-8 gap-y-4 px-6 py-4 sm:grid-cols-4 lg:grid-cols-8">
       <Kpi
         i={0}
         label="Net return"
@@ -60,6 +67,14 @@ export function StatsStrip({ trades }: { trades: Trade[] }) {
       />
       <Kpi
         i={6}
+        label="Adherence · week"
+        hint="This week's taken trades that broke no rule. The target is 100% — reviewed weekly next to P&L."
+        value={week.rate == null ? null : week.rate * 100}
+        format={(v) => (week.rate == null ? "—" : `${Math.round(v ?? 0)}%`)}
+        cls={week.rate == null ? "" : week.rate >= 1 ? "text-up" : "text-down"}
+      />
+      <Kpi
+        i={7}
         label="Trades"
         hint="Closed trades in the journal, plus any still open. Skipped setups aren't counted."
         text={`${s.closed}${s.open ? ` · ${s.open} open` : ""}`}

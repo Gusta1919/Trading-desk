@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { chime, flashTitle, urgencyOf } from "./alerts";
 import { newsApi, type CalendarEvent, type Headline } from "./news";
+import { fromEvent, newsDay, stanceOf } from "./newsRules";
+import { deskDay, deskTime } from "./tz";
 import type { NewsRules } from "./rulebook";
 import { defaultRulebook } from "./rulebookText";
 
@@ -101,33 +103,61 @@ export function useNews(): NewsState {
 export interface AlertState {
   /** Set briefly when something fires, so the shell can flash its border. */
   pulse: "event" | "critical" | null;
+  /** What the last alert said, for a moment on screen. */
   lastMessage: string | null;
+  /** When it said it, so the shell can let the message go after a while. */
+  lastAt: number;
+}
+
+/** What the rules need from the desk to time their alerts. */
+export interface AlertDesk {
+  timeStop: string;
+  entryWindows: { from: string; to: string }[];
+  /** A taken trade from today is still open. */
+  openTrade: boolean;
+}
+
+const minutesOf = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
+/** The instant a New York wall-clock time falls at today, worked out from now's own New York time. */
+function todayAt(hhmm: string, now: number) {
+  const nowMin = minutesOf(deskTime(new Date(now)));
+  const nowSec = new Date(now).getSeconds();
+  return now + (minutesOf(hhmm) - nowMin) * 60_000 - nowSec * 1000;
 }
 
 /**
- * Watches the calendar and the wire and makes a noise when it matters: one minute
- * before a red release, again as it prints, and on any headline carrying emergency
- * language. Sound only happens when the user has unmuted, which is also what
- * unlocks audio in the browser.
+ * Watches the calendar, the wire and the clock, and speaks when a rule is about to
+ * matter:
+ *  - a release-window release: at T−5 ("close unless the stop is at breakeven") and as it prints
+ *  - a skip day: one notice in the morning, no chime at each release
+ *  - an open trade: at 11:55 and 12:00, the time stop
+ *  - quietly, without sound: entries pause at 08:25 and the last entry is at 11:00
+ *  - any headline carrying emergency language
+ * Sound only happens when the user has unmuted, which is also what unlocks audio in
+ * the browser; the hard cooldown in `chime` keeps a cluster from spamming.
  */
 export function useNewsAlerts(
   events: CalendarEvent[],
   headlines: Headline[],
   rules: NewsRules,
   enabled: boolean,
+  desk?: AlertDesk,
 ): AlertState {
   const [pulse, setPulse] = useState<AlertState["pulse"]>(null);
   const [lastMessage, setLastMessage] = useState<string | null>(null);
+  const [lastAt, setLastAt] = useState(0);
   /** Headlines seen before the alert engine started must not all fire at once. */
   const seen = useRef<Set<string> | null>(null);
-  const firedEvents = useRef(new Set<string>());
+  const fired = useRef(new Set<string>());
 
   const fire = useCallback(
-    (kind: "event" | "critical", message: string) => {
+    (kind: "event" | "critical", message: string, quiet = false) => {
       setLastMessage(message);
+      setLastAt(Date.now());
       setPulse(kind);
       window.setTimeout(() => setPulse(null), 1000);
-      if (enabled) {
+      if (enabled && !quiet) {
         chime(kind);
         flashTitle(`🔔 ${kind === "critical" ? "BREAKING" : "NEWS"} | Trading Desk`);
       }
@@ -135,36 +165,89 @@ export function useNewsAlerts(
     [enabled],
   );
 
-  /* Red releases: one minute out, and on the second. */
+  /** Fires once per key, at `at` (an instant), if that is still ahead and within a day. */
+  const schedule = useCallback(
+    (timers: number[], key: string, at: number, run: () => void) => {
+      const due = at - Date.now();
+      if (due <= 0 || due > 86_400_000) return;
+      timers.push(
+        window.setTimeout(() => {
+          if (fired.current.has(key)) return;
+          fired.current.add(key);
+          run();
+        }, due),
+      );
+    },
+    [],
+  );
+
+  /* Releases, judged by the rulebook. */
   useEffect(() => {
     const timers: number[] = [];
-    const now = Date.now();
-
     for (const e of events) {
       if (!e.at || e.allDay) continue;
-      if (e.impact === "Holiday") continue;
+      const stance = stanceOf(e, rules);
       const at = new Date(e.at).getTime();
-
-      for (const [offset, label] of [
-        [-60_000, "in 1 minute"],
-        [0, "now"],
-      ] as const) {
-        const due = at + offset - now;
-        // Only schedule what is still ahead and inside a day, so we never hold
-        // thousands of timers for a whole week of releases.
-        if (due <= 0 || due > 86_400_000) continue;
-        const key = `${e.id}@${offset}`;
-        timers.push(
-          window.setTimeout(() => {
-            if (firedEvents.current.has(key)) return;
-            firedEvents.current.add(key);
-            fire("event", `${e.currency} ${e.title} — ${label}`);
-          }, due),
+      const name = `${e.currency} ${e.title}`;
+      if (stance === "window") {
+        schedule(timers, `${e.id}@-5`, at - rules.beforeMin * 60_000, () =>
+          fire("event", `${name} in ${rules.beforeMin} min — close unless the stop is at breakeven`),
         );
+        schedule(timers, `${e.id}@0`, at, () =>
+          fire("event", `${name} — now. No new entries until ${deskTime(new Date(at + rules.afterMin * 60_000))}`),
+        );
+      } else if (stance === "info") {
+        // Red but not a rule: shown, never chimed.
+        schedule(timers, `${e.id}@0`, at, () => fire("event", `${name} — now`, true));
       }
+      // Skip-day releases get one notice in the morning instead — below.
     }
     return () => timers.forEach(clearTimeout);
-  }, [events, rules, fire]);
+  }, [events, rules, fire, schedule]);
+
+  /*
+   * A skip day: said once, in the morning, rather than at every release — once per
+   * day even across reloads, and not at all after the time stop, when it no longer
+   * changes anything.
+   */
+  useEffect(() => {
+    const today = deskDay();
+    const items = events.filter((e) => e.at && deskDay(new Date(e.at)) === today).map(fromEvent);
+    const day = newsDay(today, items, rules);
+    const key = `trade-assistant.skip-notice.${today}`;
+    const late = desk && deskTime(new Date()) >= desk.timeStop;
+    if (!day.skip.length || late || fired.current.has(key)) return;
+    fired.current.add(key);
+    try {
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, "1");
+    } catch {
+      /* storage blocked: the notice may repeat after a reload, which is harmless */
+    }
+    fire("event", `Skip day — ${day.skip.join(", ")}. No trading today.`);
+  }, [events, rules, fire, desk]);
+
+  /* The clock of the rules: entries pause, the last entry, the time stop. */
+  useEffect(() => {
+    if (!desk) return;
+    const timers: number[] = [];
+    const now = Date.now();
+    const today = deskDay();
+    const [first, second] = desk.entryWindows;
+    if (first && second) {
+      schedule(timers, `pause@${today}`, todayAt(first.to, now), () =>
+        fire("event", `${first.to} — entries pause until ${second.from}`, true),
+      );
+    }
+    const last = desk.entryWindows[desk.entryWindows.length - 1];
+    if (last) schedule(timers, `last@${today}`, todayAt(last.to, now), () => fire("event", `${last.to} — the last entry of the day`, true));
+    if (desk.openTrade) {
+      const stop = todayAt(desk.timeStop, now);
+      schedule(timers, `stop-5@${today}`, stop - 5 * 60_000, () => fire("event", `5 minutes to the ${desk.timeStop} time stop — close the trade`));
+      schedule(timers, `stop@${today}`, stop, () => fire("critical", `${desk.timeStop} — time stop. Close the trade now.`));
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [desk?.openTrade, desk?.timeStop, desk?.entryWindows, fire, schedule]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* The wire: only genuinely urgent language, and only headlines new to this session. */
   useEffect(() => {
@@ -180,5 +263,5 @@ export function useNewsAlerts(
     }
   }, [headlines, fire]);
 
-  return { pulse, lastMessage };
+  return { pulse, lastMessage, lastAt };
 }

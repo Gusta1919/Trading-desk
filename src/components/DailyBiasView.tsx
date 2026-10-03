@@ -1,5 +1,5 @@
 import { ArrowDownRight, ArrowUpRight, ExternalLink, Info, MoveRight, TrendingDown, TrendingUp } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { toHundred, type DailyBias, type Driver, type Lean, type Scenario, type Trend } from "@/lib/dailyBias";
 import { DESK_TZ, deskDateLabel, deskDay, deskTime } from "@/lib/tz";
 import type { DailyBiasState } from "@/lib/useDailyBias";
@@ -12,7 +12,21 @@ import { Tip, cx, stagger } from "./ui";
  * Every number is on screen; the reasoning behind it sits one hover away (Tip), and
  * the complete briefing stays in "Full briefing as text" — less to read, nothing lost.
  */
-export function DailyBiasView({ state }: { state: DailyBiasState }) {
+/** The desk's own stand-aside list, drawn next to the briefing's. */
+const StandAsideContext = createContext<ReactNode>(null);
+
+export function DailyBiasView({ state, standAside }: { state: DailyBiasState; standAside?: ReactNode }) {
+  return (
+    <StandAsideContext.Provider value={standAside ?? null}>
+      <View state={state} standAside={standAside} />
+    </StandAsideContext.Provider>
+  );
+}
+
+/** Without a briefing, the desk's own list still stands — the rules never wait for the routine. */
+const OwnList = ({ node }: { node?: ReactNode }) => (node ? <div className="card px-6 py-5">{node}</div> : null);
+
+function View({ state, standAside }: { state: DailyBiasState; standAside?: ReactNode }) {
   if (state.loading) return null;
 
   if (state.error && !state.date) {
@@ -23,7 +37,14 @@ export function DailyBiasView({ state }: { state: DailyBiasState }) {
     );
   }
 
-  if (state.freshness !== "today") return <NotYet state={state} />;
+  if (state.freshness !== "today") {
+    return (
+      <div className="space-y-4">
+        <NotYet state={state} />
+        <OwnList node={standAside} />
+      </div>
+    );
+  }
 
   if (!state.bias) {
     return (
@@ -31,6 +52,7 @@ export function DailyBiasView({ state }: { state: DailyBiasState }) {
         <Notice tone="warn" title="Today's briefing arrived, but not in the expected shape">
           Showing the plain text instead. Nothing is lost — tomorrow's run starts from scratch.
         </Notice>
+        <OwnList node={standAside} />
         {state.fallback && (
           <pre className="card whitespace-pre-wrap px-6 py-5 font-sans text-[13px] leading-relaxed text-soft">
             {state.fallback}
@@ -735,6 +757,12 @@ function SidesBar({
 
 /* ── Risk ────────────────────────────────────────────────────────────── */
 
+/** The desk's own list under the briefing's — the rules, whatever the routine wrote. */
+function DeskList() {
+  const node = useContext(StandAsideContext);
+  return node ? <div className="mt-5 border-t pt-4">{node}</div> : null;
+}
+
 function Risk({ b, className, style }: { b: DailyBias } & Anim) {
   const r = b.risk;
   // Group releases by desk day so "today" reads apart from the rest of the week.
@@ -790,6 +818,7 @@ function Risk({ b, className, style }: { b: DailyBias } & Anim) {
             ))}
             {!r.standAside.length && <li className="text-faint">No stand-aside conditions today.</li>}
           </ul>
+          <DeskList />
         </div>
       </div>
     </Panel>
