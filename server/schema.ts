@@ -6,7 +6,17 @@
  * is only added when missing, and data is moved aside, never deleted.
  */
 import type Database from "better-sqlite3";
-import { migrateCondensed, migrateFreshStart, migrateWindowByHand, migratePlanRetired, migrateRulebook, migrateStrategyDefinitions, seedGoldModel } from "./migrate.js";
+import {
+  migrateCheckinCloses,
+  migrateCondensed,
+  migrateFreshStart,
+  migrateJournalV23,
+  migratePlanRetired,
+  migrateRulebook,
+  migrateStrategyDefinitions,
+  migrateWindowByHand,
+  seedGoldModel,
+} from "./migrate.js";
 
 export function setupSchema(db: Database.Database) {
   /**
@@ -236,4 +246,6 @@ export function setupSchema(db: Database.Database) {
   migrateCondensed(db);
   migrateFreshStart(db);
   migrateWindowByHand(db);
+  migrateCheckinCloses(db);
+  migrateJournalV23(db);
 }

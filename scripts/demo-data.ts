@@ -34,7 +34,17 @@ import type { RulebookVersion } from "../src/lib/rulebook";
 import { BIAS_OPTION } from "../src/lib/rulebookText";
 import { compassFor, sessionAt } from "../src/lib/rules";
 import { deskTime } from "../src/lib/tz";
-import { EMPTY_RULEBOOK_FIELDS, type Direction, type ExitReason, type Trade, type TradeInput } from "../src/lib/types";
+import {
+  EMPTY_RULEBOOK_FIELDS,
+  HTF_TIMEFRAMES,
+  htfRank,
+  topHtf,
+  type Direction,
+  type ExitReason,
+  type HtfReason,
+  type Trade,
+  type TradeInput,
+} from "../src/lib/types";
 
 const API = "http://127.0.0.1:3848/api";
 const TAG = "[demo]";
@@ -130,10 +140,23 @@ function answersFor(grade: "A+" | "A", day: string, direction: Direction, doc: R
   return a;
 }
 
+/**
+ * The HTF reasons behind a setup, agreeing with its timeframe answer: the highest one is
+ * 1H for a "1H" answer, 4H or above otherwise — sometimes with a lower one beside it.
+ */
+function htfFor(answers: Record<string, string | number>): Pick<TradeInput, "htfReasons" | "htfReasonType"> {
+  const types = ["FVG", "FVG", "OB", "VIMB"] as const;
+  const top = { type: pick([...types]), tf: answers["htf-tf"] === "htf-1h" ? "1H" : pick(["4H", "4H", "D", "W"]) } as HtfReason;
+  const lower = HTF_TIMEFRAMES.slice(0, htfRank(top.tf)).map((x) => x.value);
+  const reasons: HtfReason[] = [top];
+  if (lower.length && chance(0.35)) reasons.push({ type: pick([...types].filter((t) => t !== top.type)), tf: pick(lower) });
+  return { htfReasons: reasons, htfReasonType: topHtf(reasons)!.type };
+}
+
 function outcomeR(grade: "A+" | "A", profile = PROFILE) {
   const p = profile[grade];
   const r = rand();
-  if (r < 0.06) return { r: round(between(-0.05, 0.1)), reason: "trail" as ExitReason }; // trailed out at breakeven
+  if (r < 0.06) return { r: round(between(-0.05, 0.05)), reason: "breakeven" as ExitReason }; // the stop at entry, hit
   if (r < 0.06 + p.win) {
     const win = round(between(p.lo, p.hi));
     return { r: win, reason: (win >= 1.8 ? "target" : pick(["target", "trail", "time"])) as ExitReason };
@@ -202,11 +225,11 @@ function makeTrade(d: Draft, doc: RulebookVersion["doc"], profile = PROFILE): Tr
     rulebookVersion: doc.version,
     sweepDepth: depth,
     took15mSwing: chance(0.55),
-    htfReasonType: pick(["FVG", "FVG", "OB", "VIMB"]),
+    ...htfFor(answers),
     poiTests: pick(["fresh", "fresh", "once", "2+"]),
     levelSweep: chance(0.2),
-    deskAgreed: pick(["yes", "yes", "no", "none"]),
-    entryType: chance(0.85) ? "market" : "limit",
+    deskAgreed: pick(["yes", "yes", "yes", "no"]),
+    entryType: "",
     riskUsd,
     exitTime: `${day}T${pad(Math.floor(exitMin / 60))}:${pad(exitMin % 60)}`,
     exitReason: reason,

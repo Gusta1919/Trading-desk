@@ -1,6 +1,6 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { DeskStatus } from "@/lib/discipline";
+import { checkinClosesDay, type DeskStatus } from "@/lib/discipline";
 import type { NewsDay, ReleaseWindow } from "@/lib/newsRules";
 import type { Rulebook } from "@/lib/rulebook";
 import { goldMarket, inLabel, type GoldMarket } from "@/lib/market";
@@ -53,6 +53,9 @@ export function headline(
   if (skip) return { tone: "down", text: "Skip day", sub: skip };
   if (status?.doneForToday) return { tone: "up", text: "Done for today", sub: status.dayBudget.stopHit ? "Daily stop hit" : "Trade taken" };
   if (status?.verdict === "sit-out") return { tone: "down", text: "Sit out", sub: "Check-in says so" };
+  if (status?.verdict === "caution" && checkinClosesDay(status.verdict, doc)) {
+    return { tone: "down", text: "Trade restricted", sub: "Check-in says no trade today" };
+  }
   if (status?.takenToday.some((t) => status.open.includes(t))) {
     return { tone: "up", text: "Trade open", sub: `Hands off · out by ${doc.timeStop}` };
   }
@@ -118,7 +121,13 @@ export function TodayCard({
   }
   if (status?.weekBudget.stopHit) lines.push({ tone: "down", text: "Weekly stop hit — no more trades this week." });
   if (status?.verdict === "sit-out") lines.push({ tone: "down", text: "Check-in says sit out — nothing is tradable today." });
-  if (status?.verdict === "caution") lines.push({ tone: "warn", text: "Check-in says caution — only A+ is tradable today." });
+  if (status?.verdict === "caution") {
+    lines.push(
+      checkinClosesDay(status.verdict, doc)
+        ? { tone: "down", text: "Check-in says trade restricted — no trade today." }
+        : { tone: "warn", text: "Check-in says caution — only A+ is tradable today." },
+    );
+  }
   if (status?.halfRisk) lines.push({ tone: "warn", text: "Half-risk week — every allowance is halved." });
   if (status?.doneForToday && !status.dayOff) lines.push({ tone: "up", text: "Done for today." });
   if (lines.length === 1 && !weekend) lines.push({ tone: "soft", text: news ? "Not a skip day." : "Not a skip day — as far as the calendar knows." });
@@ -190,7 +199,8 @@ function ReleaseRow({ w, m }: { w: ReleaseWindow; m: number }) {
 
 /**
  * Today's status, docked in the bottom-right corner of every tab: one quiet line that
- * says where the day stands right now, opening into the whole card on a click.
+ * says where the day stands right now, opening into the whole card as the mouse rests
+ * on it — no click — and folding away again when it leaves.
  */
 export function TodayDock({
   doc,
@@ -204,42 +214,66 @@ export function TodayDock({
   now: Date;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  // Each opening draws the card afresh, so its rows rise in again; closing keeps them while it fades.
+  const [opens, setOpens] = useState(0);
+  const timer = useRef<number | undefined>(undefined);
   const h = headline(doc, status, news, now);
 
-  // Closes on a click outside or on Escape, like the risk lines.
+  // A short grace on the way out, so crossing the gap between the line and the card keeps it open.
+  const show = () => {
+    window.clearTimeout(timer.current);
+    setOpen(true);
+  };
+  const hide = () => {
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setOpen(false), 200);
+  };
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  useEffect(() => {
+    if (open) setOpens((n) => n + 1);
+  }, [open]);
   useEffect(() => {
     if (!open) return;
-    const onClick = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    window.addEventListener("mousedown", onClick);
     window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onClick);
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
   const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "America/New_York" }).format(now);
 
   return (
-    <div ref={ref} className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
-      {open && (
-        <div className="anim-pop glass w-[22rem] rounded-2xl border p-4 shadow-[var(--shadow-lift)]">
-          <div className="mb-3 flex items-baseline justify-between">
-            <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">Today's status</h3>
-            <span className="num text-[11px] text-faint">
-              {day} · {deskNow(now).slice(11, 16)} NY
-            </span>
-          </div>
-          <TodayCard doc={doc} status={status} news={news} now={now} />
+    <div
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      className="pointer-events-none fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2"
+    >
+      <div
+        aria-hidden={!open}
+        className={cx(
+          "glass w-[22rem] origin-bottom-right rounded-2xl border p-4 shadow-[var(--shadow-lift)]",
+          "transition-[opacity,transform,translate] duration-300 ease-[cubic-bezier(0.25,1,0.5,1)]",
+          open ? "pointer-events-auto translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-[0.97] opacity-0",
+        )}
+      >
+        <div className="mb-3 flex items-baseline justify-between">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">Today's status</h3>
+          <span className="num text-[11px] text-faint">
+            {day} · {deskNow(now).slice(11, 16)} NY
+          </span>
         </div>
-      )}
+        {opens > 0 && <TodayCard key={opens} animate doc={doc} status={status} news={news} now={now} />}
+      </div>
       <button
-        onClick={() => setOpen((v) => !v)}
+        type="button"
+        onFocus={show}
+        onBlur={hide}
+        onClick={show}
         aria-expanded={open}
-        title="Today's status — click for the whole day"
-        className="glass group flex items-center gap-3 rounded-full border py-2 pl-3.5 pr-3 text-[12px] shadow-[var(--shadow-lift)] transition-colors hover:border-faint/40"
+        title="Today's status — rest the mouse here for the whole day"
+        className={cx(
+          "glass group pointer-events-auto flex items-center gap-3 rounded-full border py-2 pl-3.5 pr-3 text-[12px] shadow-[var(--shadow-lift)] transition-colors",
+          open ? "border-faint/40" : "hover:border-faint/40",
+        )}
       >
         <span className="relative flex size-2">
           {h.tone !== "soft" && (
@@ -249,7 +283,7 @@ export function TodayDock({
         </span>
         <span className={cx("font-medium", TONE_TEXT[h.tone])}>{h.text}</span>
         {h.sub && <span className="max-w-[16rem] truncate text-soft">{h.sub}</span>}
-        <ChevronDown size={13} className={cx("text-faint transition-transform", !open && "rotate-180")} />
+        <ChevronDown size={13} className={cx("text-faint transition-transform duration-300", !open && "rotate-180")} />
       </button>
     </div>
   );

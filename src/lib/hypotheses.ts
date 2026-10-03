@@ -2,7 +2,7 @@
  * The rulebook's hypotheses, measured: ideas being logged, not rules yet.
  *
  * Each one compares the trades on either side of a question — fresh POIs against
- * retested ones, limit entries against market ones — using the same small-sample
+ * retested ones, a bias that matched the briefing against one that didn't — using the same small-sample
  * guards as the Insights: a side with fewer than MIN_GROUP trades is shown faded, and
  * the difference is shrunk toward zero by how few trades stand behind it. A hypothesis
  * is ready to decide once its sample reaches its "decide after".
@@ -97,6 +97,7 @@ function measure(h: Hypothesis, closed: Trade[], doc: Rulebook): { n: number; si
       };
     }
     case "limit-entry": {
+      // Entry type is no longer logged (2.2); only trades from before still answer it.
       const limit = closed.filter((t) => t.entryType === "limit");
       return {
         n: limit.length,
@@ -116,7 +117,7 @@ function measure(h: Hypothesis, closed: Trade[], doc: Rulebook): { n: number; si
       const logged = closed.filter((t) => t.deskAgreed === "yes" || t.deskAgreed === "no");
       return {
         n: logged.length,
-        sides: [side("Desk agreed", logged.filter((t) => t.deskAgreed === "yes")), side("Desk disagreed", logged.filter((t) => t.deskAgreed === "no"))],
+        sides: [side("Bias matched", logged.filter((t) => t.deskAgreed === "yes")), side("Bias differed", logged.filter((t) => t.deskAgreed === "no"))],
       };
     }
     case "a-plus": {

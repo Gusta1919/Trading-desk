@@ -391,6 +391,7 @@ export function GradePanel({
   dayOff,
   halfRisk,
   doneToday,
+  cautionClosesDay = false,
 }: {
   result: GradeResult;
   card: GradeCard | null;
@@ -404,6 +405,8 @@ export function GradePanel({
   halfRisk?: boolean;
   /** Today's one trade is already taken. */
   doneToday?: boolean;
+  /** A "Trade restricted" check-in leaves nothing tradable (since 2.2), not just A+. */
+  cautionClosesDay?: boolean;
 }) {
   const grade: Grade = result.grade;
   const colour = GRADE_COLOUR[grade];
@@ -420,13 +423,18 @@ export function GradePanel({
     : [];
   const notTraded = Boolean(card && !card.traded);
   const checkinBlocks =
-    !notTraded && ((verdict === "caution" && grade !== "A+") || verdict === "sit-out");
+    !notTraded && ((verdict === "caution" && (cautionClosesDay || grade !== "A+")) || verdict === "sit-out");
 
   /** Why today's allowance is 0 or reduced, most serious first. */
   const reasons: { text: string; tone: "down" | "warn" }[] = [];
   if (notTraded) reasons.push({ text: `Not tradable — don't take it. ${capLine.length ? `Capped by ${capLine.join(" · ")}.` : ""}`, tone: "down" });
   if (verdict === "sit-out") reasons.push({ text: "Check-in says sit out — nothing is tradable today.", tone: "down" });
-  else if (checkinBlocks) reasons.push({ text: "Check-in says caution — only A+ is tradable today.", tone: "down" });
+  else if (checkinBlocks) {
+    reasons.push({
+      text: cautionClosesDay ? "Check-in says trade restricted — nothing is tradable today." : "Check-in says caution — only A+ is tradable today.",
+      tone: "down",
+    });
+  }
   if (dayOff) {
     reasons.push({
       text: dayOff.reason === "rule-break" ? "Day off — a rule was broken today." : `Days off until ${dayOff.until} — after a limit was broken.`,

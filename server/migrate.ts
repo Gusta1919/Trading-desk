@@ -14,6 +14,10 @@ import {
   FIRST_VERSION,
   FRESH_START_REASON,
   WINDOW_BY_HAND_REASON,
+  CHECKIN_CLOSES_REASON,
+  JOURNAL_V23_REASON,
+  checkinCloses,
+  journalV23,
   OPEN_ITEMS,
   PLAN_RETIRED_REASON,
   condenseRulebook,
@@ -342,6 +346,8 @@ const RULEBOOK_TRADE_COLUMNS: [string, string][] = [
   ["mfe_r", "REAL"],
   ["mae_r", "REAL"],
   ["max_fav_r", "REAL"],
+  // Since 2.2 the HTF reason carries its timeframe, and several can be logged; the highest counts.
+  ["htf_reasons", "TEXT DEFAULT '[]'"],
 ];
 
 /**
@@ -514,5 +520,38 @@ export function migrateWindowByHand(db: Db, now = new Date()) {
       note = `v${version} written from v${current.version}`;
     }
     db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(WINDOW_BY_HAND_KEY, note);
+  })();
+}
+
+const CHECKIN_CLOSES_KEY = "rulebook:checkin-closes";
+
+/**
+ * A "Trade restricted" check-in closes the day (see `checkinCloses`). The next version,
+ * so a trade taken on a restricted day under an older one keeps the A+ it was allowed.
+ */
+export function migrateCheckinCloses(db: Db, now = new Date()) {
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(CHECKIN_CLOSES_KEY)) return;
+  db.transaction(() => {
+    const current = currentRulebook(db);
+    let note = "already closes the day";
+    if (current.doc.checkinCaution !== "nothing") {
+      const version = nextVersion(current.version, "minor");
+      insertVersion(db, version, CHECKIN_CLOSES_REASON, checkinCloses(current.doc), now.toISOString());
+      note = `v${version} written from v${current.version}`;
+    }
+    db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(CHECKIN_CLOSES_KEY, note);
+  })();
+}
+
+const JOURNAL_V23_KEY = "rulebook:journal-v23";
+
+/** Breakeven exits, HTF timeframes, bias against the briefing, no entry type (see `journalV23`). */
+export function migrateJournalV23(db: Db, now = new Date()) {
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(JOURNAL_V23_KEY)) return;
+  db.transaction(() => {
+    const current = currentRulebook(db);
+    const version = nextVersion(current.version, "minor");
+    insertVersion(db, version, JOURNAL_V23_REASON, journalV23(current.doc), now.toISOString());
+    db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(JOURNAL_V23_KEY, `v${version} written from v${current.version}`);
   })();
 }

@@ -177,8 +177,9 @@ describe("migration to the rulebook", () => {
     setupSchema(db);
     const rows = db.prepare("SELECT version, reason FROM rulebook_versions ORDER BY version").all() as Row[];
     // v1.2, v1.3 retiring the written plan, v1.4 condensing the text, 2.0 the fresh start,
-    // 2.1 the entry window ticked by hand — each once.
-    assert.deepEqual(rows.map((r) => r.version), ["1.2", "1.3", "1.4", "2.0", "2.1"]);
+    // 2.1 the entry window ticked by hand, 2.2 a restricted check-in closing the day,
+    // 2.3 the journal fields — each once.
+    assert.deepEqual(rows.map((r) => r.version), ["1.2", "1.3", "1.4", "2.0", "2.1", "2.2", "2.3"]);
     const doc = getVersion(db, "1.2")!.doc;
     assert.equal(doc.limits.maxRiskPct, 0.5); // was the old default of 1
     assert.equal(doc.limits.dailyStopPct, 0.75); // yours, kept
@@ -218,9 +219,9 @@ describe("rulebook versions", () => {
     const doc = currentRulebook(db).doc;
     doc.grades[1].riskPct = 0.25;
     const saved = saveRulebook(db, doc, "A down to a quarter while the edge is unproven");
-    assert.equal(saved.version, "2.2");
+    assert.equal(saved.version, "2.4");
     assert.equal(currentRulebook(db).doc.grades[1].riskPct, 0.25);
-    assert.equal(getVersion(db, "2.1")!.doc.grades[1].riskPct, 0.5); // the old one is untouched
+    assert.equal(getVersion(db, "2.3")!.doc.grades[1].riskPct, 0.5); // the old one is untouched
     assert.equal(saveRulebook(db, doc, "big change", "major").version, "3.0");
   });
 
@@ -230,7 +231,7 @@ describe("rulebook versions", () => {
     const doc = currentRulebook(db).doc;
     assert.throws(() => saveRulebook(db, doc, "  "), RulebookError);
     assert.throws(() => saveRulebook(db, { ...doc, sections: [{ id: "x", title: "X", body: "{{nope}}" }] }, "why"), RulebookError);
-    assert.equal(listVersions(db).length, 5);
+    assert.equal(listVersions(db).length, 7);
   });
 
   it("a trade keeps the version it was graded under after the rulebook is edited", () => {
@@ -256,16 +257,16 @@ describe("v1.3 — the written plan retired", () => {
     assert.equal(v13.doc.planBy, undefined);
     assert.ok(getVersion(db, "1.2")!.doc.baseRules.some((r) => r.id === "plan")); // history untouched
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM plans").get() as Row).n, 1);
-    assert.equal(listVersions(db).length, 5); // and v1.4, 2.0 and 2.1 on top
+    assert.equal(listVersions(db).length, 7); // and v1.4, 2.0 to 2.3 on top
   });
 
   it("carries your own edits from the version in force into v1.3", () => {
     const db = oldDatabase();
     // Stop after v1.2, edit it, then let the plan migration run.
     setupSchema(db);
-    db.prepare("DELETE FROM rulebook_versions WHERE version IN ('1.3', '1.4', '2.0', '2.1')").run();
+    db.prepare("DELETE FROM rulebook_versions WHERE version IN ('1.3', '1.4', '2.0', '2.1', '2.2', '2.3')").run();
     db.prepare(
-      "DELETE FROM meta WHERE key IN ('rulebook:v1.3-plan-retired', 'rulebook:v1.4-condensed', 'rulebook:v2.0-fresh-start', 'rulebook:entry-window-by-hand')",
+      "DELETE FROM meta WHERE key IN ('rulebook:v1.3-plan-retired', 'rulebook:v1.4-condensed', 'rulebook:v2.0-fresh-start', 'rulebook:entry-window-by-hand', 'rulebook:checkin-closes', 'rulebook:journal-v23')",
     ).run();
     const doc = currentRulebook(db).doc;
     doc.limits.dailyStopPct = 0.8;
@@ -290,14 +291,14 @@ describe("v1.4 — the rulebook condensed", () => {
     const { sections: _a, flow: _b, version: _c, ...valuesNow } = v14.doc;
     const { sections: _d, flow: _e, version: _f, ...valuesBefore } = v13;
     assert.deepEqual(valuesNow, valuesBefore);
-    assert.equal(listVersions(db).length, 5);
+    assert.equal(listVersions(db).length, 7);
   });
 
   it("carries a change you saved on v1.3 into v1.4", () => {
     const db = oldDatabase();
     setupSchema(db);
-    db.prepare("DELETE FROM rulebook_versions WHERE version IN ('1.4', '2.0', '2.1')").run();
-    db.prepare("DELETE FROM meta WHERE key IN ('rulebook:v1.4-condensed', 'rulebook:v2.0-fresh-start', 'rulebook:entry-window-by-hand')").run();
+    db.prepare("DELETE FROM rulebook_versions WHERE version IN ('1.4', '2.0', '2.1', '2.2', '2.3')").run();
+    db.prepare("DELETE FROM meta WHERE key IN ('rulebook:v1.4-condensed', 'rulebook:v2.0-fresh-start', 'rulebook:entry-window-by-hand', 'rulebook:checkin-closes', 'rulebook:journal-v23')").run();
     const doc = currentRulebook(db).doc;
     doc.limits.weeklyStopPct = 1.5;
     saveRulebook(db, doc, "tighter week"); // v1.4 by you
@@ -319,17 +320,48 @@ describe("2.0 — a fresh start", () => {
     assert.equal(fresh.doc.changelogFrom, "2.0");
     assert.equal(fresh.doc.consequences.anyBreak, true);
     assert.ok(getVersion(db, "1.4")!.doc.factors.some((f) => f.id === "fvg")); // history untouched
-    assert.equal(listVersions(db).length, 5);
+    assert.equal(listVersions(db).length, 7);
   });
 
   it("then has you tick the entry window yourself, keeping the automatic check on what came before", () => {
     const db = oldDatabase();
     setupSchema(db);
     setupSchema(db);
-    const current = currentRulebook(db);
-    assert.equal(current.version, "2.1");
-    assert.ok(current.reason.includes("entry window"));
-    assert.equal(current.doc.baseRules.find((r) => r.id === "window")!.auto, undefined);
+    const byHand = getVersion(db, "2.1")!;
+    assert.ok(byHand.reason.includes("entry window"));
+    assert.equal(byHand.doc.baseRules.find((r) => r.id === "window")!.auto, undefined);
     assert.equal(getVersion(db, "2.0")!.doc.baseRules.find((r) => r.id === "window")!.auto, "entry-window");
+  });
+
+  it("then closes the day on a restricted check-in, keeping A+ open on what came before", () => {
+    const db = oldDatabase();
+    setupSchema(db);
+    setupSchema(db);
+    const closes = getVersion(db, "2.2")!;
+    assert.ok(closes.reason.includes("Trade restricted"));
+    assert.equal(closes.doc.checkinCaution, "nothing");
+    assert.ok(closes.doc.sections.find((s) => s.id === "limits")!.body.includes("“Trade restricted” or “Stand down” means no trade"));
+    assert.equal(getVersion(db, "2.1")!.doc.checkinCaution, undefined);
+  });
+
+  it("then logs breakeven exits and the bias against the briefing, and drops the entry type", () => {
+    const db = oldDatabase();
+    setupSchema(db);
+    setupSchema(db);
+    const current = currentRulebook(db);
+    assert.equal(current.version, "2.3");
+    assert.ok(current.reason.includes("Breakeven"));
+    assert.ok(current.doc.flow.exit.includes("target, stop, breakeven, trail"));
+    assert.ok(current.doc.sections.find((s) => s.id === "trade")!.body.includes("target, stop, breakeven, trail"));
+    assert.ok(!current.doc.hypotheses.some((h) => h.id === "limit-entry"));
+    assert.equal(current.doc.hypotheses.find((h) => h.id === "desk")!.loggedAs, "Bias matches the briefing");
+    assert.equal(current.doc.checkinCaution, "nothing"); // 2.2 carried over
+  });
+
+  it("stores several HTF reasons with their timeframes on a trade", () => {
+    const db = oldDatabase();
+    setupSchema(db);
+    const cols = (db.prepare("PRAGMA table_info(trades)").all() as Row[]).map((c) => c.name);
+    assert.ok(cols.includes("htf_reasons"));
   });
 });

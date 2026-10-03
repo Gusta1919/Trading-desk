@@ -144,3 +144,13 @@ describe("time stop and sessions", () => {
     assert.equal(sessionAt("02:00"), "Asia");
   });
 });
+
+describe("the HTF reason that counts", () => {
+  it("is the one on the highest timeframe; a tie goes FVG, OB, VIMB", async () => {
+    const { topHtf } = await import("../src/lib/types");
+    assert.equal(topHtf([]), null);
+    assert.deepEqual(topHtf([{ type: "FVG", tf: "1H" }, { type: "OB", tf: "4H" }]), { type: "OB", tf: "4H" });
+    assert.deepEqual(topHtf([{ type: "VIMB", tf: "W" }, { type: "FVG", tf: "D" }]), { type: "VIMB", tf: "W" });
+    assert.deepEqual(topHtf([{ type: "VIMB", tf: "4H" }, { type: "FVG", tf: "4H" }]), { type: "FVG", tf: "4H" });
+  });
+});

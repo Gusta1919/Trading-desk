@@ -10,9 +10,11 @@ import {
   DESK_AGREED,
   EXIT_REASONS,
   GRADES,
+  HTF_TIMEFRAMES,
   POI_TESTS,
   SESSIONS,
   isGrade,
+  topHtf,
   type Factor,
   type Trade,
 } from "@/lib/types";
@@ -97,6 +99,11 @@ export function Compare({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
           [`under $${doc.sweep.p70}`, `$${doc.sweep.p70}–${doc.sweep.p85}`, `$${doc.sweep.p85}–${doc.sweep.p95}`, `over $${doc.sweep.p95}`].map((k) => ({ key: k, label: k })),
         ),
       },
+      {
+        title: "HTF reason timeframe",
+        note: "The highest one logged with the trade — the one that counts.",
+        groups: groups(taken, (t) => topHtf(t.htfReasons)?.tf ?? null, HTF_TIMEFRAMES.map((x) => ({ key: x.value, label: x.label }))),
+      },
       { title: "Sweep took a 15m swing", note: "Logged, not a rule yet.", groups: groups(taken, (t) => yesNo(t.took15mSwing), YES_NO) },
       {
         title: "POI",
@@ -105,22 +112,14 @@ export function Compare({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
       },
       { title: "Important-level sweep", note: "Logged, not a rule yet.", groups: groups(taken, (t) => yesNo(t.levelSweep), YES_NO) },
       {
-        title: "Desk agreed",
-        note: "Did the Daily Bias briefing agree with your bias?",
+        title: "Bias against the briefing",
+        note: "Did your daily bias match the Daily Bias briefing's?",
         groups: groups(taken, (t) => t.deskAgreed || null, DESK_AGREED.map((d) => ({ key: d.value, label: d.label }))),
       },
     );
   }
   if (view === "trade") {
     sections.push(
-      {
-        title: "Entry type",
-        note: "Market at the MSS close, or the one FVG limit.",
-        groups: groups(taken, (t) => t.entryType || null, [
-          { key: "market", label: "Market" },
-          { key: "limit", label: "Limit" },
-        ]),
-      },
       {
         title: "Planned R:R",
         note: "Gross, from entry, stop and target.",
@@ -136,7 +135,7 @@ export function Compare({ trades, doc }: { trades: Trade[]; doc: Rulebook }) {
       },
       {
         title: "Exit reason",
-        note: "Only the stop, the target, the trail, the time stop and the release rule are allowed.",
+        note: "Only the stop, the target, breakeven, the trail, the time stop and the release rule are allowed.",
         groups: groups(taken, (t) => t.exitReason || null, EXIT_REASONS.map((e) => ({ key: e.value, label: e.label }))),
       },
       {

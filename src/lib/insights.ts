@@ -16,6 +16,8 @@ import {
   FLAG_LABEL,
   POI_TESTS,
   checklistComplete,
+  htfTfLabel,
+  topHtf,
   checklistOf,
   checklistRecorded,
   exitReasonLabel,
@@ -160,12 +162,13 @@ function factorsOf(c: TradeContext, doc?: Rulebook): [string, string, string][] 
   if (c.boxBucket) add("Box size", c.boxBucket, `Box of ${c.boxBucket}`);
 
   /* The rulebook's journal fields. */
-  if (t.entryType) add("Entry type", t.entryType, t.entryType === "limit" ? "Limit entries" : "Market entries");
+  const htf = topHtf(t.htfReasons);
+  if (htf) add("HTF timeframe", htf.tf, `A ${htfTfLabel(htf.tf)} HTF reason`);
   if (t.exitReason) add("Exit reason", t.exitReason, `Exit: ${exitReasonLabel(t.exitReason).toLowerCase()}`);
   if (t.took15mSwing != null) add("15m swing", t.took15mSwing ? "yes" : "no", t.took15mSwing ? "Sweep took a 15m swing" : "Sweep took no 15m swing");
   if (t.poiTests) add("POI", t.poiTests, `POI ${POI_TESTS.find((p) => p.value === t.poiTests)?.label.toLowerCase()}`);
   if (t.levelSweep != null) add("Level sweep", t.levelSweep ? "yes" : "no", t.levelSweep ? "Swept an important level" : "No important-level sweep");
-  if (t.deskAgreed === "yes" || t.deskAgreed === "no") add("Desk", t.deskAgreed, t.deskAgreed === "yes" ? "The desk agreed" : "The desk disagreed");
+  if (t.deskAgreed === "yes" || t.deskAgreed === "no") add("Bias vs briefing", t.deskAgreed, t.deskAgreed === "yes" ? "Bias matched the briefing" : "Bias differed from the briefing");
   const depth = depthBucket(t.sweepDepth, doc);
   if (depth) add("Sweep depth", depth, `Sweep depth ${depth}`);
   if (doc && t.news.length) {

@@ -98,6 +98,13 @@ describe("flags", () => {
     assert.ok(flagsOf([top], top, { checkins: [{ date: MON, verdict: "sit-out" }] }).includes("non_traded_grade"));
   });
 
+  it("since 2.2 an A+ on a Trade restricted day is a break too", () => {
+    const closes = { ...doc, checkinCaution: "nothing" as const };
+    const top = ruledTrade(`${MON}T04:30`, { grade: "A+" });
+    const j = evaluateHistory({ trades: [top], checkins: [{ date: MON, verdict: "caution" }], rulebookOf: () => closes, now: LATE });
+    assert.ok(j.byId.get(top.id)!.flags.includes("non_traded_grade"));
+  });
+
   it("over risk: above the 0.5% cap", () => {
     const t = ruledTrade(`${MON}T04:30`, { riskPct: 0.75 });
     assert.ok(flagsOf([t], t).includes("over_risk"));
@@ -228,9 +235,15 @@ describe("today's status", () => {
     const sit = deskStatus({ trades: [], checkins: [{ date: TUE, verdict: "sit-out" }], rulebookOf, doc, now });
     assert.equal(sit.blocked, "the check-in says sit out");
   });
-  it("on Caution only A+ is allowed", () => {
+  it("on Caution only A+ is allowed — under a rulebook from before 2.2", () => {
     const s = deskStatus({ trades: [], checkins: [{ date: TUE, verdict: "caution" }], rulebookOf, doc, now });
     assert.deepEqual(s.allowedByGrade, { "A+": 0.5, A: 0, B: 0, C: 0 });
+  });
+  it("since 2.2 a Trade restricted check-in closes the whole day", () => {
+    const closes = { ...doc, checkinCaution: "nothing" as const };
+    const s = deskStatus({ trades: [], checkins: [{ date: TUE, verdict: "caution" }], rulebookOf: () => closes, doc: closes, now });
+    assert.equal(s.blocked, "the check-in says trade restricted");
+    assert.deepEqual(s.allowedByGrade, { "A+": 0, A: 0, B: 0, C: 0 });
   });
 });
 

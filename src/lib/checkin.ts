@@ -165,7 +165,7 @@ export const VERDICTS: Record<Verdict, { label: string; advice: string }> = {
   },
   caution: {
     label: "Trade restricted",
-    advice: "Amber. A+ only today — an A waits for a clearer morning — and the daily stop still applies.",
+    advice: "Amber. No trade today, whatever the grade. Review the journal instead — the desk opens again tomorrow.",
   },
   "sit-out": {
     label: "Stand down",

@@ -175,6 +175,11 @@ export interface Rulebook {
 
   /** The first version the changelog lists — a fresh start hides what came before it. */
   changelogFrom?: string;
+  /**
+   * What a "Trade restricted" (caution) check-in leaves tradable: nothing since 2.2;
+   * before that, absent, it left A+ only.
+   */
+  checkinCaution?: "nothing" | "a-plus";
 
   /* Text */
   flow: { gates: string[]; enter: string; manage: string; exit: string };

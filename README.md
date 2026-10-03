@@ -20,10 +20,10 @@ open http://localhost:3847
 
 ## The screen
 
-- **Morning** — the check-in (readiness → Ready / Caution / Sit out), then today's status
-  and the Coach's briefing. Nothing to write down; on weekends there's no check-in at all.
+- **Morning** — the check-in (readiness → Cleared to trade / Trade restricted / Stand down;
+  only a cleared day trades), then today's status and the Coach's briefing. Nothing to write down; on weekends there's no check-in at all.
 - **Today dock** — bottom-right on every tab: where the day stands right now (entries
-  open, release window, skip day, day off, done for today…); click for the whole day:
+  open, release window, skip day, day off, done for today…); rest the mouse on it for the whole day:
   entry windows, time stop and every release window with its no-entry span.
 - **KPI strip** — net return, win rate, expectancy, profit factor, drawdown, streak, and
   this week's rule adherence.
@@ -31,8 +31,9 @@ open http://localhost:3847
   version; click a row to edit.
 - **New trade** — the setup check first (auto rules, then the factors: HTF timeframe,
   displacement, bias, Compass, conviction; the grade and what it may risk today), then the
-  trade without prices: box size and sweep depth in $, risk, planned R:R and the $ result,
-  exit reason, MFE/MAE in R.
+  trade without prices: box size and sweep depth in $, the HTF reasons with their timeframes
+  (the highest one counts), whether your bias matched the briefing, risk, planned R:R and the
+  $ result, exit reason (breakeven included), MFE/MAE in R. The session comes from the entry time.
 - **Daily Bias** — today's gold briefing drawn over live price, and the desk's own
   "stand aside today" list worked out from the rulebook.
 - **Calendar** — this week's no-trade days from the news on top; results, flags, days off
@@ -73,7 +74,7 @@ open http://localhost:3847
 | File | What it holds |
 |---|---|
 | `server/db.ts` | opens the database |
-| `server/schema.ts`, `server/migrate.ts` | schema + migrations (the rulebook's: `migrateRulebook`, then `migratePlanRetired` and `migrateCondensed`) |
+| `server/schema.ts`, `server/migrate.ts` | schema + migrations (the rulebook's: `migrateRulebook`, then `migratePlanRetired`, `migrateCondensed`, `migrateFreshStart`, `migrateWindowByHand`, `migrateCheckinCloses` and `migrateJournalV23`) |
 | `server/rulebookStore.ts` | rulebook versions: the one in force, the list, saving a new one |
 | `server/index.ts` | REST API; re-derives % and R and re-judges every flag after each write |
 | `src/lib/types.ts` | trade shape and its journal fields, flags, grades, the definition |

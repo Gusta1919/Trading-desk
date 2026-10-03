@@ -1,11 +1,12 @@
 import { ArrowLeft, Check, Pencil, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "@/lib/api";
 import { impactColour } from "@/lib/calendarView";
 import type { CheckIn } from "@/lib/checkin";
 import type { CoachCard } from "@/lib/coach";
 import {
   autoRuleState,
+  checkinClosesDay,
   evaluateHistory,
   judgeDraft,
   releasesHeld,
@@ -17,6 +18,7 @@ import { coveredDays, fromEvent, fromTradeNews, newsDay, releaseWindowAt, type N
 import { newsForTrade, ruleCurrencies, type CalendarEvent } from "@/lib/news";
 import { dayBudget, gradeCard, gradeRisk, takenTrades, weekBudget, weekOfDay } from "@/lib/risk";
 import { autoFactor, fill as fillText, tokenValues, type Rulebook } from "@/lib/rulebook";
+import { BIAS_OPTION } from "@/lib/rulebookText";
 import {
   compassFor,
   dayOf,
@@ -30,21 +32,23 @@ import {
 } from "@/lib/rules";
 import { DESK_LABEL, deskDay, deskTime } from "@/lib/tz";
 import {
-  DESK_AGREED,
   EMOTIONS,
   EXIT_REASONS,
   FLAG_LABEL,
   GRADES,
   HTF_REASON_TYPES,
+  HTF_TIMEFRAMES,
   MISTAKES,
   POI_TESTS,
   SESSIONS,
+  htfTfLabel,
   isGrade,
+  topHtf,
   type DeskAgreed,
   type Direction,
-  type EntryType,
   type ExitReason,
   type Grade,
+  type HtfReason,
   type HtfReasonType,
   type PoiTests,
   type SetupSnapshot,
@@ -64,9 +68,6 @@ interface FormState {
   date: string;
   symbol: string;
   direction: Direction;
-  session: string | null;
-  /** Session is filled in from the time until you pick one yourself. */
-  sessionTouched: boolean;
   riskPct: string;
   plannedRR: string;
   pnlUsd: string;
@@ -94,13 +95,16 @@ interface FormState {
   boxSize: string;
   sweepDepth: string;
   took15mSwing: boolean | null;
-  htfReasonType: HtfReasonType | "";
+  /** Every HTF reason with its timeframe; the highest one counts. */
+  htfReasons: HtfReason[];
+  /** A trade logged before the timeframes keeps its bare type until reasons are picked. */
+  legacyHtfType: HtfReasonType | "";
   poiTests: PoiTests | "";
   levelSweep: boolean | null;
+  /** Your bias against the briefing's: "yes" when they match. */
   deskAgreed: DeskAgreed | "";
   deskTouched: boolean;
 
-  entryType: EntryType | "";
   /** Only for a trade graded under a version that worked displacement out from these two. */
   atr: number | null;
   mssBeyond: number | null;
@@ -123,8 +127,6 @@ function toForm(t: Trade | null, instrument: string): FormState {
     date: t?.date ?? nowLocal(),
     symbol: t?.symbol ?? instrument,
     direction: t?.direction ?? "long",
-    session: t?.session || null,
-    sessionTouched: Boolean(t),
     riskPct: t && !t.skipped ? String(t.riskPct) : "",
     plannedRR: str(t?.plannedRR),
     pnlUsd: str(t?.pnlUsd),
@@ -145,13 +147,13 @@ function toForm(t: Trade | null, instrument: string): FormState {
     boxSize: str(t?.boxSize),
     sweepDepth: str(t?.sweepDepth),
     took15mSwing: t?.took15mSwing ?? null,
-    htfReasonType: t?.htfReasonType ?? "",
+    htfReasons: t?.htfReasons ?? [],
+    legacyHtfType: t && !t.htfReasons?.length ? t.htfReasonType : "",
     poiTests: t?.poiTests ?? "",
     levelSweep: t?.levelSweep ?? null,
     deskAgreed: t?.deskAgreed ?? "",
     deskTouched: Boolean(t?.deskAgreed),
 
-    entryType: t?.entryType ?? "",
     atr: t?.atr ?? null,
     mssBeyond: t?.mssBeyond ?? null,
 
@@ -183,7 +185,7 @@ const parseNum = (s: string) => {
 const round2 = (x: number) => Number(x.toFixed(2));
 
 /** Exits that came before the target: the ones where "would the target have been hit?" is worth asking. */
-const EARLY_EXITS: ExitReason[] = ["trail", "time", "release"];
+const EARLY_EXITS: ExitReason[] = ["breakeven", "trail", "time", "release"];
 
 const fmtUsd = (x: number) => `$${Math.round(x).toLocaleString("en-US")}`;
 
@@ -277,25 +279,8 @@ export function TradeForm({
       ? f.news.map(fromTradeNews)
       : null;
 
-  /* ── Session and desk check, filled in until you change them ── */
-
-  useEffect(() => {
-    if (f.sessionTouched) return;
-    const s = sessionAt(time);
-    if (s && s !== f.session) setF((p) => ({ ...p, session: s }));
-  }, [time, f.sessionTouched, f.session]);
-  // Today's briefing against the trade's direction: leaning the same way is "yes", the other way "no".
-  const deskFromLean: DeskAgreed | null =
-    day !== deskDay() || !lean || lean === "unclear"
-      ? null
-      : (lean === "bullish") === (f.direction === "long")
-        ? "yes"
-        : "no";
-  useEffect(() => {
-    if (f.deskTouched || trade || !deskFromLean) return;
-    if (deskFromLean !== f.deskAgreed) setF((p) => ({ ...p, deskAgreed: deskFromLean }));
-  }, [deskFromLean, f.deskTouched, f.deskAgreed, trade]);
-
+  /** Always the entry time's: nothing to pick. */
+  const session = sessionAt(time);
   /* ── The desk's own answers ── */
 
   const compassF = definition ? autoFactor(definition, "compass") : null;
@@ -311,6 +296,18 @@ export function TradeForm({
   }
   if (dispF && dispValue != null) answers[dispF.id] = dispValue;
   if (dispF) autoAnswers[dispF.id] = { note: "close beyond the swing ÷ 5m ATR(14)", locked: true };
+
+  /*
+   * Your bias against today's briefing: yours is read from the bias answer and the
+   * trade's direction, the briefing's from its lean. The same is "yes", anything else "no".
+   */
+  const myBias = biasOf(answers, f.direction);
+  const briefing = day === deskDay() && lean ? lean : null;
+  const deskFromLean: DeskAgreed | null = myBias && briefing ? (myBias === briefing ? "yes" : "no") : null;
+  useEffect(() => {
+    if (f.deskTouched || trade || !deskFromLean) return;
+    if (deskFromLean !== f.deskAgreed) setF((p) => ({ ...p, deskAgreed: deskFromLean }));
+  }, [deskFromLean, f.deskTouched, f.deskAgreed, trade]);
 
   /* ── The base rules the desk answers ── */
 
@@ -408,7 +405,7 @@ export function TradeForm({
       date: f.date,
       symbol: f.symbol.trim().toUpperCase() || rb.instrument,
       direction: f.direction,
-      session: f.session ?? "",
+      session: session ?? "",
       // The legacy fields are carried through untouched; the form no longer asks for them.
       setup: trade?.setup ?? "",
       htf: trade?.htf ?? "",
@@ -443,11 +440,13 @@ export function TradeForm({
       sweepExtreme: trade?.sweepExtreme ?? null,
       sweepDepth,
       took15mSwing: f.took15mSwing,
-      htfReasonType: f.htfReasonType,
+      htfReasonType: topHtf(f.htfReasons)?.type ?? f.legacyHtfType,
+      htfReasons: f.htfReasons,
       poiTests: f.poiTests,
       levelSweep: f.levelSweep,
       deskAgreed: f.deskAgreed,
-      entryType: f.entryType,
+      // No longer asked; an older trade keeps the one it was logged with.
+      entryType: trade?.entryType ?? "",
       entryPrice: trade?.entryPrice ?? null,
       stopPrice: trade?.stopPrice ?? null,
       targetPrice: trade?.targetPrice ?? null,
@@ -569,6 +568,7 @@ export function TradeForm({
       dayOff={dayOff}
       halfRisk={halfRisk}
       doneToday={doneToday}
+      cautionClosesDay={checkinClosesDay("caution", rb)}
     />
   );
 
@@ -666,7 +666,9 @@ export function TradeForm({
         text:
           card && !card.traded
             ? `${grade} is not tradable — the rules say not to take it.`
-            : `${grade} is not tradable today — the check-in says ${verdict === "sit-out" ? "sit out" : "A+ only"}.`,
+            : `${grade} is not tradable today — the check-in says ${
+                verdict === "sit-out" ? "sit out" : checkinClosesDay(verdict, rb) ? "trade restricted" : "A+ only"
+              }.`,
       };
     }
     if (fl === "during_day_off" && halfRisk && !dayOff) {
@@ -686,7 +688,7 @@ export function TradeForm({
   const title = trade ? "Edit trade" : "Log the trade";
   // Only when the rulebook checks the window itself; ticked by hand, it is yours to judge.
   const outsideWindow = rb.baseRules.some((r) => r.auto === "entry-window") && !inEntryWindow(time, rb.entryWindows);
-  const tradable = tradableToday(card, verdict);
+  const tradable = tradableToday(card, verdict, rb);
 
   return (
     <GlossaryContext.Provider value={rb.glossary}>
@@ -774,13 +776,8 @@ export function TradeForm({
                 <Card index={1} title="The trade">
                   {whenAndWhich}
                   <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-                    <Field label="Session">
-                      <ToneToggle
-                        allowNone
-                        value={f.session}
-                        onChange={(v) => setF((p) => ({ ...p, session: v, sessionTouched: true }))}
-                        options={SESSIONS.map((x) => ({ value: x, label: x, colour: "var(--color-ink)" }))}
-                      />
+                    <Field label="Session · from the entry time">
+                      <SessionStrip session={session} />
                     </Field>
                     <Field label="Symbol">
                       <input className="field uppercase" value={f.symbol} onChange={(e) => set("symbol", e.target.value)} required />
@@ -821,34 +818,36 @@ export function TradeForm({
                       <YesNo value={f.levelSweep} onChange={(v) => set("levelSweep", v)} />
                     </Field>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-x-6 gap-y-4">
-                    <Field label="HTF reason">
-                      <Segmented
-                        size="sm"
-                        allowNone
-                        value={f.htfReasonType || null}
-                        onChange={(v) => set("htfReasonType", v ?? "")}
-                        options={HTF_REASON_TYPES.map((x) => ({ value: x, label: x }))}
-                      />
+                  <div className="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-[auto_minmax(0,1fr)]">
+                    <Field label="HTF reason · the highest timeframe counts">
+                      <HtfPicker value={f.htfReasons} legacy={f.legacyHtfType} onChange={(v) => set("htfReasons", v)} />
                     </Field>
-                    <Field label="POI">
-                      <Segmented
-                        size="sm"
-                        allowNone
-                        value={f.poiTests || null}
-                        onChange={(v) => set("poiTests", v ?? "")}
-                        options={POI_TESTS}
-                      />
-                    </Field>
-                    <Field label={deskFromLean && !trade ? "Desk agreed · from today's briefing" : "Desk agreed"}>
-                      <Segmented
-                        size="sm"
-                        allowNone
-                        value={f.deskAgreed || null}
-                        onChange={(v) => setF((p) => ({ ...p, deskAgreed: v ?? "", deskTouched: true }))}
-                        options={DESK_AGREED}
-                      />
-                    </Field>
+                    <div className="flex flex-col gap-4">
+                      <Field label="POI">
+                        <Segmented
+                          size="sm"
+                          allowNone
+                          value={f.poiTests || null}
+                          onChange={(v) => set("poiTests", v ?? "")}
+                          options={POI_TESTS}
+                        />
+                      </Field>
+                      <Field label="My bias matches the briefing">
+                        <div className="max-w-[260px]">
+                          <YesNo
+                            value={f.deskAgreed === "yes" ? true : f.deskAgreed === "no" ? false : null}
+                            onChange={(v) => setF((p) => ({ ...p, deskAgreed: v == null ? "" : v ? "yes" : "no", deskTouched: true }))}
+                          />
+                        </div>
+                        {!trade && (
+                          <p className="anim-fade mt-1.5 text-[11px] text-faint">
+                            {briefing
+                              ? <>Briefing <span className="text-soft">{briefing}</span>{myBias ? <> · yours <span className="text-soft">{myBias}</span></> : " · answer the bias in the setup check"}</>
+                              : "No briefing for this day — answer it yourself."}
+                          </p>
+                        )}
+                      </Field>
+                    </div>
                   </div>
                 </Card>
 
@@ -890,39 +889,23 @@ export function TradeForm({
                     The broker's dollar result, costs already in it; the % and R are worked out for you. Leave it empty while
                     the trade is open.
                   </p>
-                  <div className="mt-4">
-                    <Field label="Entry type">
-                      <Segmented
-                        size="sm"
-                        allowNone
-                        value={f.entryType || null}
-                        onChange={(v) => set("entryType", v ?? "")}
-                        options={[
-                          { value: "market", label: "Market" },
-                          { value: "limit", label: "Limit" },
-                        ]}
-                      />
-                    </Field>
-                  </div>
                 </Card>
 
                 <Card index={4} title="Exit">
-                  <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
+                  <Field label="Exit reason">
+                    <Segmented
+                      size="sm"
+                      allowNone
+                      value={f.exitReason || null}
+                      onChange={(v) => set("exitReason", v ?? "")}
+                      options={EXIT_REASONS}
+                    />
+                  </Field>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1.5fr)]">
                     <Field label={`Exit time · ${DESK_LABEL}`}>
                       <input type="time" className="field num" value={f.exitTime} onChange={(e) => set("exitTime", e.target.value)} />
                     </Field>
-                    <Field label="Exit reason">
-                      <Segmented
-                        size="sm"
-                        allowNone
-                        value={f.exitReason || null}
-                        onChange={(v) => set("exitReason", v ?? "")}
-                        options={EXIT_REASONS}
-                      />
-                    </Field>
-                  </div>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    <Field label={`Stop moved before ${values.trailAfter} of the way?`}>
+                    <Field label={`Stop moved before ${values.trailAfter}?`}>
                       <YesNo value={f.earlyStopMove} onChange={(v) => set("earlyStopMove", v)} />
                     </Field>
                     {held.length > 0 && (
@@ -1056,18 +1039,22 @@ export function TradeForm({
                     value={f.notes}
                     onChange={(e) => set("notes", e.target.value)}
                   />
-                  <input
-                    className="field mt-3 text-[13px]"
-                    placeholder="Chart before (TradingView snapshot URL)"
-                    value={f.screenshot}
-                    onChange={(e) => set("screenshot", e.target.value)}
-                  />
-                  <input
-                    className="field mt-2 text-[13px]"
-                    placeholder="Chart after"
-                    value={f.screenshotAfter}
-                    onChange={(e) => set("screenshotAfter", e.target.value)}
-                  />
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <input
+                      className="field text-[13px]"
+                      placeholder="Chart before"
+                      title="A TradingView snapshot link"
+                      value={f.screenshot}
+                      onChange={(e) => set("screenshot", e.target.value)}
+                    />
+                    <input
+                      className="field text-[13px]"
+                      placeholder="Chart after"
+                      title="A TradingView snapshot link"
+                      value={f.screenshotAfter}
+                      onChange={(e) => set("screenshotAfter", e.target.value)}
+                    />
+                  </div>
                 </Side>
               </aside>
             </div>
@@ -1109,6 +1096,168 @@ function depthHint(depth: number, rb: Rulebook) {
   if (depth <= rb.sweep.p85) return `within $${rb.sweep.p85}, like ~85%`;
   if (depth <= rb.sweep.p95) return `deep — beyond $${rb.sweep.p85}`;
   return `very deep — beyond $${rb.sweep.p95}`;
+}
+
+/** Each session's colour (the same as the News day map) and its hours in New York. */
+const SESSION_LOOK: Record<string, { colour: string; hours: string }> = {
+  Asia: { colour: "var(--color-low)", hours: "18:00–03:00" },
+  London: { colour: "var(--color-cyan)", hours: "03:00–08:00" },
+  "New York": { colour: "var(--color-accent)", hours: "08:00–17:00" },
+};
+
+/**
+ * The session, set by the entry time: all three in a row, the one the entry falls in
+ * lit in its colour. Nothing to click; change the time and the light moves.
+ */
+function SessionStrip({ session }: { session: string | null }) {
+  return (
+    <div className="grid grid-cols-3 gap-1 rounded-xl bg-subtle p-1">
+      {SESSIONS.map((name) => {
+        const look = SESSION_LOOK[name];
+        const on = name === session;
+        return (
+          <div
+            key={name}
+            className={cx(
+              "relative flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-[13px] font-medium transition-[background-color,color,box-shadow] duration-500",
+              on ? "text-ink" : "text-faint",
+            )}
+            style={
+              on
+                ? {
+                    backgroundColor: `color-mix(in oklab, ${look.colour} 14%, var(--color-raised))`,
+                    boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${look.colour} 40%, transparent), 0 6px 20px rgb(0 0 0 / 0.3)`,
+                  }
+                : undefined
+            }
+            title={`${name} · ${look.hours} New York`}
+          >
+            <span
+              className="size-1.5 rounded-full transition-[background-color,box-shadow] duration-500"
+              style={{ backgroundColor: on ? look.colour : "var(--color-line)", boxShadow: on ? `0 0 8px ${look.colour}` : undefined }}
+            />
+            <span key={on ? `${name}-on` : name} className={on ? "anim-stamp" : undefined}>
+              {name}
+            </span>
+          </div>
+        );
+      })}
+      {!session && (
+        <p className="col-span-3 px-2 pb-0.5 pt-1 text-center text-[11px] text-faint">17:00–18:00 — the daily break, between sessions.</p>
+      )}
+    </div>
+  );
+}
+
+/** Your daily bias, read back from the bias answer and the direction of the trade. */
+function biasOf(answers: Record<string, string | number>, direction: Direction): "bullish" | "bearish" | "unclear" | null {
+  const a = Object.values(answers).find((v) => v === BIAS_OPTION.matches || v === BIAS_OPTION.against || v === BIAS_OPTION.unclear);
+  if (!a) return null;
+  if (a === BIAS_OPTION.unclear) return "unclear";
+  return (direction === "long") === (a === BIAS_OPTION.matches) ? "bullish" : "bearish";
+}
+
+/**
+ * The HTF reasons as a small grid: a row per type, a column per timeframe, as many cells
+ * as apply. The highest timeframe takes over: its cell lights up and is the one that
+ * counts; a lower one stays picked, but dimmed.
+ */
+function HtfPicker({
+  value,
+  legacy,
+  onChange,
+}: {
+  value: HtfReason[];
+  legacy: HtfReasonType | "";
+  onChange: (v: HtfReason[]) => void;
+}) {
+  const top = topHtf(value);
+  const has = (type: HtfReasonType, tf: string) => value.some((r) => r.type === type && r.tf === tf);
+  const toggle = (r: HtfReason) =>
+    onChange(has(r.type, r.tf) ? value.filter((x) => !(x.type === r.type && x.tf === r.tf)) : [...value, r]);
+  const covered = value.filter((r) => r !== top);
+
+  return (
+    <div>
+      <div className="inline-grid grid-cols-[auto_repeat(4,58px)] gap-1 rounded-xl bg-subtle p-1">
+        <span />
+        {HTF_TIMEFRAMES.map((tf) => (
+          <span key={tf.value} className="pb-0.5 pt-1 text-center text-[10px] font-medium uppercase tracking-[0.08em] text-faint">
+            {tf.label}
+          </span>
+        ))}
+        {HTF_REASON_TYPES.map((type, row) => (
+          <Fragment key={type}>
+            <span className={cx("flex items-center pl-2.5 pr-3 text-[12px] font-semibold", legacy === type && !top ? "text-ink" : "text-soft")}>
+              {type}
+            </span>
+            {HTF_TIMEFRAMES.map((tf, col) => {
+              const on = has(type, tf.value);
+              const counts = on && top?.type === type && top.tf === tf.value;
+              return (
+                <button
+                  key={tf.value}
+                  type="button"
+                  aria-pressed={on}
+                  aria-label={`${tf.label} ${type}`}
+                  title={counts ? `${tf.label} ${type} — counts` : on ? `${tf.label} ${type} — a higher one takes over` : `${tf.label} ${type}`}
+                  onClick={() => toggle({ type, tf: tf.value })}
+                  className={cx(
+                    "anim-pop relative flex h-8 items-center justify-center rounded-lg text-[11.5px] font-medium",
+                    "transition-[background-color,color,box-shadow,transform] duration-300 active:scale-[0.94]",
+                    counts
+                      ? "text-accent"
+                      : on
+                        ? "bg-raised text-soft shadow-[inset_0_0_0_1px_var(--color-line)]"
+                        : "bg-raised/25 text-transparent hover:bg-raised/70 hover:text-faint",
+                  )}
+                  style={{
+                    ...stagger(row * 4 + col, 18),
+                    ...(counts
+                      ? {
+                          backgroundColor: "color-mix(in oklab, var(--color-accent) 15%, var(--color-raised))",
+                          boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--color-accent) 45%, transparent), 0 0 18px color-mix(in oklab, var(--color-accent) 22%, transparent)",
+                        }
+                      : {}),
+                  }}
+                >
+                  {counts ? (
+                    <span key={`${type}${tf.value}`} className="anim-stamp flex items-center gap-1">
+                      <Check size={12} strokeWidth={2.75} />
+                      {tf.value}
+                    </span>
+                  ) : on ? (
+                    <span className="opacity-70">{tf.value}</span>
+                  ) : (
+                    "+"
+                  )}
+                </button>
+              );
+            })}
+          </Fragment>
+        ))}
+      </div>
+      <p className="mt-1.5 text-[11px] text-faint">
+        {top ? (
+          <>
+            <span className="text-soft">
+              {htfTfLabel(top.tf)} {top.type}
+            </span>{" "}
+            counts
+            {covered.length > 0 && (
+              <>
+                {" "}· takes over {covered.map((r) => `${htfTfLabel(r.tf)} ${r.type}`).join(", ")}
+              </>
+            )}
+          </>
+        ) : legacy ? (
+          `Logged as ${legacy}, before timeframes — pick its timeframe`
+        ) : (
+          "Pick every one that applies."
+        )}
+      </p>
+    </div>
+  );
 }
 
 function YesNo({ value, onChange }: { value: boolean | null; onChange: (v: boolean | null) => void }) {

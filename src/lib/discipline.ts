@@ -92,14 +92,23 @@ export const nextWeek = (day: string) => weekOfDay(addDays(day, 7));
 
 /**
  * Whether a grade may be traded on a day with this check-in: Ready keeps the ladder,
- * Caution leaves A+ only, Sit out leaves nothing.
+ * Sit out leaves nothing, and Caution ("Trade restricted") leaves nothing too since
+ * 2.2 — under an older rulebook it left A+ only.
  */
-export function tradableToday(card: GradeCard | null, verdict: Verdict | undefined): boolean {
+export function tradableToday(
+  card: GradeCard | null,
+  verdict: Verdict | undefined,
+  doc?: Pick<Rulebook, "checkinCaution">,
+): boolean {
   if (!card?.traded) return false;
-  if (verdict === "sit-out") return false;
+  if (checkinClosesDay(verdict, doc)) return false;
   if (verdict === "caution") return card.grade === "A+";
   return true;
 }
+
+/** The check-in closes the whole day: Stand down always, Trade restricted since 2.2. */
+export const checkinClosesDay = (verdict: Verdict | undefined, doc?: Pick<Rulebook, "checkinCaution">) =>
+  verdict === "sit-out" || (verdict === "caution" && doc?.checkinCaution === "nothing");
 
 /* ── One trade's news ────────────────────────────────────────────────── */
 
@@ -141,7 +150,7 @@ export function evaluateHistory(input: DisciplineInput): { byId: Map<string, Tra
     const off = timeline.dayOff.get(day);
     const half = timeline.halfWeeks.has(week);
     const card = gradeCard(t.setupSnapshot ?? doc, t.grade || null);
-    const tradable = tradableToday(card, verdicts.get(day));
+    const tradable = tradableToday(card, verdicts.get(day), doc);
     const gRisk = card ? (card.traded ? card.riskPct : 0) : null;
     const base = allowedRisk(gRisk, dayB, doc.limits, { week: weekB });
     const allowed = off || (card && !tradable) ? 0 : allowedRisk(gRisk, dayB, doc.limits, { week: weekB, multiplier: half ? doc.consequences.factor : 1 });
@@ -278,11 +287,13 @@ export function deskStatus(input: DisciplineInput & { doc: Rulebook; news?: News
               ? "today's trade is taken"
               : verdict === "sit-out"
                 ? "the check-in says sit out"
-                : null;
+                : checkinClosesDay(verdict, doc)
+                  ? "the check-in says trade restricted"
+                  : null;
   const allowedByGrade = {} as Record<Grade, number>;
   for (const card of doc.grades) {
     const gRisk = card.traded ? card.riskPct : 0;
-    const closed = blocked || doneForToday || !tradableToday(card, verdict);
+    const closed = blocked || doneForToday || !tradableToday(card, verdict, doc);
     allowedByGrade[card.grade] = closed ? 0 : allowedRisk(gRisk, dayB, doc.limits, { week: weekB, multiplier });
   }
   return {

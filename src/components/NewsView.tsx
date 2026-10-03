@@ -200,12 +200,12 @@ function Calendar({ news, entryWindows }: { news: NewsState; entryWindows: TimeW
         <div>
           <DayMap events={split.today} now={now} rules={todayRules} entryWindows={entryWindows} />
           {/* Wide screens: "when will it move" on the left, the releases on the right. */}
+          {/* The week is listed once, on the right; the left column stays in view beside it. */}
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(340px,2fr)_5fr]">
-            <div className="border-b xl:border-b-0 xl:border-r">
+            <div className="border-b xl:sticky xl:top-0 xl:self-start xl:border-b-0">
               <NextUp nextRed={nextRed} windows={windows} now={now} />
-              <WeekAhead days={split.later} now={now} skipOf={skipOf} />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 xl:border-l">
               <Section title="Still to come today" count={upcoming.length}>
                 {upcoming.length ? (
                   upcoming.map((e, i) => <Row key={e.id} event={e} now={now} index={i} countdown rules={news.rules} />)
@@ -663,53 +663,6 @@ function ImpactCounts({ events, impacts }: { events: CalendarEvent[]; impacts: I
         ) : null;
       })}
     </span>
-  );
-}
-
-/**
- * The rest of the week in a few lines — which days the rulebook closes, which carry red
- * news, and when each is busiest — readable before scrolling the list beside it.
- */
-function WeekAhead({
-  days,
-  now,
-  skipOf,
-}: {
-  days: { day: string; events: CalendarEvent[] }[];
-  now: number;
-  skipOf: (day: string) => string[];
-}) {
-  if (!days.length) return null;
-  return (
-    <div className="border-t px-5 py-4">
-      <div className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-faint">Week ahead</div>
-      {days.map((d, i) => {
-        const skip = skipOf(d.day);
-        const busiest = volatilityWindows(d.events).sort((a, b) => b.events.length - a.events.length || a.start - b.start)[0];
-        return (
-          <div
-            key={d.day}
-            title={skip.length ? `No trading: ${skip.join(", ")}` : undefined}
-            className={cx("anim-rise flex items-center gap-3 rounded-lg px-2 py-1.5 text-[12px]", skip.length > 0 && "bg-down/[0.08]")}
-            style={stagger(i, 70)}
-          >
-            <span className={cx("w-[118px] shrink-0 truncate", skip.length ? "font-medium text-ink" : "text-soft")}>
-              {dayLabel(d.events[0].at!, new Date(now))}
-            </span>
-            <ImpactCounts events={d.events} impacts={["High", "Medium"]} />
-            {skip.length > 0 ? (
-              <span className="ml-auto flex min-w-0 items-center gap-1 truncate text-[11.5px] font-semibold text-down">
-                <Ban size={11} className="shrink-0" /> No trading
-              </span>
-            ) : (
-              <span className="num ml-auto shrink-0 text-[11px] text-faint">
-                {busiest ? `busiest ${deskTime(new Date(busiest.start))}` : "quiet"}
-              </span>
-            )}
-          </div>
-        );
-      })}
-    </div>
   );
 }
 

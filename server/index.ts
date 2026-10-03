@@ -77,6 +77,7 @@ function rowToTrade(row: Row) {
     sweepDepth: row.sweep_depth ?? null,
     took15mSwing: bool(row.took_15m_swing),
     htfReasonType: row.htf_reason_type ?? "",
+    htfReasons: parseJson(row.htf_reasons, []),
     poiTests: row.poi_tests ?? "",
     levelSweep: bool(row.level_sweep),
     deskAgreed: row.desk_agreed ?? "",
@@ -161,6 +162,13 @@ function bodyToColumns(body: Row) {
     sweep_depth: num(body.sweepDepth),
     took_15m_swing: yesNo(body.took15mSwing),
     htf_reason_type: oneOf(body.htfReasonType, ["FVG", "OB", "VIMB"]),
+    htf_reasons: JSON.stringify(
+      Array.isArray(body.htfReasons)
+        ? body.htfReasons
+            .filter((r: Row) => r && oneOf(r.type, ["FVG", "OB", "VIMB"]) && oneOf(r.tf, ["1H", "4H", "D", "W"]))
+            .map((r: Row) => ({ type: String(r.type), tf: String(r.tf) }))
+        : [],
+    ),
     poi_tests: oneOf(body.poiTests, ["fresh", "once", "2+"]),
     level_sweep: yesNo(body.levelSweep),
     desk_agreed: oneOf(body.deskAgreed, ["yes", "no", "none"]),
@@ -173,7 +181,7 @@ function bodyToColumns(body: Row) {
     mss_beyond: num(body.mssBeyond),
     exit_time: String(body.exitTime ?? ""),
     exit_price: num(body.exitPrice),
-    exit_reason: oneOf(body.exitReason, ["target", "stop", "trail", "time", "release", "other"]),
+    exit_reason: oneOf(body.exitReason, ["target", "stop", "breakeven", "trail", "time", "release", "other"]),
     early_stop_move: yesNo(body.earlyStopMove),
     release_at_be: yesNo(body.releaseAtBe),
     mfe_price: num(body.mfePrice),
@@ -212,7 +220,7 @@ const COLUMNS = [
   "took_15m_swing", "htf_reason_type", "poi_tests", "level_sweep", "desk_agreed", "entry_type",
   "entry_price", "stop_price", "target_price", "lots", "atr", "mss_beyond", "exit_time", "exit_price",
   "exit_reason", "early_stop_move", "release_at_be", "mfe_price", "mae_price", "target_before_stop",
-  "max_fav_price", "mfe_r", "mae_r", "max_fav_r", "screenshot_after",
+  "max_fav_price", "mfe_r", "mae_r", "max_fav_r", "screenshot_after", "htf_reasons",
 ];
 
 /**

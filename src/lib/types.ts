@@ -61,14 +61,18 @@ export interface Trade {
   /** $ beyond the box edge — from the sweep extreme, or typed. */
   sweepDepth: number | null;
   took15mSwing: boolean | null;
+  /** The type of the HTF reason that counts: the one on the highest timeframe. */
   htfReasonType: HtfReasonType | "";
+  /** Every HTF reason behind the trade, each with its timeframe; the highest one counts. */
+  htfReasons: HtfReason[];
   poiTests: PoiTests | "";
   /** The sweep took an important level (logged, not a rule yet). */
   levelSweep: boolean | null;
-  /** Whether the Daily Bias briefing agreed with your bias. */
+  /** Whether your daily bias matched the Daily Bias briefing's ("none": logged before, with no briefing). */
   deskAgreed: DeskAgreed | "";
 
   /* ── Entry ── */
+  /** No longer asked; trades logged before keep theirs. */
   entryType: EntryType | "";
   entryPrice: number | null;
   /** The initial stop — never the trailed one, so R stays measurable. */
@@ -113,6 +117,32 @@ export interface Trade {
 
 export type HtfReasonType = "FVG" | "OB" | "VIMB";
 export const HTF_REASON_TYPES: HtfReasonType[] = ["FVG", "OB", "VIMB"];
+/** Lowest to highest: a higher one takes over a lower one. */
+export type HtfTimeframe = "1H" | "4H" | "D" | "W";
+export const HTF_TIMEFRAMES: { value: HtfTimeframe; label: string }[] = [
+  { value: "1H", label: "1H" },
+  { value: "4H", label: "4H" },
+  { value: "D", label: "Daily" },
+  { value: "W", label: "Weekly" },
+];
+export interface HtfReason {
+  type: HtfReasonType;
+  tf: HtfTimeframe;
+}
+export const htfRank = (tf: HtfTimeframe) => HTF_TIMEFRAMES.findIndex((x) => x.value === tf);
+export const htfTfLabel = (tf: HtfTimeframe) => HTF_TIMEFRAMES.find((x) => x.value === tf)?.label ?? tf;
+/** The reason that counts: the highest timeframe wins; on a tie, FVG before OB before VIMB. */
+export function topHtf(reasons: HtfReason[] | undefined): HtfReason | null {
+  let top: HtfReason | null = null;
+  for (const r of reasons ?? []) {
+    const better =
+      !top ||
+      htfRank(r.tf) > htfRank(top.tf) ||
+      (htfRank(r.tf) === htfRank(top.tf) && HTF_REASON_TYPES.indexOf(r.type) < HTF_REASON_TYPES.indexOf(top.type));
+    if (better) top = r;
+  }
+  return top;
+}
 export type PoiTests = "fresh" | "once" | "2+";
 export const POI_TESTS: { value: PoiTests; label: string }[] = [
   { value: "fresh", label: "Fresh" },
@@ -120,16 +150,18 @@ export const POI_TESTS: { value: PoiTests; label: string }[] = [
   { value: "2+", label: "Tested 2+" },
 ];
 export type DeskAgreed = "yes" | "no" | "none";
+/** Did your daily bias match the briefing's? "none" stays only on trades logged with no briefing. */
 export const DESK_AGREED: { value: DeskAgreed; label: string }[] = [
-  { value: "yes", label: "Agreed" },
-  { value: "no", label: "Disagreed" },
+  { value: "yes", label: "Matched" },
+  { value: "no", label: "Differed" },
   { value: "none", label: "No briefing" },
 ];
 export type EntryType = "market" | "limit";
-export type ExitReason = "target" | "stop" | "trail" | "time" | "release" | "other";
+export type ExitReason = "target" | "stop" | "breakeven" | "trail" | "time" | "release" | "other";
 export const EXIT_REASONS: { value: ExitReason; label: string }[] = [
   { value: "target", label: "Target" },
   { value: "stop", label: "Stop" },
+  { value: "breakeven", label: "Breakeven" },
   { value: "trail", label: "Trailing stop" },
   { value: "time", label: "Time stop" },
   { value: "release", label: "Release rule" },
@@ -146,6 +178,7 @@ export const EMPTY_RULEBOOK_FIELDS = {
   sweepDepth: null,
   took15mSwing: null,
   htfReasonType: "",
+  htfReasons: [] as HtfReason[],
   poiTests: "",
   levelSweep: null,
   deskAgreed: "",

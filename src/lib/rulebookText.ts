@@ -882,3 +882,44 @@ export function windowByHand(doc: Rulebook): Rulebook {
     }),
   };
 }
+
+/* ── 2.2: a restricted check-in closes the day ───────────────────────── */
+
+export const CHECKIN_CLOSES_REASON = "A “Trade restricted” check-in means no trade at all, not A+ only";
+
+const CHECKIN_LINE = "- **The check-in comes first.** “Trade restricted” or “Stand down” means no trade today.";
+
+/** Caution stops leaving A+ open: the check-in either clears the day or closes it. */
+export function checkinCloses(doc: Rulebook): Rulebook {
+  return {
+    ...doc,
+    checkinCaution: "nothing",
+    sections: doc.sections.map((s) =>
+      s.id === "limits" && !s.body.includes(CHECKIN_LINE) && s.body.includes("\n\n### When a rule breaks")
+        ? { ...s, body: s.body.replace("\n\n### When a rule breaks", `\n${CHECKIN_LINE}\n\n### When a rule breaks`) }
+        : s,
+    ),
+  };
+}
+
+/* ── 2.3: what a trade logs ──────────────────────────────────────────── */
+
+export const JOURNAL_V23_REASON =
+  "Breakeven is an exit of its own, the HTF reason is logged with its timeframe, the desk check becomes “my bias matches the briefing”, and the entry type is no longer logged";
+
+/** "target, stop, trail, the 12:00 time stop…" gains breakeven, wherever the exits are listed. */
+const withBreakeven = (text: string) =>
+  text.replace(/target, stop, (trail|trailing stop), the \{\{timeStop\}\} time stop/g, "target, stop, breakeven, $1, the {{timeStop}} time stop");
+
+export function journalV23(doc: Rulebook): Rulebook {
+  return {
+    ...doc,
+    flow: { ...doc.flow, exit: withBreakeven(doc.flow.exit) },
+    sections: doc.sections.map((s) => ({ ...s, body: withBreakeven(s.body) })),
+    hypotheses: doc.hypotheses
+      .filter((h) => h.id !== "limit-entry")
+      .map((h) =>
+        h.id === "desk" ? { ...h, text: "Trades where your bias matches the briefing do better", loggedAs: "Bias matches the briefing" } : h,
+      ),
+  };
+}

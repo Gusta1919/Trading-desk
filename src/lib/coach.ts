@@ -10,7 +10,7 @@ import { QUESTIONS, VERDICTS, type CheckIn } from "./checkin";
 import { dayKey, fmtPct, fmtR } from "./format";
 import { classifyOutcome, groupBy, isClosed, summarize, tradePct } from "./stats";
 import { costDrag, limitState } from "./limits";
-import { adherence, deskStatus, weekSpan } from "./discipline";
+import { adherence, checkinClosesDay, deskStatus, weekSpan } from "./discipline";
 import { hypothesisResults } from "./hypotheses";
 import type { NewsDay } from "./newsRules";
 import { dayBudget } from "./risk";
@@ -407,12 +407,16 @@ export function buildBriefing(
       (q) => `${q.short.toLowerCase()} (${q.options[checkinToday.answers[q.id]].label.toLowerCase()})`,
     );
     const same = closed.filter((t) => byDate.get(t.date.slice(0, 10))?.verdict === "caution");
+    // Since 2.2 a restricted morning closes the day; before, it left A+ open.
+    const closes = checkinClosesDay("caution", doc ?? undefined);
     add({
       id: "caution",
-      tone: "warn",
+      tone: closes ? "alert" : "warn",
       priority: 88,
       title: "Check-in says: trade restricted",
-      body: `Flags raised: ${flagged.join(", ")}. Raise the bar instead of trimming the size: only an A+ is tradable today — an A waits for a clearer morning — and the grade sets the risk, no rounding by feel.`,
+      body: closes
+        ? `Flags raised: ${flagged.join(", ")}. No trade today, whatever the grade — an A+ waits for a clearer morning too, and any trade is logged as a rule break. Use the session to review the journal.`
+        : `Flags raised: ${flagged.join(", ")}. Raise the bar instead of trimming the size: only an A+ is tradable today — an A waits for a clearer morning — and the grade sets the risk, no rounding by feel.`,
       stat:
         same.length >= 2
           ? `On past “trade with care” days you averaged ${fmtR(mean(same.map((t) => t.resultR!)))} over ${plural(same.length, "trade")} (overall ${fmtR(allAvgR)}).`
@@ -971,7 +975,7 @@ export function buildBriefing(
   // The rulebook's own grade factors count as structure too — whatever they are called.
   const STRUCTURE = new Set([
     "Entry", "HTF", "Session", "Setup", "Symbol", "Direction", "Weekday", "Time", "Planned R:R", "Box size",
-    "Entry type", "Exit reason", "15m swing", "POI", "Level sweep", "Desk", "Sweep depth", "Release day",
+    "Entry type", "Exit reason", "15m swing", "POI", "Level sweep", "Bias vs briefing", "HTF timeframe", "Sweep depth", "Release day",
     ...(doc?.factors.map((f) => f.name) ?? []),
   ]);
   const bestEdges = edges(insights)
