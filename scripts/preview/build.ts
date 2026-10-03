@@ -1,7 +1,7 @@
 /**
  * Builds the online preview: the real app, with a snapshot of the running desk baked in.
  *
- *   npm start                 the desk, with the data to show (e.g. after `npm run demo`)
+ *   npm start                 the desk, with the data to show
  *   npm run preview:build     → dist-preview/
  *
  * The page is the normal Vite build. Instead of the local server, scripts/preview/shim.js

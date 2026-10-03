@@ -41,11 +41,6 @@ describe("parseBias", () => {
     );
   });
 
-  it("marks a briefing as demo only when it says so exactly", () => {
-    assert.equal(parseBias({ ...core, demo: true })!.demo, true);
-    assert.equal(parseBias({ ...core, demo: "true" })!.demo, false);
-    assert.equal(parseBias(core)!.demo, false);
-  });
 
   it("keeps the core when everything else is missing", () => {
     const b = parseBias(core)!;

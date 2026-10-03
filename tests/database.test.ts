@@ -102,6 +102,28 @@ describe("an older database", () => {
     assert.equal(fs.existsSync(path.join(dir, "daily-bias.json")), false);
   });
 
+  it("clears what an earlier demo left in a current database, and nothing else", () => {
+    const dir = tmp();
+    const file = path.join(dir, "trade-assistant.db");
+    const db = openDatabase(file);
+    const trade = db.prepare(
+      "INSERT INTO trades (id, date, symbol, direction, rulebook_version, notes, created_at, updated_at) VALUES (?, ?, 'XAUUSD', 'long', '1.0', ?, 'x', 'x')",
+    );
+    trade.run("demo", "2026-09-01T04:30", "[demo] A setup");
+    trade.run("mine", "2026-10-05T04:30", "my trade — not a [demo]");
+    const checkin = db.prepare("INSERT INTO checkins (date, note, score, verdict, created_at) VALUES (?, ?, 90, 'ready', 'x')");
+    checkin.run("2026-09-01", "[demo]");
+    checkin.run("2026-10-05", "");
+    db.close();
+    fs.writeFileSync(path.join(dir, "daily-bias.json"), JSON.stringify({ demo: true }));
+
+    const again = openDatabase(file);
+    assert.deepEqual(again.prepare("SELECT id FROM trades").all(), [{ id: "mine" }]);
+    assert.deepEqual(again.prepare("SELECT date FROM checkins").all(), [{ date: "2026-10-05" }]);
+    assert.equal(fs.existsSync(path.join(dir, "daily-bias.json")), false);
+    again.close();
+  });
+
   it("opens a current database as it is", () => {
     const dir = tmp();
     const file = path.join(dir, "trade-assistant.db");

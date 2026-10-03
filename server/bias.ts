@@ -37,13 +37,11 @@ export function readBias(): BiasFile {
 
 /**
  * The "date" the saved briefing was written for, or null when there's none to read.
- * A demo briefing (`npm run demo`) counts as none, so the real one still replaces it.
  */
 export function savedDate(): string | null {
   const file = readBias();
   if (!file.found) return null;
-  const data = "data" in file ? (file.data as { date?: unknown; demo?: unknown } | null) : null;
-  if (data?.demo === true) return null;
+  const data = "data" in file ? (file.data as { date?: unknown } | null) : null;
   return typeof data?.date === "string" ? data.date : null;
 }
 

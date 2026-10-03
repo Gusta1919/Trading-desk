@@ -69,17 +69,34 @@ function carryCheckins(from: string, to: Database.Database): number {
 }
 
 /** A demo briefing left from before: put back the real one it covered, or clear it. */
-export function dropDemoBriefing(dataDir: string) {
+export function dropDemoBriefing(dataDir: string): boolean {
   const file = path.join(dataDir, "daily-bias.json");
   const before = path.join(dataDir, "daily-bias.before-demo.json");
   try {
     const data = JSON.parse(fs.readFileSync(file, "utf8")) as { demo?: boolean };
-    if (data?.demo !== true) return;
+    if (data?.demo !== true) return false;
     if (fs.existsSync(before)) fs.renameSync(before, file);
     else fs.rmSync(file);
+    return true;
   } catch {
-    /* no briefing, or not one we wrote — leave it */
+    return false; // no briefing, or not one the demo wrote — leave it
   }
+}
+
+/**
+ * The desk no longer ships demo data. Anything an earlier version's demo left behind —
+ * tagged "[demo]", so nothing of yours is ever touched — goes on start.
+ */
+function clearDemo(db: Database.Database, dataDir: string): string | null {
+  const trades = db.prepare("DELETE FROM trades WHERE notes LIKE ?").run(`${DEMO}%`).changes;
+  const checkins = db.prepare("DELETE FROM checkins WHERE note = ?").run(DEMO).changes;
+  const briefing = dropDemoBriefing(dataDir);
+  const parts = [
+    trades ? `${trades} trade${trades === 1 ? "" : "s"}` : "",
+    checkins ? `${checkins} check-in${checkins === 1 ? "" : "s"}` : "",
+    briefing ? "the briefing" : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
 }
 
 export function openDatabase(file = DB_PATH): Database.Database {
@@ -95,12 +112,13 @@ export function openDatabase(file = DB_PATH): Database.Database {
   const db = new Database(file);
   db.pragma("journal_mode = WAL");
   setupSchema(db);
+  const cleared = clearDemo(db, path.dirname(file));
+  if (cleared) console.log(`Removed what was left of the old demo: ${cleared}.`);
   const upgraded = upgradeRulebook(db);
   if (upgraded) console.log(`Rulebook updated for this version of the desk: ${upgraded.reason}.`);
 
   if (archived) {
     const kept = carryCheckins(archived, db);
-    dropDemoBriefing(path.dirname(file));
     console.log(`A database from an older version of the desk was moved to ${path.relative(path.dirname(file), archived)}.`);
     console.log(`A fresh one starts now, with the GOLD Model rulebook and ${kept} of your own check-in${kept === 1 ? "" : "s"}.`);
   }
