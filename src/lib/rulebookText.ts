@@ -8,7 +8,7 @@
  * Ids are fixed strings rather than random ones: the setup check, the auto rules and
  * the trades' frozen snapshots all refer to them, and so do the tests.
  */
-import type { Rulebook } from "./rulebook";
+import type { Rulebook, Section } from "./rulebook";
 import { DEFAULT_LIMITS } from "./types";
 
 export const FIRST_VERSION = "1.2";
@@ -214,7 +214,8 @@ export function defaultRulebook(): Rulebook {
       exit: "by target, stop, trailing stop, the {{timeStop}} time stop or the release rule. Then you're done for the day.",
     },
 
-    sections: SECTIONS,
+    // A copy: the list is shared, and a caller editing its own document must not edit it.
+    sections: SECTIONS.map((s) => ({ ...s })),
 
     guidance: [
       "Changes that reduce risk need no evidence.",
@@ -623,4 +624,164 @@ export function retirePlan(doc: Rulebook): Rulebook {
       return { ...s, body: outPlan(s.body.replace(NO_PLAN_LINE, NO_BIAS_LINE)) };
     }),
   };
+}
+
+/* ── v1.4: the rulebook condensed ────────────────────────────────────── */
+
+export const CONDENSED_VERSION = "1.4";
+export const CONDENSED_REASON =
+  "Rulebook condensed to the strategy's rules: explanations, examples, journal fields and the challenge plan removed; backtesting moved to the reference";
+
+const FLOW_V14: Rulebook["flow"] = {
+  gates: [
+    "Daily bias decided?",
+    "An allowed day, not a skip day?",
+    "One box side swept inside the entry window?",
+    "An HTF reason: a 1H–Weekly FVG, OB or VIMB?",
+    "A 5m candle closes beyond the external swing?",
+    "R:R above {{rr.min}} at the MSS close, or one FVG limit filled within {{limit.candles}} candles?",
+    "Grade {{grades.tradable}}?",
+  ],
+  enter: "at {{risk.entry}} risk. Stop at the external swing, target the opposite box edge.",
+  manage: "hands off until {{trailAfter.word}}, then trail behind the second-last 5m swing.",
+  exit: "by target, stop, trail, the {{timeStop}} time stop or the release rule. Then you're done for the day.",
+};
+
+/** The rules, in the order you need them. */
+const MAIN_V14: Section[] = [
+  {
+    id: "glance",
+    title: "At a glance",
+    body: `Price sweeps one side of the {{box}} NY box. Enter on a 5m MSS back toward it and target the other side. {{instrument}} only, {{maxTrades}} trade a day.
+
+[[day]]
+
+- **Every rule is binding.** Fail one and there's no trade.
+- **A break is a break,** even when the trade wins.
+- **All times are New York.**`,
+  },
+  { id: "flow", title: "Decision flow", body: "[[flow]]" },
+  {
+    id: "prep",
+    title: "Before you trade",
+    body: `1. **Calendar:** a skip day? Which red releases fall in the entry window? The Today dock shows both.
+2. **Levels:** PDH/PDL, PWH/PWL, the higher-timeframe highs and lows, obvious EQH/EQL, and the 1H–Weekly POIs near price.
+3. **Bias:** Bullish, Bearish or Unclear, from the Daily chart and the next draw on liquidity. Decide it before the first entry. The Daily Bias briefing can veto a trade, never create one.`,
+  },
+  {
+    id: "news",
+    title: "News",
+    body: `Only red Forex Factory events count.
+
+### Skip days: no trading
+
+[[skip-days]]
+
+### Release windows
+
+Every other red {{news.windowCurrencies}} release, plus {{news.windowExtra}}.
+
+[[release-window]]
+
+- No new entries from {{news.before}} before to {{news.after}} after the release.
+- Hold through it only with the stop at breakeven or better. Otherwise close {{news.before}} before.`,
+  },
+  {
+    id: "trade",
+    title: "The trade",
+    body: `### Setup
+
+High swept: look for shorts. Low swept: look for longs. A wick is enough.
+
+[[base-rules]]
+
+### Entry
+
+- **Market order** at the close of the MSS candle: a 5m close beyond the last external swing. Wicks, internal swings and BOS don't count.
+- R:R under {{rr.min}}? One **limit order** at the near edge of the displacement FVG, valid for {{limit.candles}} candles. Unfilled means no trade.
+
+### Stop and target
+
+- **Stop:** exactly at the external swing the MSS came from.
+- **Target:** the opposite box edge, or obvious liquidity within {{liquidityR}} beyond it.
+- One position. No runners, no partials.
+
+### Manage and exit
+
+- Hands off until price covers {{trailAfter}} of the way to the target. Then trail behind the second-last 5m swing. The stop only moves toward profit.
+- Exit only by target, stop, trail, the {{timeStop}} time stop or the release rule. Never on a feeling.`,
+  },
+  {
+    id: "grading",
+    title: "Grade and size",
+    body: `All base rules hold, or it's a C. Each factor caps the best grade, and the lowest cap wins.
+
+[[factors]]
+
+### Compass: far side reached by {{compassBy}}
+
+[[compass]]
+
+### Risk per grade
+
+[[ladder]]
+
+- Risk is a % of the current balance.
+- **A+ goes to {{aplus.risk}}** once {{aplus.trades}} graded trades show A+ beating A by {{aplus.edge}} or more.`,
+  },
+  {
+    id: "limits",
+    title: "Limits and consequences",
+    body: `- **{{maxTrades}} trade a day.** Win, lose or breakeven, you're done.
+- **Daily stop {{limits.dailyStop}}, weekly stop {{limits.weeklyStop}}.** Hit one and stop for the rest of the day or week.
+- **Never hold overnight.** Flat by {{timeStop}}.
+
+### When a rule breaks
+
+[[consequences]]`,
+  },
+];
+
+/** Background kept for reference, in this order; the ones v1.4 rewrites are here. */
+const REFERENCE_IDS = ["changes", "backtest", "open", "glossary", "changelog"];
+const REFERENCE_V14: Record<string, Section> = {
+  changes: {
+    id: "changes",
+    title: "Changing a rule",
+    body: `Every change gets a new version and a one-line reason.
+
+[[guidance]]
+
+### Hypotheses: logged, not rules yet
+
+[[hypotheses]]`,
+  },
+};
+
+/**
+ * The v1.4 change applied to whatever version is in force: the text shrinks to the
+ * strategy's rules, and the background moves to the Reference panel. Values are not
+ * touched, so the logic reads exactly what it read before. Any section whose text you
+ * wrote or edited yourself is kept as you left it — in its new place if v1.4 still has
+ * that section, after the rules if it doesn't — and so is a decision flow you edited.
+ */
+export function condenseRulebook(doc: Rulebook): Rulebook {
+  const stock = retirePlan(defaultRulebook());
+  const before = new Map(stock.sections.map((s) => [s.id, s]));
+  const yours = new Map(
+    doc.sections
+      .filter((s) => {
+        const o = before.get(s.id);
+        return !o || o.title !== s.title || o.body !== s.body;
+      })
+      .map((s) => [s.id, s]),
+  );
+  const mainIds = new Set(MAIN_V14.map((s) => s.id));
+  const main = MAIN_V14.map((s) => yours.get(s.id) ?? s);
+  const kept = [...yours.values()].filter((s) => !mainIds.has(s.id) && !REFERENCE_IDS.includes(s.id));
+  const reference = REFERENCE_IDS.map((id) => yours.get(id) ?? REFERENCE_V14[id] ?? doc.sections.find((s) => s.id === id))
+    .filter((s): s is Section => s != null)
+    .map((s) => ({ ...s, reference: true }));
+  const flowUntouched = JSON.stringify(doc.flow) === JSON.stringify(stock.flow);
+  return { ...doc, flow: flowUntouched ? FLOW_V14 : doc.flow, sections: [...main, ...kept, ...reference] };
 }

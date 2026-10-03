@@ -93,6 +93,8 @@ export interface Section {
   id: string;
   title: string;
   body: string;
+  /** Background, not a rule: shown in the Reference panel, closed by default. */
+  reference?: boolean;
 }
 
 /** An idea being tested by logging, not yet a rule. */
@@ -441,7 +443,10 @@ export type Block =
 /** The tables and lists the desk draws from values. */
 export const GENERATED = [
   "flow",
+  "day",
   "skip-days",
+  "release-window",
+  "consequences",
   "base-rules",
   "factors",
   "compass",

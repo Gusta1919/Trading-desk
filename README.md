@@ -34,8 +34,10 @@ open http://localhost:3847
 - **Daily Bias** — today's gold briefing drawn over live price, and the desk's own
   "stand aside today" list worked out from the rulebook.
 - **Calendar** — results, flags, days off and skip days.
-- **Rulebook** — the whole GOLD Model rulebook with live values, the decision flow, an
-  edit mode per section, versions and changelog, hypotheses, open items, glossary.
+- **Rulebook** — the GOLD Model's rules on one page (v1.4): the trading day drawn as a
+  timeline, the decision flow, news, the trade, grading and limits, every number live; an
+  edit mode per section, versions and changelog. Hypotheses, open items, glossary and the
+  backtesting protocol sit in the Reference panel.
 - **Stats** — full stats, Compare, what drives your results, habits, well-being, and
   "By the rulebook": every grade, factor answer and journal field against results.
 - **News** — the economic calendar with skip days and release windows marked, and the wire.
@@ -67,12 +69,12 @@ open http://localhost:3847
 | File | What it holds |
 |---|---|
 | `server/db.ts` | opens the database |
-| `server/schema.ts`, `server/migrate.ts` | schema + migrations (the rulebook's is `migrateRulebook`) |
+| `server/schema.ts`, `server/migrate.ts` | schema + migrations (the rulebook's: `migrateRulebook`, then `migratePlanRetired` and `migrateCondensed`) |
 | `server/rulebookStore.ts` | rulebook versions: the one in force, the list, saving a new one |
 | `server/index.ts` | REST API; re-derives % and R and re-judges every flag after each write |
 | `src/lib/types.ts` | trade shape and its journal fields, flags, grades, the definition |
 | `src/lib/rulebook.ts` | the rulebook's shape, `{{tokens}}`, the text format, versions, validation |
-| `src/lib/rulebookText.ts` | rulebook v1.2 as it moved into the desk |
+| `src/lib/rulebookText.ts` | rulebook v1.2 as it moved into the desk, and the v1.3 and v1.4 rewrites |
 | `src/lib/rules.ts` | entry window, Compass, displacement, R:R, lots, MFE/MAE |
 | `src/lib/discipline.ts` | every flag, the consequence ladder, today's status, adherence |
 | `src/lib/newsRules.ts` | release kinds, skip days and release windows |

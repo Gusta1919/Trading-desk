@@ -1,5 +1,24 @@
-import { ArrowDown, Check, History, Pencil, Plus, X } from "lucide-react";
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  ArrowDown,
+  ArrowRight,
+  Award,
+  Ban,
+  BookOpen,
+  CalendarClock,
+  Check,
+  ChevronDown,
+  Crosshair,
+  History,
+  ListChecks,
+  Pencil,
+  Plus,
+  ShieldAlert,
+  Sunrise,
+  Target,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+import { Fragment, createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { api, type OpenItem } from "@/lib/api";
 import { answersCappingAt, factorCap, withUnit } from "@/lib/grading";
 import { hypothesisResults } from "@/lib/hypotheses";
@@ -48,9 +67,30 @@ const useCtx = () => useContext(RulebookContext)!;
 const NOT_EDITABLE = new Set(["changelog"]);
 
 /**
- * The rulebook, in the desk's own style: the decision flow first, then every section,
- * with every number read live from the values the logic uses. Each section has an edit
- * mode; saving any change asks for a reason and writes a new version.
+ * Each rule section's colour and icon, so the page reads at a glance. The colour is
+ * handed down as --sec: headings, bullets and the value chips inside take it up.
+ */
+const LOOK: Record<string, { colour: string; icon: LucideIcon }> = {
+  glance: { colour: "var(--color-accent)", icon: Crosshair },
+  flow: { colour: "var(--color-up)", icon: ListChecks },
+  prep: { colour: "var(--color-cyan)", icon: Sunrise },
+  news: { colour: "var(--color-warn)", icon: CalendarClock },
+  trade: { colour: "var(--color-accent-2)", icon: Target },
+  grading: { colour: "var(--color-low)", icon: Award },
+  limits: { colour: "var(--color-down)", icon: ShieldAlert },
+};
+const PLAIN = { colour: "var(--color-soft)", icon: BookOpen };
+const lookOf = (id: string) => LOOK[id] ?? PLAIN;
+
+/** A colour at a strength, for tints and borders. */
+const tint = (colour: string, pct: number) => `color-mix(in oklab, ${colour} ${pct}%, transparent)`;
+
+/**
+ * The rulebook, in the desk's own style: the rules first, each section in its own
+ * colour, every number read live from the values the logic uses; the background
+ * (hypotheses, open items, glossary, backtesting, changelog) in a Reference panel.
+ * Each section has an edit mode; saving any change asks for a reason and writes a
+ * new version.
  */
 export function RulebookView({
   state,
@@ -65,6 +105,7 @@ export function RulebookView({
   const [viewing, setViewing] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [openItems, setOpenItems] = useState<OpenItem[]>([]);
+  const [referenceOpen, setReferenceOpen] = useState(false);
 
   useEffect(() => {
     api.openItems().then(setOpenItems).catch(() => {});
@@ -75,6 +116,8 @@ export function RulebookView({
   const values = useMemo(() => tokenValues(doc), [doc]);
   const version = viewing ?? current?.version ?? doc.version;
   const readOnly = viewing != null && viewing !== current?.version;
+  const rules = doc.sections.filter((s) => !s.reference);
+  const reference = doc.sections.filter((s) => s.reference);
 
   const toggleItem = (id: string, done: boolean) => {
     setOpenItems((list) => list.map((x) => (x.id === id ? { ...x, done } : x)));
@@ -92,34 +135,46 @@ export function RulebookView({
     view: (v) => setViewing(v === current?.version ? null : v),
   };
   const section = doc.sections.find((s) => s.id === editing) ?? null;
+  const edit = (id: string) => (!readOnly && !NOT_EDITABLE.has(id) ? () => setEditing(id) : undefined);
+  const showReference = () => {
+    setReferenceOpen(true);
+    requestAnimationFrame(() => document.getElementById("rb-reference")?.scrollIntoView({ behavior: "smooth" }));
+  };
 
   return (
     <RulebookContext.Provider value={ctx}>
-      <div className="grid items-start gap-6 xl:grid-cols-[230px_minmax(0,1fr)]">
+      <div className="grid items-start gap-6 xl:grid-cols-[210px_minmax(0,1fr)]">
         {/* ── Section navigation ──────────────────────────────────────── */}
         <nav className="anim-rise card sticky top-24 hidden space-y-0.5 px-3 py-4 xl:block" aria-label="Rulebook sections">
-          <a href="#rb-flow" className="block rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink">
-            Decision flow
-          </a>
-          {doc.sections.map((s, i) => (
+          {rules.map((s) => (
             <a
               key={s.id}
               href={`#rb-${s.id}`}
-              className="flex gap-2 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink"
+              className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12.5px] text-soft transition-colors hover:bg-subtle hover:text-ink"
             >
-              <span className="num w-5 text-faint">{i + 1}</span>
+              <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: lookOf(s.id).colour }} />
               {s.title}
             </a>
           ))}
+          {reference.length > 0 && (
+            <button
+              onClick={showReference}
+              className="mt-2 flex w-full items-center gap-2.5 rounded-lg border-t px-2.5 pb-1.5 pt-3 text-left text-[12.5px] text-faint transition-colors hover:text-ink"
+            >
+              <BookOpen size={12} />
+              Reference
+            </button>
+          )}
         </nav>
 
-        <div className="min-w-0 space-y-4">
+        <div className="min-w-0 space-y-5">
           {/* ── The rulebook's own header: version, last change, older versions ── */}
-          <header className="anim-rise card flex flex-wrap items-center gap-x-6 gap-y-3 px-6 py-4">
-            <div className="min-w-0 flex-1">
+          <header className="anim-rise card relative flex flex-wrap items-center gap-x-6 gap-y-3 overflow-hidden px-6 py-4">
+            <Glow colour="var(--color-accent)" />
+            <div className="relative min-w-0 flex-1">
               <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-faint">Rulebook</p>
-              <h2 className="text-[18px] font-semibold tracking-tight">
-                {doc.name} <span className="num text-soft">v{version}</span>
+              <h2 className="text-[20px] font-semibold tracking-tight">
+                {doc.name} <span className="num text-accent">v{version}</span>
               </h2>
               {current && !readOnly && (
                 <p className="truncate text-[12px] text-faint">
@@ -127,7 +182,7 @@ export function RulebookView({
                 </p>
               )}
             </div>
-            <label className="flex items-center gap-2 text-[12px] text-soft">
+            <label className="relative flex items-center gap-2 text-[12px] text-soft">
               <History size={14} className="text-faint" />
               <select
                 className="field w-36 py-1.5 text-[12px]"
@@ -154,33 +209,44 @@ export function RulebookView({
             </div>
           )}
 
-          <section id="rb-flow" className="anim-rise card scroll-mt-24 px-6 py-5" style={stagger(1, 80)}>
-            <h3 className="mb-4 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">Decision flow</h3>
-            <DecisionFlow />
-          </section>
-
-          {doc.sections.map((s, i) => (
-            <section
-              key={s.id}
-              id={`rb-${s.id}`}
-              className="anim-rise card scroll-mt-24 px-6 py-5"
-              style={stagger(i + 2, 60)}
-            >
-              <header className="mb-3 flex items-baseline gap-3">
-                <span className="num text-[12px] text-faint">§{i + 1}</span>
-                <h3 className="text-[15px] font-semibold">{s.title}</h3>
-                {!readOnly && !NOT_EDITABLE.has(s.id) && (
-                  <button
-                    onClick={() => setEditing(s.id)}
-                    className="ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] text-faint hover:bg-subtle hover:text-ink"
-                  >
-                    <Pencil size={12} /> Edit
-                  </button>
-                )}
-              </header>
-              <Body body={s.body} />
-            </section>
+          {rules.map((s, i) => (
+            <SectionCard key={s.id} section={s} index={i} onEdit={edit(s.id)} />
           ))}
+
+          {reference.length > 0 && (
+            <section id="rb-reference" className="anim-rise card scroll-mt-24 overflow-hidden" style={stagger(rules.length + 1, 70)}>
+              <button
+                onClick={() => setReferenceOpen((o) => !o)}
+                aria-expanded={referenceOpen}
+                className="flex w-full items-center gap-3 px-6 py-4 text-left transition-colors hover:bg-subtle"
+              >
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-subtle text-soft">
+                  <BookOpen size={16} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[15px] font-semibold">Reference</span>
+                  <span className="block truncate text-[12px] text-faint">{reference.map((s) => s.title).join(" · ")}</span>
+                </span>
+                <ChevronDown size={16} className={cx("ml-auto shrink-0 text-faint transition-transform duration-300", referenceOpen && "rotate-180")} />
+              </button>
+              {referenceOpen && (
+                <div className="anim-fade space-y-8 border-t px-6 py-6" style={{ "--sec": "var(--color-soft)" } as CSSProperties}>
+                  {reference.map((s) => {
+                    const onEdit = edit(s.id);
+                    return (
+                      <div key={s.id} id={`rb-${s.id}`} className="scroll-mt-24">
+                        <header className="mb-3 flex items-baseline gap-3">
+                          <h3 className="text-[14px] font-semibold">{s.title}</h3>
+                          {onEdit && <EditButton onClick={onEdit} />}
+                        </header>
+                        <Body body={s.body} />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       </div>
 
@@ -202,29 +268,95 @@ export function RulebookView({
   );
 }
 
+/** A soft light in the card's corner, in the section's colour — the desk's mesh, up close. */
+const Glow = ({ colour }: { colour: string }) => (
+  <span
+    aria-hidden
+    className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full blur-3xl"
+    style={{ background: tint(colour, 13) }}
+  />
+);
+
+const EditButton = ({ onClick }: { onClick: () => void }) => (
+  <button
+    onClick={onClick}
+    className="ml-auto flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] text-faint transition-colors hover:bg-subtle hover:text-ink"
+  >
+    <Pencil size={12} /> Edit
+  </button>
+);
+
+function SectionCard({ section: s, index, onEdit }: { section: Section; index: number; onEdit?: () => void }) {
+  const { colour, icon: Icon } = lookOf(s.id);
+  return (
+    <section
+      id={`rb-${s.id}`}
+      className="anim-rise card relative scroll-mt-24 overflow-hidden px-6 py-5"
+      style={{ ...stagger(index + 1, 70), "--sec": colour } as CSSProperties}
+    >
+      <Glow colour={colour} />
+      <header className="relative mb-4 flex items-center gap-3">
+        <span
+          className="anim-stamp flex size-8 shrink-0 items-center justify-center rounded-xl"
+          style={{ color: colour, backgroundColor: tint(colour, 15), ...stagger(index + 3, 70) }}
+        >
+          <Icon size={16} />
+        </span>
+        <h3 className="text-[16px] font-semibold tracking-tight">{s.title}</h3>
+        {onEdit && <EditButton onClick={onEdit} />}
+      </header>
+      <div className="relative">
+        <Body body={s.body} />
+      </div>
+    </section>
+  );
+}
+
 /* ── Rendering the text ──────────────────────────────────────────────── */
 
-/** One line of text with its tokens filled and its **bold** bold. */
+const TOKEN_PART = /(\{\{\s*[^}]+?\s*\}\})/;
+
+/**
+ * One line of text with its **bold** bold and its tokens filled. A value with a digit
+ * in it (a time, a %, an R) is set as a small chip in the section's colour, so the
+ * numbers stand out from the words around them.
+ */
 function Line({ text }: { text: string }) {
   const { values } = useCtx();
+  const filled = (part: string, key: number) => {
+    const m = /^\{\{\s*([^}]+?)\s*\}\}$/.exec(part);
+    const value = m ? values[m[1]] : null;
+    if (value == null) return <Fragment key={key}>{part}</Fragment>;
+    if (!/\d/.test(value)) return <Fragment key={key}>{value}</Fragment>;
+    return (
+      <span
+        key={key}
+        className="num whitespace-nowrap rounded-md px-1 py-px text-[0.94em] font-medium text-ink"
+        style={{ backgroundColor: "color-mix(in oklab, var(--sec, var(--color-soft)) 16%, transparent)" }}
+      >
+        {value}
+      </span>
+    );
+  };
   return (
     <>
-      {inline(fill(text, values)).map((p, i) =>
-        p.bold ? (
+      {inline(text).map((p, i) => {
+        const parts = p.text.split(TOKEN_PART).filter(Boolean).map(filled);
+        return p.bold ? (
           <b key={i} className="font-semibold text-ink">
-            {p.text}
+            {parts}
           </b>
         ) : (
-          <span key={i}>{p.text}</span>
-        ),
-      )}
+          <Fragment key={i}>{parts}</Fragment>
+        );
+      })}
     </>
   );
 }
 
 function Body({ body }: { body: string }) {
   return (
-    <div className="space-y-3 text-[13px] leading-relaxed text-soft">
+    <div className="space-y-3.5 text-[13.5px] leading-relaxed text-soft">
       {parseBody(body).map((b, i) => (
         <BlockView key={i} block={b} />
       ))}
@@ -242,7 +374,7 @@ function BlockView({ block: b }: { block: Block }) {
       );
     case "h":
       return (
-        <h4 className="pt-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+        <h4 className="pt-2 text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--sec, var(--color-faint))" }}>
           <Line text={b.text} />
         </h4>
       );
@@ -266,13 +398,18 @@ function BlockView({ block: b }: { block: Block }) {
 
 function List({ ordered, items }: { ordered: boolean; items: { text: string; children: string[] }[] }) {
   return (
-    <ol className="space-y-1.5">
+    <ol className="space-y-2">
       {items.map((it, i) => (
-        <li key={i} className="flex gap-2.5">
+        <li key={i} className="flex gap-3">
           {ordered ? (
-            <span className="num w-4 shrink-0 text-right text-[12px] text-faint">{i + 1}</span>
+            <span
+              className="num mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+              style={{ color: "var(--sec, var(--color-soft))", backgroundColor: "color-mix(in oklab, var(--sec, var(--color-soft)) 15%, transparent)" }}
+            >
+              {i + 1}
+            </span>
           ) : (
-            <span className="mt-[9px] size-1 shrink-0 rounded-full bg-faint" />
+            <span className="mt-[9px] size-1.5 shrink-0 rounded-full" style={{ backgroundColor: "var(--sec, var(--color-faint))" }} />
           )}
           <div className="min-w-0">
             <Line text={it.text} />
@@ -324,37 +461,29 @@ function Table({ head, rows, faded }: { head: ReactNode[]; rows: ReactNode[][]; 
   );
 }
 
-/* ── The tables drawn from values ────────────────────────────────────── */
+/* ── The tables and pictures drawn from values ───────────────────────── */
 
 function Generated({ id }: { id: string }) {
   const { doc, values } = useCtx();
   switch (id) {
     case "flow":
-      return null; // drawn once, at the top
+      return <DecisionFlow />;
+    case "day":
+      return <DayTimeline />;
     case "skip-days":
-      return <List ordered={false} items={skipDayLines(doc.news).map((text) => ({ text, children: [] }))} />;
+      return <SkipDays />;
+    case "release-window":
+      return <ReleaseWindow />;
     case "base-rules":
-      return (
-        <List
-          ordered
-          items={doc.baseRules.map((r) => ({ text: `${r.text}${r.auto ? " — checked by the desk" : ""}`, children: [] }))}
-        />
-      );
+      return <BaseRules />;
     case "factors":
       return <FactorsTable />;
     case "compass":
       return <CompassTable />;
     case "ladder":
-      return (
-        <Table
-          head={["Grade", "Live", "Backtest (Forex Tester)"]}
-          rows={doc.grades.map((c) => [
-            <GradeBadge key="g" grade={c.grade} size="sm" />,
-            c.traded ? <span className="num text-ink">{c.riskPct}%</span> : <span className="text-down">Not tradable</span>,
-            c.backtestRiskPct != null ? <span className="num">{c.backtestRiskPct}%</span> : "No trade",
-          ])}
-        />
-      );
+      return <Ladder />;
+    case "consequences":
+      return <ConsequenceLadder />;
     case "guidance":
       return <List ordered={false} items={doc.guidance.map((text) => ({ text, children: [] }))} />;
     case "hypotheses":
@@ -369,23 +498,176 @@ function Generated({ id }: { id: string }) {
   return <p className="text-down">[[{id}]] is not a table the desk can draw.</p>;
 }
 
+const minutes = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
+/** The trading day, drawn: the box, the entry windows, the pause between them and the time stop. */
+function DayTimeline() {
+  const { doc } = useCtx();
+  type Kind = "box" | "entry" | "pause" | "manage";
+  const parts: { from: string; to: string; kind: Kind }[] = [{ from: doc.box.from, to: doc.box.to, kind: "box" }];
+  let at = doc.box.to;
+  for (const w of doc.entryWindows) {
+    if (minutes(w.from) > minutes(at)) parts.push({ from: at, to: w.from, kind: "pause" });
+    parts.push({ from: w.from, to: w.to, kind: "entry" });
+    at = w.to;
+  }
+  if (minutes(doc.timeStop) > minutes(at)) parts.push({ from: at, to: doc.timeStop, kind: "manage" });
+
+  const start = minutes(doc.box.from);
+  const end = Math.max(minutes(doc.timeStop), minutes(at)) + 30;
+  const x = (t: string) => ((minutes(t) - start) / (end - start)) * 100;
+  const style: Record<Kind, { label: string; colour: string; fill: string }> = {
+    box: { label: "Box", colour: "var(--color-accent)", fill: tint("var(--color-accent)", 30) },
+    entry: { label: "Entries", colour: "var(--color-up)", fill: tint("var(--color-up)", 26) },
+    pause: {
+      label: "No entries",
+      colour: "var(--color-down)",
+      fill: `repeating-linear-gradient(135deg, ${tint("var(--color-down)", 22)} 0 6px, ${tint("var(--color-down)", 9)} 6px 12px)`,
+    },
+    manage: { label: "Manage only", colour: "var(--color-soft)", fill: tint("var(--color-soft)", 14) },
+  };
+  const ticks = [...new Set(parts.flatMap((p) => [p.from, p.to]))];
+
+  return (
+    <div className="pb-1 pt-1">
+      <div className="relative">
+        <div className="flex h-11 overflow-hidden rounded-xl border">
+          {parts.map((p, i) => (
+            <div
+              key={i}
+              className="anim-grow flex min-w-0 items-center justify-center px-1"
+              style={{ width: `${x(p.to) - x(p.from)}%`, background: style[p.kind].fill, ...stagger(i, 160) }}
+              title={`${style[p.kind].label} ${p.from}–${p.to}`}
+            >
+              <span className="truncate text-[11px] font-semibold" style={{ color: style[p.kind].colour }}>
+                {style[p.kind].label}
+              </span>
+            </div>
+          ))}
+          <div className="flex-1" />
+        </div>
+        {/* The time stop: everything is flat here. */}
+        <div className="anim-fade absolute -bottom-1 -top-1 w-0.5 rounded-full bg-down" style={{ left: `${x(doc.timeStop)}%`, ...stagger(parts.length, 160) }} />
+        <span
+          className="anim-fade num absolute top-1/2 -translate-y-1/2 pl-2 text-[11px] font-semibold text-down"
+          style={{ left: `${x(doc.timeStop)}%`, ...stagger(parts.length, 160) }}
+        >
+          Flat
+        </span>
+      </div>
+      <div className="relative mt-1.5 h-4">
+        {ticks.map((t, i) => (
+          <span
+            key={t}
+            className={cx("num absolute -translate-x-1/2 text-[10.5px] text-faint", i > 0 && i < ticks.length - 1 && "max-sm:hidden")}
+            style={{ left: `${x(t)}%` }}
+          >
+            {t}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The skip days, as stop signs; the long names keep only their first sentence. */
+function SkipDays() {
+  const { doc } = useCtx();
+  return (
+    <ul className="flex flex-wrap gap-2">
+      {skipDayLines(doc.news).map((t, i) => (
+        <li
+          key={t}
+          title={t}
+          className="anim-pop flex items-center gap-1.5 rounded-full border border-down/25 bg-down/10 px-3 py-1 text-[12.5px] text-ink"
+          style={stagger(i, 50)}
+        >
+          <Ban size={12} className="text-down" />
+          {t.split(". ")[0]}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The release window around one release, drawn to scale with a floor so the short side shows. */
+function ReleaseWindow() {
+  const { doc } = useCtx();
+  const { beforeMin, afterMin } = doc.news;
+  const total = beforeMin + afterMin || 1;
+  const before = Math.max((beforeMin / total) * 100, 16);
+  const stripes = `repeating-linear-gradient(135deg, ${tint("var(--color-warn)", 24)} 0 6px, ${tint("var(--color-warn)", 10)} 6px 12px)`;
+  return (
+    <div className="max-w-xl">
+      <div className="relative flex h-9 overflow-hidden rounded-xl border">
+        <div className="anim-grow flex items-center justify-center" style={{ width: `${before}%`, background: stripes }}>
+          <span className="num text-[11px] font-semibold text-warn">−{beforeMin} min</span>
+        </div>
+        <div className="anim-grow flex flex-1 items-center justify-center" style={{ background: stripes, ...stagger(1, 160) }}>
+          <span className="num text-[11px] font-semibold text-warn">+{afterMin} min · no new entries</span>
+        </div>
+        <span className="absolute inset-y-0 w-0.5 bg-warn" style={{ left: `${before}%` }} />
+      </div>
+      <p className="num mt-1 text-[10.5px] text-faint" style={{ paddingLeft: `calc(${before}% - 1.6rem)` }}>
+        release
+      </p>
+    </div>
+  );
+}
+
+/** Every base rule as a checklist line; the ones the desk checks itself are marked. */
+function BaseRules() {
+  const { doc } = useCtx();
+  return (
+    <ol className="grid gap-2 md:grid-cols-2">
+      {doc.baseRules.map((r, i) => (
+        <li key={r.id} className="anim-rise flex gap-3 rounded-xl border bg-surface/40 px-3.5 py-2.5" style={stagger(i, 45)}>
+          <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-up/15 text-up">
+            <Check size={12} strokeWidth={3} />
+          </span>
+          <span className="min-w-0 flex-1 text-[13px] leading-snug">
+            <span className="block text-ink">
+              <Line text={r.text} />
+            </span>
+            {r.hint && (
+              <span className="mt-0.5 block text-[11.5px] text-faint">
+                <Line text={r.hint} />
+              </span>
+            )}
+          </span>
+          {r.auto && (
+            <span className="self-start rounded-full bg-cyan/12 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cyan" title="The desk checks this one">
+              auto
+            </span>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 /** Every factor: what lands an answer on each rung. */
 function FactorsTable() {
-  const { doc } = useCtx();
+  const { doc, values } = useCtx();
   const rungs: Grade[] = ["A+", "A", "B", "C"];
   return (
     <Table
-      head={["Factor", "A+", "A", "B", "C (no trade)"]}
+      head={["Factor", ...rungs.map((g) => <GradeBadge key={g} grade={g} size="sm" />)]}
       rows={doc.factors.map((f) => [
-        <span key="n">
+        <span key="n" className="block min-w-36">
           {f.name}
-          {f.auto && <span className="ml-1.5 text-[10px] uppercase tracking-[0.08em] text-faint">auto</span>}
+          {f.auto && <span className="ml-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cyan">auto</span>}
+          {f.hint && <span className="block text-[11px] text-faint">{fill(f.hint, values)}</span>}
         </span>,
         ...rungs.map((g) => {
           const here = answersCappingAt(f, g);
-          return (
+          return here.length ? (
             <span key={g} className={cx(f.kind === "number" && "num")}>
               {here.map((h) => (f.kind === "number" ? withUnit(h, f.unit) : h)).join(" / ")}
+            </span>
+          ) : (
+            <span key={g} className="text-faint">
+              —
             </span>
           );
         }),
@@ -394,24 +676,111 @@ function FactorsTable() {
   );
 }
 
-/** The frozen snapshot, with each value's cap — a coarse threshold, so the cap is the point. */
+/** The frozen snapshot as a heatmap: the stronger the reading, the stronger the colour; a cap shows in its grade's colour. */
 function CompassTable() {
   const { doc } = useCtx();
   const f = autoFactor(doc, "compass");
-  const cell = (v: number) => {
+  const cells = WEEKDAY_KEYS.flatMap((d) => [doc.compass.days[d].short, doc.compass.days[d].long]);
+  const lo = Math.min(...cells);
+  const hi = Math.max(...cells);
+  const cell = (v: number, i: number) => {
     const cap = f ? factorCap(f, v) : null;
+    const colour = cap && cap !== "A+" ? GRADE_COLOUR[cap] : "var(--color-up)";
+    const strength = hi > lo ? (v - lo) / (hi - lo) : 1;
     return (
-      <span className="num">
-        {v.toFixed(1)}%
-        {cap && cap !== "A+" && <span style={{ color: GRADE_COLOUR[cap] }}>: max {cap}</span>}
-      </span>
+      <div
+        key={i}
+        className="anim-pop flex items-baseline justify-between gap-2 rounded-lg px-3 py-2"
+        style={{ backgroundColor: tint(colour, 10 + strength * 30), ...stagger(i, 30) }}
+      >
+        <span className="num text-[13px] font-medium text-ink">{v.toFixed(1)}%</span>
+        {cap && cap !== "A+" && (
+          <span className="text-[10.5px] font-semibold" style={{ color: colour }}>
+            max {cap}
+          </span>
+        )}
+      </div>
     );
   };
   return (
-    <Table
-      head={["Weekday", "Short (high swept first)", "Long (low swept first)"]}
-      rows={WEEKDAY_KEYS.map((d) => [WEEKDAY_NAMES[d], cell(doc.compass.days[d].short), cell(doc.compass.days[d].long)])}
-    />
+    <div className="max-w-xl">
+      <div className="grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] gap-1.5 text-[12.5px]">
+        <span />
+        <span className="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint">Short · high swept</span>
+        <span className="px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint">Long · low swept</span>
+        {WEEKDAY_KEYS.map((d, i) => (
+          <Fragment key={d}>
+            <span className="self-center text-ink">{WEEKDAY_NAMES[d]}</span>
+            {cell(doc.compass.days[d].short, i * 2)}
+            {cell(doc.compass.days[d].long, i * 2 + 1)}
+          </Fragment>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-faint">
+        Frozen {longDate(doc.compass.frozenOn)}, about {doc.compass.sessions} sessions. Refresh every {doc.compass.refreshDays} days.
+      </p>
+    </div>
+  );
+}
+
+/** The grades as four tiles: what each one may risk. */
+function Ladder() {
+  const { doc } = useCtx();
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      {doc.grades.map((c, i) => {
+        const colour = GRADE_COLOUR[c.grade];
+        return (
+          <div
+            key={c.grade}
+            className="anim-pop rounded-xl border px-4 py-3"
+            style={{ borderColor: tint(colour, 30), backgroundColor: tint(colour, 7), ...stagger(i, 70) }}
+          >
+            <GradeBadge grade={c.grade} size="sm" />
+            <p className="num mt-2 text-[20px] font-semibold leading-none" style={{ color: c.traded ? colour : "var(--color-down)" }}>
+              {c.traded ? `${c.riskPct}%` : "No trade"}
+            </p>
+            <p className="mt-1 text-[11px] text-faint">{c.traded ? "risk per trade" : "not taken"}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The consequence ladder: what a broken rule costs, mild to severe. */
+function ConsequenceLadder() {
+  const { doc } = useCtx();
+  const c = doc.consequences;
+  const steps = [
+    { when: "Any rule break", then: "rest of the day off", colour: "var(--color-warn)" },
+    {
+      when: `${c.breaks} breaks in one week`,
+      then: `next week at ${c.factor === 0.5 ? "half" : `${c.factor * 100}%`} risk`,
+      colour: "var(--color-accent-2)",
+    },
+    {
+      when: `The ${doc.maxTradesPerDay === 1 ? "one" : doc.maxTradesPerDay}-trade rule or a loss limit broken`,
+      then: `${c.daysOff} trading days off`,
+      colour: "var(--color-down)",
+    },
+  ];
+  return (
+    <ol className="grid gap-2 md:grid-cols-3">
+      {steps.map((s, i) => (
+        <li
+          key={i}
+          className="anim-rise rounded-xl border px-4 py-3"
+          style={{ borderColor: tint(s.colour, 30), backgroundColor: tint(s.colour, 7), ...stagger(i, 90) }}
+        >
+          <p className="text-[12.5px] text-soft">{s.when}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-[13.5px] font-semibold" style={{ color: s.colour }}>
+            <ArrowRight size={13} className="shrink-0" />
+            {s.then}
+          </p>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -540,21 +909,25 @@ function DecisionFlow() {
   const steps: { label: string; text: string; colour: string }[] = [
     { label: "Enter", text: doc.flow.enter, colour: "var(--color-up)" },
     { label: "Manage", text: doc.flow.manage, colour: "var(--color-accent-2)" },
-    { label: "Exit", text: doc.flow.exit, colour: "var(--color-soft)" },
+    { label: "Exit", text: doc.flow.exit, colour: "var(--color-cyan)" },
   ];
+  const n = doc.flow.gates.length;
   return (
     <div className="space-y-4">
-      <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
+      <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {doc.flow.gates.map((g, i) => (
           <li
             key={i}
-            className="anim-rise relative flex flex-col gap-2 rounded-xl border bg-surface/40 px-3.5 py-3 text-[12.5px] leading-snug text-soft"
-            style={stagger(i, 70)}
+            className="anim-rise flex items-start gap-3 rounded-xl border bg-surface/40 px-3.5 py-3 text-[13px] leading-snug text-ink"
+            style={stagger(i, 80)}
           >
-            <span className="num flex size-6 items-center justify-center rounded-full border text-[11px] font-semibold text-ink">
+            <span
+              className="anim-stamp num flex size-6 shrink-0 items-center justify-center rounded-full bg-up/15 text-[11px] font-semibold text-up"
+              style={stagger(i + 2, 80)}
+            >
               {i + 1}
             </span>
-            <span>
+            <span className="min-w-0">
               <Line text={g} />
             </span>
           </li>
@@ -563,7 +936,7 @@ function DecisionFlow() {
       <p className="flex items-center gap-2 text-[12px] text-faint">
         <span className="h-px flex-1 bg-line" />
         <span>
-          Any <b className="font-semibold text-down">no</b> means no trade today. All seven yes:
+          Any <b className="font-semibold text-down">no</b> means no trade today. All {n} <b className="font-semibold text-up">yes</b>:
         </span>
         <ArrowDown size={12} />
         <span className="h-px flex-1 bg-line" />
@@ -572,11 +945,13 @@ function DecisionFlow() {
         {steps.map((s, i) => (
           <div
             key={s.label}
-            className="anim-rise relative overflow-hidden rounded-xl border bg-surface/40 py-3 pl-5 pr-4 text-[12.5px] leading-snug text-soft"
-            style={stagger(doc.flow.gates.length + i, 70)}
+            className="anim-rise rounded-xl border px-4 py-3 text-[13px] leading-snug text-soft"
+            style={{ borderColor: tint(s.colour, 30), backgroundColor: tint(s.colour, 7), ...stagger(n + i, 80) }}
           >
-            <span className="absolute inset-y-0 left-0 w-[3px]" style={{ backgroundColor: s.colour }} />
-            <b className="font-semibold text-ink">{s.label}</b> <Line text={s.text} />
+            <b className="mb-0.5 block text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: s.colour }}>
+              {s.label}
+            </b>
+            <Line text={s.text} />
           </div>
         ))}
       </div>
@@ -778,49 +1153,20 @@ const Row = ({ children }: { children: ReactNode }) => <div className="flex flex
 
 /** The values a section owns — what the logic reads, and what its text's tokens show. */
 function ValuesEditor({ id, draft: d, patch }: { id: string; draft: Rulebook; patch: (p: Partial<Rulebook>) => void }) {
-  const l = d.limits;
-  const limits = (p: Partial<Rulebook["limits"]>) => patch({ limits: { ...l, ...p } });
+  const has = (sectionId: string) => d.sections.some((s) => s.id === sectionId);
   switch (id) {
+    case "glance":
+      return <WhenCard draft={d} patch={patch} />;
     case "overview":
+      // Before v1.4 the overview held the decision flow too.
       return (
         <>
-          <Card title="When and what">
-            <div className="space-y-4">
-              <Row>
-                <label className="block">
-                  <span className="label">Instrument</span>
-                  <input className="field w-32 uppercase" value={d.instrument} onChange={(e) => patch({ instrument: e.target.value.toUpperCase() })} />
-                </label>
-                <Num label="Ounces per lot" value={d.ozPerLot} onChange={(v) => patch({ ozPerLot: v })} />
-                <Time label="Box from" value={d.box.from} onChange={(v) => patch({ box: { ...d.box, from: v } })} />
-                <Time label="Box to" value={d.box.to} onChange={(v) => patch({ box: { ...d.box, to: v } })} />
-              </Row>
-              <WindowsEditor value={d.entryWindows} onChange={(v) => patch({ entryWindows: v })} />
-              <Row>
-                <Time label="Time stop" value={d.timeStop} onChange={(v) => patch({ timeStop: v })} />
-                <Time label="Compass measured by" value={d.compassBy} onChange={(v) => patch({ compassBy: v })} />
-                <Num label="Trades per day" value={d.maxTradesPerDay} onChange={(v) => patch({ maxTradesPerDay: Math.max(1, Math.round(v)) })} />
-                <Num label="Planned R:R from" value={d.rr.from} onChange={(v) => patch({ rr: { ...d.rr, from: v } })} suffix="R" />
-                <Num label="to" value={d.rr.to} onChange={(v) => patch({ rr: { ...d.rr, to: v } })} suffix="R" />
-              </Row>
-            </div>
-          </Card>
-          <Card title="Decision flow">
-            <span className="label">The seven gates, one per line</span>
-            <textarea
-              className="field min-h-[160px] resize-y text-[12.5px] [field-sizing:content]"
-              value={d.flow.gates.join("\n")}
-              onChange={(e) => patch({ flow: { ...d.flow, gates: e.target.value.split("\n").filter((x) => x.trim()) } })}
-            />
-            {(["enter", "manage", "exit"] as const).map((k) => (
-              <label key={k} className="mt-3 block">
-                <span className="label capitalize">{k}</span>
-                <input className="field text-[12.5px]" value={d.flow[k]} onChange={(e) => patch({ flow: { ...d.flow, [k]: e.target.value } })} />
-              </label>
-            ))}
-          </Card>
+          <WhenCard draft={d} patch={patch} />
+          <FlowCard draft={d} patch={patch} />
         </>
       );
+    case "flow":
+      return <FlowCard draft={d} patch={patch} />;
     case "prep":
       // v1.2 had a plan deadline here; since v1.3 nothing in daily preparation is a setting.
       return d.planBy ? (
@@ -831,38 +1177,28 @@ function ValuesEditor({ id, draft: d, patch }: { id: string; draft: Rulebook; pa
     case "news":
       return <NewsEditor draft={d} patch={patch} />;
     case "setup":
-      return (
-        <Card title="Sweep depth reference (Compass)">
-          <Row>
-            <Num label="70% within" value={d.sweep.p70} onChange={(v) => patch({ sweep: { ...d.sweep, p70: v } })} suffix="$" />
-            <Num label="85% within" value={d.sweep.p85} onChange={(v) => patch({ sweep: { ...d.sweep, p85: v } })} suffix="$" />
-            <Num label="95% within" value={d.sweep.p95} onChange={(v) => patch({ sweep: { ...d.sweep, p95: v } })} suffix="$" />
-          </Row>
-        </Card>
-      );
+      return <SweepCard draft={d} patch={patch} />;
     case "entry":
-      return (
-        <Card title="Entry values">
-          <Row>
-            <Num label="Minimum R:R (net)" value={d.rr.min} onChange={(v) => patch({ rr: { ...d.rr, min: v } })} suffix=":1" />
-            <Num label="Liquidity filter" value={d.liquidityR} onChange={(v) => patch({ liquidityR: v })} suffix="R" />
-            <Num label="Limit order valid for" value={d.limitCandles} onChange={(v) => patch({ limitCandles: Math.max(1, Math.round(v)) })} suffix="candles" className="w-36" />
-            <Num label="Set the minimum after" value={d.calibration.rr} onChange={(v) => patch({ calibration: { ...d.calibration, rr: v } })} suffix="trades" className="w-36" />
-          </Row>
-        </Card>
-      );
+      return <EntryCard draft={d} patch={patch} />;
     case "stop":
       return (
         <Card title="Target values">
           <Num label="Liquidity beyond the edge" value={d.liquidityR} onChange={(v) => patch({ liquidityR: v })} suffix="R" />
         </Card>
       );
+    case "trade":
+      return (
+        <>
+          <BaseRulesCard draft={d} patch={patch} />
+          <EntryCard draft={d} patch={patch} />
+          <ManageCard draft={d} patch={patch} />
+        </>
+      );
     case "grading":
       return (
         <>
-          <Card title="Base rules — every one must hold, or the setup is a C">
-            <BaseRulesEditor value={d.baseRules} onChange={(v) => patch({ baseRules: v })} />
-          </Card>
+          {/* Since v1.4 the base rules are edited with the trade they describe. */}
+          {!has("trade") && <BaseRulesCard draft={d} patch={patch} />}
           <Card title="Grade factors — each answer caps the best grade">
             <FactorsEditor value={d.factors} onChange={(v) => patch({ factors: v })} />
           </Card>
@@ -881,50 +1217,18 @@ function ValuesEditor({ id, draft: d, patch }: { id: string; draft: Rulebook; pa
         </>
       );
     case "manage":
-      return (
-        <Card title="Management">
-          <Num label="Hands off until" value={Number((d.trailAfter * 100).toFixed(2))} onChange={(v) => patch({ trailAfter: v / 100 })} suffix="% of the way" className="w-40" />
-        </Card>
-      );
+      return <ManageCard draft={d} patch={patch} />;
     case "limits":
       return (
         <>
-          <Card title="Your limits">
-            <Row>
-              <Num label="Max risk per trade" value={l.maxRiskPct} onChange={(v) => limits({ maxRiskPct: v })} suffix="%" />
-              <Num label="Daily stop" value={l.dailyStopPct} onChange={(v) => limits({ dailyStopPct: v })} suffix="%" />
-              <Num label="Weekly stop" value={l.weeklyStopPct} onChange={(v) => limits({ weeklyStopPct: v })} suffix="%" />
-            </Row>
-          </Card>
-          <Card title="The firm and the accounts">
-            <Row>
-              <Num label="Firm daily loss" value={l.dailyLossPct} onChange={(v) => limits({ dailyLossPct: v })} suffix="%" />
-              <Num label="Firm max loss" value={l.maxLossPct} onChange={(v) => limits({ maxLossPct: v })} suffix="%" />
-              <Num label="Phase 1 target" value={l.phase1TargetPct} onChange={(v) => limits({ phase1TargetPct: v })} suffix="%" />
-              <Num label="Phase 2 target" value={l.phase2TargetPct} onChange={(v) => limits({ phase2TargetPct: v })} suffix="%" />
-            </Row>
-            <div className="mt-4">
-              <Row>
-                <Num label="Start balance" value={l.startBalance} onChange={(v) => limits({ startBalance: v })} suffix="$" className="w-36" />
-                <Num label="Opening balance" value={l.openingBalance} onChange={(v) => limits({ openingBalance: v })} suffix="$" className="w-36" />
-                <Num label="Second account" value={l.secondAccount} onChange={(v) => limits({ secondAccount: v })} suffix="$" className="w-36" />
-                <Num label="Go-live gate" value={d.goLiveTrades} onChange={(v) => patch({ goLiveTrades: v })} suffix="trades" className="w-36" />
-              </Row>
-            </div>
-            <p className="mt-3 text-[11px] text-faint">The opening balance is where the journal's compounding starts; every % and R is re-derived from it.</p>
-          </Card>
+          <LimitsCard draft={d} patch={patch} />
+          {/* Since v1.4 the consequences sit with the limits they enforce. */}
+          {!has("discipline") && <ConsequencesCard draft={d} patch={patch} />}
+          <AccountsCard draft={d} patch={patch} />
         </>
       );
     case "discipline":
-      return (
-        <Card title="Consequences">
-          <Row>
-            <Num label="Breaks in a week" value={d.consequences.breaks} onChange={(v) => patch({ consequences: { ...d.consequences, breaks: Math.max(1, Math.round(v)) } })} />
-            <Num label="Next week's risk ×" value={d.consequences.factor} onChange={(v) => patch({ consequences: { ...d.consequences, factor: v } })} />
-            <Num label="Days off after a limit break" value={d.consequences.daysOff} onChange={(v) => patch({ consequences: { ...d.consequences, daysOff: Math.max(0, Math.round(v)) } })} className="w-36" />
-          </Row>
-        </Card>
-      );
+      return <ConsequencesCard draft={d} patch={patch} />;
     case "changes":
       return (
         <>
@@ -939,9 +1243,13 @@ function ValuesEditor({ id, draft: d, patch }: { id: string; draft: Rulebook; pa
                 <Num label="Evidence for riskier changes" value={d.calibration.evidence} onChange={(v) => patch({ calibration: { ...d.calibration, evidence: v } })} suffix="trades" className="w-36" />
                 <Num label="Review provisional numbers from" value={d.calibration.reviewFrom} onChange={(v) => patch({ calibration: { ...d.calibration, reviewFrom: v } })} suffix="trades" className="w-36" />
                 <Num label="to" value={d.calibration.reviewTo} onChange={(v) => patch({ calibration: { ...d.calibration, reviewTo: v } })} suffix="trades" className="w-36" />
+                {!has("entry") && (
+                  <Num label="Set the minimum R:R after" value={d.calibration.rr} onChange={(v) => patch({ calibration: { ...d.calibration, rr: v } })} suffix="trades" className="w-36" />
+                )}
               </Row>
             </div>
           </Card>
+          {!has("setup") && <SweepCard draft={d} patch={patch} />}
           <HypothesesEditor value={d.hypotheses} onChange={(v) => patch({ hypotheses: v })} />
         </>
       );
@@ -972,6 +1280,147 @@ function ValuesEditor({ id, draft: d, patch }: { id: string; draft: Rulebook; pa
       );
   }
   return null;
+}
+
+/* The value cards, shared by the sections that own each value. */
+type CardProps = { draft: Rulebook; patch: (p: Partial<Rulebook>) => void };
+
+function WhenCard({ draft: d, patch }: CardProps) {
+  return (
+    <Card title="When and what">
+      <div className="space-y-4">
+        <Row>
+          <label className="block">
+            <span className="label">Instrument</span>
+            <input className="field w-32 uppercase" value={d.instrument} onChange={(e) => patch({ instrument: e.target.value.toUpperCase() })} />
+          </label>
+          <Num label="Ounces per lot" value={d.ozPerLot} onChange={(v) => patch({ ozPerLot: v })} />
+          <Time label="Box from" value={d.box.from} onChange={(v) => patch({ box: { ...d.box, from: v } })} />
+          <Time label="Box to" value={d.box.to} onChange={(v) => patch({ box: { ...d.box, to: v } })} />
+        </Row>
+        <WindowsEditor value={d.entryWindows} onChange={(v) => patch({ entryWindows: v })} />
+        <Row>
+          <Time label="Time stop" value={d.timeStop} onChange={(v) => patch({ timeStop: v })} />
+          <Time label="Compass measured by" value={d.compassBy} onChange={(v) => patch({ compassBy: v })} />
+          <Num label="Trades per day" value={d.maxTradesPerDay} onChange={(v) => patch({ maxTradesPerDay: Math.max(1, Math.round(v)) })} />
+          <Num label="Planned R:R from" value={d.rr.from} onChange={(v) => patch({ rr: { ...d.rr, from: v } })} suffix="R" />
+          <Num label="to" value={d.rr.to} onChange={(v) => patch({ rr: { ...d.rr, to: v } })} suffix="R" />
+        </Row>
+      </div>
+    </Card>
+  );
+}
+
+function FlowCard({ draft: d, patch }: CardProps) {
+  return (
+    <Card title="Decision flow">
+      <span className="label">The gates, one per line</span>
+      <textarea
+        className="field min-h-[160px] resize-y text-[12.5px] [field-sizing:content]"
+        value={d.flow.gates.join("\n")}
+        onChange={(e) => patch({ flow: { ...d.flow, gates: e.target.value.split("\n").filter((x) => x.trim()) } })}
+      />
+      {(["enter", "manage", "exit"] as const).map((k) => (
+        <label key={k} className="mt-3 block">
+          <span className="label capitalize">{k}</span>
+          <input className="field text-[12.5px]" value={d.flow[k]} onChange={(e) => patch({ flow: { ...d.flow, [k]: e.target.value } })} />
+        </label>
+      ))}
+    </Card>
+  );
+}
+
+function BaseRulesCard({ draft: d, patch }: CardProps) {
+  return (
+    <Card title="Base rules — every one must hold, or the setup is a C">
+      <BaseRulesEditor value={d.baseRules} onChange={(v) => patch({ baseRules: v })} />
+    </Card>
+  );
+}
+
+function EntryCard({ draft: d, patch }: CardProps) {
+  return (
+    <Card title="Entry and target values">
+      <Row>
+        <Num label="Minimum R:R (net)" value={d.rr.min} onChange={(v) => patch({ rr: { ...d.rr, min: v } })} suffix=":1" />
+        <Num label="Liquidity filter" value={d.liquidityR} onChange={(v) => patch({ liquidityR: v })} suffix="R" />
+        <Num label="Limit order valid for" value={d.limitCandles} onChange={(v) => patch({ limitCandles: Math.max(1, Math.round(v)) })} suffix="candles" className="w-36" />
+        <Num label="Set the minimum after" value={d.calibration.rr} onChange={(v) => patch({ calibration: { ...d.calibration, rr: v } })} suffix="trades" className="w-36" />
+      </Row>
+    </Card>
+  );
+}
+
+function ManageCard({ draft: d, patch }: CardProps) {
+  return (
+    <Card title="Management">
+      <Num label="Hands off until" value={Number((d.trailAfter * 100).toFixed(2))} onChange={(v) => patch({ trailAfter: v / 100 })} suffix="% of the way" className="w-40" />
+    </Card>
+  );
+}
+
+function SweepCard({ draft: d, patch }: CardProps) {
+  return (
+    <Card title="Sweep depth reference (Compass)">
+      <Row>
+        <Num label="70% within" value={d.sweep.p70} onChange={(v) => patch({ sweep: { ...d.sweep, p70: v } })} suffix="$" />
+        <Num label="85% within" value={d.sweep.p85} onChange={(v) => patch({ sweep: { ...d.sweep, p85: v } })} suffix="$" />
+        <Num label="95% within" value={d.sweep.p95} onChange={(v) => patch({ sweep: { ...d.sweep, p95: v } })} suffix="$" />
+      </Row>
+    </Card>
+  );
+}
+
+function LimitsCard({ draft: d, patch }: CardProps) {
+  const l = d.limits;
+  const limits = (p: Partial<Rulebook["limits"]>) => patch({ limits: { ...l, ...p } });
+  return (
+    <Card title="Your limits">
+      <Row>
+        <Num label="Max risk per trade" value={l.maxRiskPct} onChange={(v) => limits({ maxRiskPct: v })} suffix="%" />
+        <Num label="Daily stop" value={l.dailyStopPct} onChange={(v) => limits({ dailyStopPct: v })} suffix="%" />
+        <Num label="Weekly stop" value={l.weeklyStopPct} onChange={(v) => limits({ weeklyStopPct: v })} suffix="%" />
+      </Row>
+    </Card>
+  );
+}
+
+function ConsequencesCard({ draft: d, patch }: CardProps) {
+  return (
+    <Card title="Consequences">
+      <Row>
+        <Num label="Breaks in a week" value={d.consequences.breaks} onChange={(v) => patch({ consequences: { ...d.consequences, breaks: Math.max(1, Math.round(v)) } })} />
+        <Num label="Next week's risk ×" value={d.consequences.factor} onChange={(v) => patch({ consequences: { ...d.consequences, factor: v } })} />
+        <Num label="Days off after a limit break" value={d.consequences.daysOff} onChange={(v) => patch({ consequences: { ...d.consequences, daysOff: Math.max(0, Math.round(v)) } })} className="w-36" />
+      </Row>
+    </Card>
+  );
+}
+
+function AccountsCard({ draft: d, patch }: CardProps) {
+  const l = d.limits;
+  const limits = (p: Partial<Rulebook["limits"]>) => patch({ limits: { ...l, ...p } });
+  return (
+    <Card title="The firm and the accounts">
+      <Row>
+        <Num label="Firm daily loss" value={l.dailyLossPct} onChange={(v) => limits({ dailyLossPct: v })} suffix="%" />
+        <Num label="Firm max loss" value={l.maxLossPct} onChange={(v) => limits({ maxLossPct: v })} suffix="%" />
+        <Num label="Phase 1 target" value={l.phase1TargetPct} onChange={(v) => limits({ phase1TargetPct: v })} suffix="%" />
+        <Num label="Phase 2 target" value={l.phase2TargetPct} onChange={(v) => limits({ phase2TargetPct: v })} suffix="%" />
+      </Row>
+      <div className="mt-4">
+        <Row>
+          <Num label="Start balance" value={l.startBalance} onChange={(v) => limits({ startBalance: v })} suffix="$" className="w-36" />
+          <Num label="Opening balance" value={l.openingBalance} onChange={(v) => limits({ openingBalance: v })} suffix="$" className="w-36" />
+          <Num label="Second account" value={l.secondAccount} onChange={(v) => limits({ secondAccount: v })} suffix="$" className="w-36" />
+          <Num label="Go-live gate" value={d.goLiveTrades} onChange={(v) => patch({ goLiveTrades: v })} suffix="trades" className="w-36" />
+        </Row>
+      </div>
+      <p className="mt-3 text-[11px] text-faint">
+        Not shown in the rulebook. The opening balance is where the journal's compounding starts; every % and R is re-derived from it.
+      </p>
+    </Card>
+  );
 }
 
 function WindowsEditor({ value, onChange }: { value: Rulebook["entryWindows"]; onChange: (v: Rulebook["entryWindows"]) => void }) {

@@ -15,7 +15,7 @@ import {
   tokenValues,
   type Rulebook,
 } from "../src/lib/rulebook";
-import { BIAS_RULE, PLAN_RETIRED_VERSION, defaultRulebook, retirePlan } from "../src/lib/rulebookText";
+import { BIAS_RULE, CONDENSED_VERSION, PLAN_RETIRED_VERSION, condenseRulebook, defaultRulebook, retirePlan } from "../src/lib/rulebookText";
 
 const v = (doc: Rulebook, key: string) => tokenValues(doc)[key];
 
@@ -193,5 +193,60 @@ describe("v1.3 — the written plan retired", () => {
     edited.sections = edited.sections.map((s) => (s.id === "prep" ? { ...s, body: `My own prep, done by {{planBy}}.` } : s));
     const out = retirePlan(edited);
     assert.equal(out.sections.find((s) => s.id === "prep")!.body, "My own prep, done by 04:00.");
+  });
+});
+
+describe("v1.4 — the rulebook condensed", () => {
+  const v13 = { ...retirePlan(defaultRulebook()), version: PLAN_RETIRED_VERSION };
+  const v14 = { ...condenseRulebook(v13), version: CONDENSED_VERSION };
+  const rules = v14.sections.filter((s) => !s.reference);
+  const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
+
+  it("validates as written", () => {
+    assert.deepEqual(rulebookErrors(v14), []);
+  });
+
+  it("holds only the rules, in seven sections and a fraction of the words", () => {
+    assert.deepEqual(rules.map((s) => s.id), ["glance", "flow", "prep", "news", "trade", "grading", "limits"]);
+    const before = v13.sections.reduce((n, s) => n + words(s.body), 0);
+    const after = rules.reduce((n, s) => n + words(s.body), 0);
+    assert.ok(after < before / 4, `${after} words of rules, from ${before}`);
+  });
+
+  it("drops the asides, the pilot numbers, the spread rule and the challenge plan from the rules", () => {
+    const text = rules.map((s) => s.body).join("\n");
+    assert.ok(!/^>/m.test(text));
+    assert.ok(!/pilot|spread|phase|FTMO|backtest/i.test(text), text);
+  });
+
+  it("keeps the background in the Reference panel", () => {
+    assert.deepEqual(
+      v14.sections.filter((s) => s.reference).map((s) => s.id),
+      ["changes", "backtest", "open", "glossary", "changelog"],
+    );
+  });
+
+  it("changes no value the logic reads", () => {
+    const { sections: _a, flow: _b, version: _c, ...after } = v14;
+    const { sections: _d, flow: _e, version: _f, ...before } = v13;
+    assert.deepEqual(after, before);
+  });
+
+  it("keeps text you wrote yourself, in its new place or after the rules", () => {
+    const edited = structuredClone(v13);
+    edited.sections = edited.sections.map((s) =>
+      s.id === "news" ? { ...s, body: "My news rules." } : s.id === "manage" ? { ...s, body: "My exits." } : s,
+    );
+    const out = condenseRulebook(edited);
+    const ids = out.sections.filter((s) => !s.reference).map((s) => s.id);
+    assert.equal(out.sections.find((s) => s.id === "news")!.body, "My news rules.");
+    assert.deepEqual(ids, ["glance", "flow", "prep", "news", "trade", "grading", "limits", "manage"]);
+  });
+
+  it("keeps a decision flow you edited", () => {
+    const edited = structuredClone(v13);
+    edited.flow.gates = ["My one gate?"];
+    assert.deepEqual(condenseRulebook(edited).flow.gates, ["My one gate?"]);
+    assert.notDeepEqual(condenseRulebook(v13).flow, v13.flow);
   });
 });

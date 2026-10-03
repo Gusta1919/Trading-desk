@@ -6,7 +6,7 @@
  * is only added when missing, and data is moved aside, never deleted.
  */
 import type Database from "better-sqlite3";
-import { migratePlanRetired, migrateRulebook, migrateStrategyDefinitions, seedGoldModel } from "./migrate.js";
+import { migrateCondensed, migratePlanRetired, migrateRulebook, migrateStrategyDefinitions, seedGoldModel } from "./migrate.js";
 
 export function setupSchema(db: Database.Database) {
   /**
@@ -233,4 +233,5 @@ export function setupSchema(db: Database.Database) {
   // One strategy, versioned: the GOLD Model becomes the rulebook (v1.2).
   migrateRulebook(db);
   migratePlanRetired(db);
+  migrateCondensed(db);
 }

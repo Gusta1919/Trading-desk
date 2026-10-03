@@ -8,7 +8,16 @@
  */
 import type Database from "better-sqlite3";
 import { nextVersion } from "../src/lib/rulebook.js";
-import { FIRST_REASON, FIRST_VERSION, OPEN_ITEMS, PLAN_RETIRED_REASON, defaultRulebook, retirePlan } from "../src/lib/rulebookText.js";
+import {
+  CONDENSED_REASON,
+  FIRST_REASON,
+  FIRST_VERSION,
+  OPEN_ITEMS,
+  PLAN_RETIRED_REASON,
+  condenseRulebook,
+  defaultRulebook,
+  retirePlan,
+} from "../src/lib/rulebookText.js";
 import { currentRulebook, insertVersion } from "./rulebookStore.js";
 
 type Db = Database.Database;
@@ -434,5 +443,27 @@ export function migratePlanRetired(db: Db, now = new Date()) {
       note = `v${version} written from v${current.version}`;
     }
     db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(PLAN_RETIRED_KEY, note);
+  })();
+}
+
+const CONDENSED_KEY = "rulebook:v1.4-condensed";
+
+/**
+ * Condenses the rulebook (v1.4): the version in force is rewritten by `condenseRulebook`
+ * and saved as the next version, so v1.3 stays readable in the history. Only text moves;
+ * every value stays, so no trade's grade or flags change. Runs once, recorded under
+ * CONDENSED_KEY.
+ */
+export function migrateCondensed(db: Db, now = new Date()) {
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(CONDENSED_KEY)) return;
+  db.transaction(() => {
+    const current = currentRulebook(db);
+    let note = "already condensed";
+    if (!current.doc.sections.some((s) => s.reference)) {
+      const version = nextVersion(current.version, "minor");
+      insertVersion(db, version, CONDENSED_REASON, condenseRulebook(current.doc), now.toISOString());
+      note = `v${version} written from v${current.version}`;
+    }
+    db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(CONDENSED_KEY, note);
   })();
 }

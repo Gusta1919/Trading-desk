@@ -929,7 +929,7 @@ export function TradeForm({
                   </div>
                   {f.direction === "short" && (
                     <p className="mt-2 text-[11px] text-faint">
-                      Add the spread on the platform for the stop and the target ({values["ref:stop"]}).
+                      Add the spread on the platform for the stop and the target.
                     </p>
                   )}
                   {wrongSide && (

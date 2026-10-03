@@ -176,8 +176,8 @@ describe("migration to the rulebook", () => {
     setupSchema(db);
     setupSchema(db);
     const rows = db.prepare("SELECT version, reason FROM rulebook_versions ORDER BY version").all() as Row[];
-    // v1.2, then v1.3 retiring the written plan — each once.
-    assert.deepEqual(rows.map((r) => r.version), ["1.2", "1.3"]);
+    // v1.2, then v1.3 retiring the written plan, then v1.4 condensing the text — each once.
+    assert.deepEqual(rows.map((r) => r.version), ["1.2", "1.3", "1.4"]);
     const doc = getVersion(db, "1.2")!.doc;
     assert.equal(doc.limits.maxRiskPct, 0.5); // was the old default of 1
     assert.equal(doc.limits.dailyStopPct, 0.75); // yours, kept
@@ -217,9 +217,9 @@ describe("rulebook versions", () => {
     const doc = currentRulebook(db).doc;
     doc.grades[1].riskPct = 0.25;
     const saved = saveRulebook(db, doc, "A down to a quarter while the edge is unproven");
-    assert.equal(saved.version, "1.4");
+    assert.equal(saved.version, "1.5");
     assert.equal(currentRulebook(db).doc.grades[1].riskPct, 0.25);
-    assert.equal(getVersion(db, "1.3")!.doc.grades[1].riskPct, 0.5); // the old one is untouched
+    assert.equal(getVersion(db, "1.4")!.doc.grades[1].riskPct, 0.5); // the old one is untouched
     assert.equal(saveRulebook(db, doc, "big change", "major").version, "2.0");
   });
 
@@ -229,7 +229,7 @@ describe("rulebook versions", () => {
     const doc = currentRulebook(db).doc;
     assert.throws(() => saveRulebook(db, doc, "  "), RulebookError);
     assert.throws(() => saveRulebook(db, { ...doc, sections: [{ id: "x", title: "X", body: "{{nope}}" }] }, "why"), RulebookError);
-    assert.equal(listVersions(db).length, 2);
+    assert.equal(listVersions(db).length, 3);
   });
 
   it("a trade keeps the version it was graded under after the rulebook is edited", () => {
@@ -249,29 +249,60 @@ describe("v1.3 — the written plan retired", () => {
     setupSchema(db);
     db.prepare("INSERT INTO plans (date, bias, created_at, updated_at) VALUES ('2026-10-01', 'bullish', 'x', 'x')").run();
     setupSchema(db);
-    const current = currentRulebook(db);
-    assert.equal(current.version, "1.3");
-    assert.ok(current.reason.startsWith("Written daily plan retired"));
-    assert.ok(current.doc.baseRules.some((r) => r.id === "bias-decided"));
-    assert.equal(current.doc.planBy, undefined);
+    const v13 = getVersion(db, "1.3")!;
+    assert.ok(v13.reason.startsWith("Written daily plan retired"));
+    assert.ok(v13.doc.baseRules.some((r) => r.id === "bias-decided"));
+    assert.equal(v13.doc.planBy, undefined);
     assert.ok(getVersion(db, "1.2")!.doc.baseRules.some((r) => r.id === "plan")); // history untouched
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM plans").get() as Row).n, 1);
-    assert.equal(listVersions(db).length, 2);
+    assert.equal(listVersions(db).length, 3); // and v1.4 condensed on top
   });
 
   it("carries your own edits from the version in force into v1.3", () => {
     const db = oldDatabase();
     // Stop after v1.2, edit it, then let the plan migration run.
     setupSchema(db);
-    db.prepare("DELETE FROM rulebook_versions WHERE version = '1.3'").run();
-    db.prepare("DELETE FROM meta WHERE key = 'rulebook:v1.3-plan-retired'").run();
+    db.prepare("DELETE FROM rulebook_versions WHERE version IN ('1.3', '1.4')").run();
+    db.prepare("DELETE FROM meta WHERE key IN ('rulebook:v1.3-plan-retired', 'rulebook:v1.4-condensed')").run();
     const doc = currentRulebook(db).doc;
     doc.limits.dailyStopPct = 0.8;
     saveRulebook(db, doc, "tighter day"); // v1.3 by you
     setupSchema(db);
+    const retired = getVersion(db, "1.4")!;
+    assert.ok(retired.reason.startsWith("Written daily plan retired"));
+    assert.equal(retired.doc.limits.dailyStopPct, 0.8);
+    assert.ok(!retired.doc.baseRules.some((r) => r.id === "plan"));
+  });
+});
+
+describe("v1.4 — the rulebook condensed", () => {
+  it("writes v1.4 from the version in force, once, with every value unchanged", () => {
+    const db = oldDatabase();
+    setupSchema(db);
+    setupSchema(db);
+    const v13 = getVersion(db, "1.3")!.doc;
     const current = currentRulebook(db);
     assert.equal(current.version, "1.4");
-    assert.equal(current.doc.limits.dailyStopPct, 0.8);
-    assert.ok(!current.doc.baseRules.some((r) => r.id === "plan"));
+    assert.ok(current.reason.startsWith("Rulebook condensed"));
+    assert.ok(current.doc.sections.some((s) => s.reference));
+    const { sections: _a, flow: _b, version: _c, ...valuesNow } = current.doc;
+    const { sections: _d, flow: _e, version: _f, ...valuesBefore } = v13;
+    assert.deepEqual(valuesNow, valuesBefore);
+    assert.equal(listVersions(db).length, 3);
+  });
+
+  it("carries a change you saved on v1.3 into v1.4", () => {
+    const db = oldDatabase();
+    setupSchema(db);
+    db.prepare("DELETE FROM rulebook_versions WHERE version = '1.4'").run();
+    db.prepare("DELETE FROM meta WHERE key = 'rulebook:v1.4-condensed'").run();
+    const doc = currentRulebook(db).doc;
+    doc.limits.weeklyStopPct = 1.5;
+    saveRulebook(db, doc, "tighter week"); // v1.4 by you
+    setupSchema(db);
+    const current = currentRulebook(db);
+    assert.equal(current.version, "1.5");
+    assert.equal(current.doc.limits.weeklyStopPct, 1.5);
+    assert.ok(current.doc.sections.some((s) => s.id === "glance"));
   });
 });
