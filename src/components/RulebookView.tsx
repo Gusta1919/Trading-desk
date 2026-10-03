@@ -171,7 +171,6 @@ export function RulebookView({
         <div className="min-w-0 space-y-5">
           {/* ── The rulebook's own header: its name and the last change ── */}
           <header className="anim-rise card relative overflow-hidden px-6 py-4">
-            <Glow colour="var(--color-accent)" />
             <div className="relative min-w-0">
               <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-faint">Rulebook</p>
               <h2 className="text-[20px] font-semibold tracking-tight">{doc.name}</h2>
@@ -241,15 +240,6 @@ export function RulebookView({
   );
 }
 
-/** A soft light in the card's corner, in the section's colour — the desk's mesh, up close. */
-const Glow = ({ colour }: { colour: string }) => (
-  <span
-    aria-hidden
-    className="pointer-events-none absolute -right-20 -top-24 size-64 rounded-full blur-3xl"
-    style={{ background: tint(colour, 13) }}
-  />
-);
-
 const EditButton = ({ onClick }: { onClick: () => void }) => (
   <button
     onClick={onClick}
@@ -267,7 +257,6 @@ function SectionCard({ section: s, index, onEdit }: { section: Section; index: n
       className="anim-rise card relative scroll-mt-24 overflow-hidden px-6 py-5"
       style={{ ...stagger(index + 1, 70), "--sec": colour } as CSSProperties}
     >
-      <Glow colour={colour} />
       <header className="relative mb-4 flex items-center gap-3">
         <span
           className="anim-stamp flex size-8 shrink-0 items-center justify-center rounded-xl"
@@ -1072,7 +1061,6 @@ function SectionEditor({
   return (
     <Modal open onClose={onClose} width="max-w-6xl">
       <div className="relative flex max-h-[calc(100vh-3rem)] flex-col overflow-hidden rounded-2xl" style={{ "--sec": colour } as CSSProperties}>
-        <Glow colour={colour} />
 
         {/* ── The section being edited, its name editable in place ── */}
         <header className="relative flex shrink-0 items-center gap-4 border-b px-7 pb-4 pt-5">
