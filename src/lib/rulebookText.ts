@@ -785,3 +785,84 @@ export function condenseRulebook(doc: Rulebook): Rulebook {
   const flowUntouched = JSON.stringify(doc.flow) === JSON.stringify(stock.flow);
   return { ...doc, flow: flowUntouched ? FLOW_V14 : doc.flow, sections: [...main, ...kept, ...reference] };
 }
+
+/* ── 2.0: a fresh start ──────────────────────────────────────────────── */
+
+export const FRESH_START_REASON =
+  "Fresh start: Compass read by hand (below 60% is a B), no FVG factor, one consequence (any break, two days off), backtesting and open items removed";
+
+const SECTIONS_V2: Record<string, string> = {
+  grading: `All base rules hold, or it's a C. Each factor caps the best grade, and the lowest cap wins.
+
+[[factors]]
+
+- **Compass below {{compass.cut}}:** a B at best. Read it off the Compass when you take the setup.
+
+### Risk per grade
+
+[[ladder]]
+
+- Risk is a % of the current balance.
+- **A+ goes to {{aplus.risk}}** once {{aplus.trades}} graded trades show A+ beating A by {{aplus.edge}} or more.`,
+  limits: `- **{{maxTrades}} trade a day.** Win, lose or breakeven, you're done.
+- **Daily stop {{limits.dailyStop}}, weekly stop {{limits.weeklyStop}}.** Hit one and stop for the rest of the day or week.
+- **Never hold overnight.** Flat by {{timeStop}}.
+
+### When a rule breaks
+
+[[consequences]]`,
+};
+
+/** Sections 2.0 leaves out: the backtest lives outside the desk, and the open items are done with. */
+const DROPPED_V2 = new Set(["backtest", "open"]);
+/** Backtest-only background that goes with it. */
+const BACKTEST_TERMS = new Set(["Look-ahead bias", "Hindsight bias"]);
+
+/**
+ * Rulebook 2.0, from whatever version is in force:
+ *  - the Compass is read by hand when you take the setup, and below the cut it caps at B;
+ *    the frozen snapshot is no longer looked up, so it can't go stale;
+ *  - displacement is picked as a range, not worked out from two prices;
+ *  - "Displacement left an FVG" is gone;
+ *  - one consequence: any rule break costs the next two trading days;
+ *  - the backtesting protocol, the open items and the backtest-only hypothesis and terms go;
+ *  - the changelog starts again at this version.
+ * Text you edited yourself is kept, as in v1.4.
+ */
+export function freshStart(doc: Rulebook, version: string): Rulebook {
+  const v14 = new Map(condenseRulebook(retirePlan(defaultRulebook())).sections.map((s) => [s.id, s]));
+  const untouched = (s: Section) => {
+    const o = v14.get(s.id);
+    return o != null && o.title === s.title && o.body === s.body;
+  };
+  const byHand = (f: Rulebook["factors"][number], hint: string): Rulebook["factors"][number] => {
+    const { auto: _auto, ...rest } = f;
+    return { ...rest, hint } as Rulebook["factors"][number];
+  };
+  return {
+    ...doc,
+    factors: doc.factors
+      .filter((f) => f.id !== "fvg")
+      .map((f) =>
+        f.auto === "compass"
+          ? { ...byHand(f, "the Compass reading for this weekday and direction"), name: "Compass" }
+          : f.auto === "displacement"
+            ? byHand(f, "MSS close beyond the swing ÷ 5m ATR(14)")
+            : f,
+      ),
+    grades: doc.grades.map((g) =>
+      g.grade === "B" && g.description.includes("Forex Tester")
+        ? { ...g, description: "Not tradable. Log it anyway, so the journal shows whether it would pay." }
+        : g,
+    ),
+    consequences: { ...doc.consequences, daysOff: 2, anyBreak: true },
+    guidance: doc.guidance.filter((g) => !/Compass snapshot is refreshed/i.test(g)),
+    hypotheses: doc.hypotheses.filter((h) => !h.outside),
+    glossary: doc.glossary.filter((g) => !BACKTEST_TERMS.has(g.term)),
+    history: [],
+    changelogFrom: version,
+    sections: doc.sections
+      .filter((s) => !DROPPED_V2.has(s.id))
+      .map((s) => (SECTIONS_V2[s.id] && untouched(s) ? { ...s, body: SECTIONS_V2[s.id] } : s)),
+  };
+}

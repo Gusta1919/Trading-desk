@@ -126,17 +126,29 @@ export function priceR(direction: Direction, entry: number | null, stop: number 
   return Number((((price - entry) * sign) / risk).toFixed(2));
 }
 
+/** MFE and MAE in R: as logged since 2.0, or worked out from an older trade's prices. */
 export function excursions(t: {
   direction: Direction;
   entryPrice: number | null;
   stopPrice: number | null;
   mfePrice: number | null;
   maePrice: number | null;
+  mfeR?: number | null;
+  maeR?: number | null;
 }): { mfeR: number | null; maeR: number | null } {
-  const mfe = priceR(t.direction, t.entryPrice, t.stopPrice, t.mfePrice);
-  const mae = priceR(t.direction, t.entryPrice, t.stopPrice, t.maePrice);
-  return { mfeR: mfe, maeR: mae == null ? null : Number((-mae).toFixed(2)) };
+  const mfe = t.mfeR ?? priceR(t.direction, t.entryPrice, t.stopPrice, t.mfePrice);
+  const fromPrice = priceR(t.direction, t.entryPrice, t.stopPrice, t.maePrice);
+  return { mfeR: mfe, maeR: t.maeR ?? (fromPrice == null ? null : Number((-fromPrice).toFixed(2))) };
 }
+
+/** For a target exit: how far it would have run by the time stop, in R — logged, or from the price. */
+export const maxFavROf = (t: {
+  direction: Direction;
+  entryPrice: number | null;
+  stopPrice: number | null;
+  maxFavPrice: number | null;
+  maxFavR?: number | null;
+}) => t.maxFavR ?? priceR(t.direction, t.entryPrice, t.stopPrice, t.maxFavPrice);
 
 /** $ beyond the box edge the sweep reached: above the high for a short, below the low for a long. */
 export function sweepDepthOf(

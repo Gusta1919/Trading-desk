@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Ban, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { evaluateHistory, type DayOff } from "@/lib/discipline";
 import { dayKey, fmtPct, fmtR, fmtTime, tone } from "@/lib/format";
@@ -13,7 +13,7 @@ import { FLAG_LABEL, isGrade, type Trade, type TradeFlag } from "@/lib/types";
 import { verdictColor } from "./CheckIn";
 import { GradeBadge } from "./GradeBadge";
 import { setupOf } from "./TradeList";
-import { Button, cx } from "./ui";
+import { Button, cx, stagger } from "./ui";
 
 /** What the rules made of one day: its flags, and whether it was off or skipped. */
 interface DayRules {
@@ -177,6 +177,8 @@ export function CalendarView({
           )}
         </div>
       </div>
+
+      {!compact && doc && <WeekAhead doc={doc} calendar={calendar} />}
 
       <div
         className={cx(
@@ -459,5 +461,86 @@ function DayCell({
         </span>
       )}
     </button>
+  );
+}
+
+/* ── The week's no-trade days ────────────────────────────────────────── */
+
+const addDays = (day: string, n: number) => {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+const weekdayOf = (day: string) => new Date(`${day}T12:00:00Z`).getUTCDay();
+
+/**
+ * Monday to Friday of this New York week — or of the next one at the weekend — and which
+ * of those days the news rules close completely. A day the calendar doesn't cover yet
+ * says so, rather than passing for a quiet one.
+ */
+function WeekAhead({ doc, calendar }: { doc: Rulebook; calendar: CalendarEvent[] }) {
+  const today = deskDay();
+  const wd = weekdayOf(today);
+  const monday = wd === 6 ? addDays(today, 2) : wd === 0 ? addDays(today, 1) : addDays(today, 1 - wd);
+  const covered = coveredDays(calendar);
+  const days = Array.from({ length: 5 }, (_, i) => {
+    const key = addDays(monday, i);
+    const known = covered != null && key >= covered.from && key <= covered.to;
+    const nd = newsDay(key, calendar.filter((e) => e.at && deskDay(new Date(e.at)) === key).map(fromEvent), doc.news);
+    const skip = known ? nd.skip : inSkipRange(key, doc.news) ? ["the year-end break"] : null;
+    return { key, skip, windows: known ? nd.windows.length : null };
+  });
+  const closed = days.filter((d) => d.skip?.length).length;
+
+  return (
+    <section className="anim-rise card px-5 py-4">
+      <header className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h3 className="text-[13px] font-semibold">{wd === 0 || wd === 6 ? "Next week" : "This week"}</h3>
+        <p className="text-[12px] text-faint">
+          {closed ? `${closed} day${closed === 1 ? "" : "s"} with no trading because of news` : "No news closes a day"}
+        </p>
+      </header>
+      <ol className="grid grid-cols-5 gap-2">
+        {days.map((d, i) => {
+          const off = Boolean(d.skip?.length);
+          const past = d.key < today;
+          return (
+            <li
+              key={d.key}
+              title={off ? d.skip!.join(", ") : undefined}
+              className={cx(
+                "anim-pop min-w-0 rounded-xl border px-3 py-2.5 transition-opacity",
+                off ? "border-down/30 bg-down/10" : "bg-surface/40",
+                d.key === today && "ring-1 ring-accent/60",
+                past && "opacity-50",
+              )}
+              style={stagger(i, 60)}
+            >
+              <p className="num text-[11px] text-faint">
+                {new Date(`${d.key}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", timeZone: "UTC" })}
+              </p>
+              {off ? (
+                <>
+                  <p className="mt-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-down">
+                    <Ban size={12} className="shrink-0" /> No trading
+                  </p>
+                  <p className="mt-0.5 truncate text-[11px] text-soft">{d.skip![0]}</p>
+                </>
+              ) : d.skip == null ? (
+                <p className="mt-1 text-[12px] text-faint">Calendar not out yet</p>
+              ) : (
+                <>
+                  <p className="mt-1 flex items-center gap-1.5 text-[12.5px] font-medium text-up">
+                    <Check size={12} className="shrink-0" /> Tradable
+                  </p>
+                  <p className="mt-0.5 truncate text-[11px] text-faint">
+                    {d.windows ? `${d.windows} release window${d.windows === 1 ? "" : "s"}` : "no release windows"}
+                  </p>
+                </>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }

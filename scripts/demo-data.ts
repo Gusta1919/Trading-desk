@@ -1,7 +1,7 @@
 /**
  * Demo history for trying out the Rulebook, the Coach, the Risk lab and Compare.
  *
- *   npm run demo:add      adds ~9 weeks of GOLD Model trades and check-ins, with a
+ *   npm run demo:add      adds ~13 weeks of GOLD Model trades and check-ins, with a
  *                         few rule breaks for the Coach and the consequences, and the
  *                         two Exit-lab stories below
  *   npm run demo:more     adds only the two Exit-lab stories, before the demo begins
@@ -32,7 +32,7 @@ import { amsterdamClock } from "../src/lib/dailyBias";
 import { computeGrade } from "../src/lib/grading";
 import type { RulebookVersion } from "../src/lib/rulebook";
 import { BIAS_OPTION } from "../src/lib/rulebookText";
-import { compassFor, lotSize, sessionAt } from "../src/lib/rules";
+import { compassFor, sessionAt } from "../src/lib/rules";
 import { deskTime } from "../src/lib/tz";
 import { EMPTY_RULEBOOK_FIELDS, type Direction, type ExitReason, type Trade, type TradeInput } from "../src/lib/types";
 
@@ -119,7 +119,9 @@ function answersFor(grade: "A+" | "A", day: string, direction: Direction, doc: R
     conviction: "conv-none",
   };
   if (grade === "A") {
-    const short = pick(["htf", "disp", "fvg", "conviction"]);
+    // One factor short of A+ — among the factors this rulebook still has.
+    const has = new Set(doc.factors.map((f) => f.id));
+    const short = pick(["htf", "disp", "fvg", "conviction"].filter((id) => has.has(id === "htf" ? "htf-tf" : id)));
     if (short === "htf") a["htf-tf"] = "htf-1h";
     if (short === "disp") a.disp = round(between(0.3, 0.95));
     if (short === "fvg") a.fvg = "fvg-no";
@@ -141,24 +143,17 @@ function outcomeR(grade: "A+" | "A", profile = PROFILE) {
 
 function makeTrade(d: Draft, doc: RulebookVersion["doc"], profile = PROFILE): TradeInput {
   const { day, time, grade, direction } = d;
-  const sign = direction === "long" ? 1 : -1;
   const answers = answersFor(grade, day, direction, doc);
   const ticked = doc.baseRules.map((r) => r.id);
   const result = computeGrade(doc, { ticked, answers });
   const risk = doc.grades.find((g) => g.grade === result.grade)?.riskPct || doc.limits.maxRiskPct;
   const { r, reason } = outcomeR(grade, profile);
 
-  // A believable price picture around a 2,650 gold, the box an hour wide.
-  const boxLow = round(between(2580, 2720));
-  const boxHigh = round(boxLow + between(4, 16));
+  // What 2.0 logs, no prices: the box and the sweep in $, the R:R, and the excursions in R.
+  const boxSize = round(between(4, 16));
   const depth = round(between(1.5, 26));
-  const sweepExtreme = direction === "long" ? round(boxLow - depth) : round(boxHigh + depth);
-  const stopDist = round(between(2.5, 7));
-  const entry = round(sweepExtreme + sign * (stopDist + between(0.2, 1.5)));
-  const stop = round(entry - sign * stopDist);
-  const target = direction === "long" ? boxHigh : boxLow;
-  const plannedRR = round(Math.abs(target - entry) / stopDist);
-  const atr = round(between(1, 2.4));
+  // A target exit made exactly its planned R:R; the rest planned something in the rulebook's range.
+  const plannedRR = reason === "target" && r > 0 ? round(r) : round(between(1.3, 3.2));
   const riskUsd = round((d.balance * risk) / 100);
   const pnl = round((r * risk * d.balance) / 100);
   const mfeR = Math.max(r, 0) + round(between(0.05, 0.9));
@@ -199,15 +194,12 @@ function makeTrade(d: Draft, doc: RulebookVersion["doc"], profile = PROFILE): Tr
     skipped: false,
     hypotheticalR: null,
     costPct: null,
-    boxSize: round(boxHigh - boxLow),
+    boxSize,
     pnlUsd: pnl,
     news: [],
     notes: `${TAG} ${result.grade} setup`,
     screenshot: "",
     rulebookVersion: doc.version,
-    boxHigh,
-    boxLow,
-    sweepExtreme,
     sweepDepth: depth,
     took15mSwing: chance(0.55),
     htfReasonType: pick(["FVG", "FVG", "OB", "VIMB"]),
@@ -215,22 +207,14 @@ function makeTrade(d: Draft, doc: RulebookVersion["doc"], profile = PROFILE): Tr
     levelSweep: chance(0.2),
     deskAgreed: pick(["yes", "yes", "no", "none"]),
     entryType: chance(0.85) ? "market" : "limit",
-    entryPrice: entry,
-    stopPrice: stop,
-    targetPrice: target,
-    lots: lotSize(riskUsd, entry, stop, doc.ozPerLot),
     riskUsd,
-    atr,
-    mssBeyond: round(atr * Number(answers.disp)),
     exitTime: `${day}T${pad(Math.floor(exitMin / 60))}:${pad(exitMin % 60)}`,
-    exitPrice: round(entry + sign * r * stopDist),
     exitReason: reason,
     earlyStopMove: false,
     releaseAtBe: null,
-    mfePrice: round(entry + sign * mfeR * stopDist),
-    maePrice: round(entry - sign * maeR * stopDist),
+    mfeR: round(mfeR),
+    maeR: round(maeR),
     targetBeforeStop: "",
-    maxFavPrice: null,
     screenshotAfter: "",
   };
 }
@@ -325,7 +309,8 @@ async function add() {
   const doc = current.doc;
   console.log(`Backed up the database to ${path.basename(await snapshot("demo-add"))}`);
 
-  const days = weekdays(45);
+  // Since 2.0 every staged break costs two trading days, so the history runs a little longer.
+  const days = weekdays(64);
 
   let balance = doc.limits.openingBalance;
   const before = (await api<Trade[]>("/trades")).length;
@@ -415,35 +400,28 @@ async function exitStories(doc: RulebookVersion["doc"]) {
 
   // 1. Ran +1.4R, came all the way back, stopped out.
   const a = story(days[0], "05:12", "long", "A+");
-  const distA = a.entryPrice! - a.stopPrice!;
   const lossA: TradeInput = {
     ...a,
-    exitPrice: a.stopPrice,
     exitReason: "stop",
     exitTime: `${days[0]}T08:47`,
     pnlUsd: round((-1 * a.riskPct * balance) / 100),
-    mfePrice: round(a.entryPrice! + 1.4 * distA),
-    maePrice: a.stopPrice,
-    targetPrice: round(a.entryPrice! + 2.4 * distA),
+    mfeR: 1.4,
+    maeR: 1,
     plannedRR: 2.4,
     notes: `${TAG} exit story · ran +1.4R before the stop — breakeven at 1R would have saved it`,
   };
 
   // 2. Hit the target at 2.1R; price kept going to 3.6R.
   const b = story(days[1], "04:38", "short", "A");
-  const distB = b.stopPrice! - b.entryPrice!;
-  const target = round(b.entryPrice! - 2.1 * distB);
   const winB: TradeInput = {
     ...b,
-    targetPrice: target,
     plannedRR: 2.1,
-    exitPrice: target,
     exitReason: "target",
     exitTime: `${days[1]}T07:16`,
     pnlUsd: round((2.1 * b.riskPct * balance) / 100),
-    mfePrice: target,
-    maePrice: round(b.entryPrice! + 0.3 * distB),
-    maxFavPrice: round(b.entryPrice! - 3.6 * distB),
+    mfeR: 2.1,
+    maeR: 0.3,
+    maxFavR: 3.6,
     notes: `${TAG} exit story · target at 2.1R, price ran on to 3.6R`,
   };
 

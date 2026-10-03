@@ -15,7 +15,7 @@ import {
   tokenValues,
   type Rulebook,
 } from "../src/lib/rulebook";
-import { BIAS_RULE, CONDENSED_VERSION, PLAN_RETIRED_VERSION, condenseRulebook, defaultRulebook, retirePlan } from "../src/lib/rulebookText";
+import { BIAS_RULE, CONDENSED_VERSION, PLAN_RETIRED_VERSION, condenseRulebook, defaultRulebook, freshStart, retirePlan } from "../src/lib/rulebookText";
 
 const v = (doc: Rulebook, key: string) => tokenValues(doc)[key];
 
@@ -248,5 +248,46 @@ describe("v1.4 — the rulebook condensed", () => {
     edited.flow.gates = ["My one gate?"];
     assert.deepEqual(condenseRulebook(edited).flow.gates, ["My one gate?"]);
     assert.notDeepEqual(condenseRulebook(v13).flow, v13.flow);
+  });
+});
+
+describe("2.0 — a fresh start", () => {
+  const v14 = { ...condenseRulebook(retirePlan(defaultRulebook())), version: CONDENSED_VERSION };
+  const v2 = { ...freshStart(v14, "2.0"), version: "2.0" };
+
+  it("validates as written", () => {
+    assert.deepEqual(rulebookErrors(v2), []);
+  });
+
+  it("drops the FVG factor and answers the Compass and displacement by hand", () => {
+    assert.ok(!v2.factors.some((f) => f.id === "fvg"));
+    const compass = v2.factors.find((f) => f.id === "compass")!;
+    assert.equal(compass.auto, undefined);
+    assert.equal(v2.factors.find((f) => f.id === "disp")!.auto, undefined);
+    assert.equal(v(v2, "compass.cut"), "60%"); // still found, by its id
+  });
+
+  it("states the Compass rule in one line, without the snapshot table", () => {
+    const grading = v2.sections.find((s) => s.id === "grading")!.body;
+    assert.ok(!grading.includes("[[compass]]"));
+    assert.match(grading, /Compass below \{\{compass\.cut\}\}/);
+    assert.ok(!v2.guidance.some((g) => /snapshot/i.test(g)));
+  });
+
+  it("has one consequence: any break, two trading days off", () => {
+    assert.equal(v2.consequences.anyBreak, true);
+    assert.equal(v2.consequences.daysOff, 2);
+  });
+
+  it("removes the backtesting protocol, the open items and the backtest-only background", () => {
+    const ids = v2.sections.map((s) => s.id);
+    assert.ok(!ids.includes("backtest") && !ids.includes("open"));
+    assert.ok(!v2.hypotheses.some((h) => h.outside));
+    assert.ok(!v2.glossary.some((g) => /bias$/.test(g.term) && /backtest/.test(g.meaning)));
+  });
+
+  it("starts the changelog at itself", () => {
+    assert.equal(v2.changelogFrom, "2.0");
+    assert.deepEqual(v2.history, []);
   });
 });

@@ -4,6 +4,7 @@ import { readBias } from "./bias.js";
 import { getCandles } from "./candles.js";
 import { gmailStatus, syncBias } from "./gmailBias.js";
 import { evaluateHistory } from "../src/lib/discipline.js";
+import { atLeast } from "../src/lib/rulebook.js";
 import { ALL_FLAGS, type Trade } from "../src/lib/types.js";
 import { db } from "./db.js";
 import { getCalendar, getHeadlines, startCalendarRefresh } from "./news.js";
@@ -96,6 +97,9 @@ function rowToTrade(row: Row) {
     maePrice: row.mae_price ?? null,
     targetBeforeStop: row.target_before_stop ?? "",
     maxFavPrice: row.max_fav_price ?? null,
+    mfeR: row.mfe_r ?? null,
+    maeR: row.mae_r ?? null,
+    maxFavR: row.max_fav_r ?? null,
     screenshotAfter: row.screenshot_after ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -176,6 +180,9 @@ function bodyToColumns(body: Row) {
     mae_price: num(body.maePrice),
     target_before_stop: oneOf(body.targetBeforeStop, ["yes", "no", "unknown"]),
     max_fav_price: num(body.maxFavPrice),
+    mfe_r: num(body.mfeR),
+    mae_r: num(body.maeR),
+    max_fav_r: num(body.maxFavR),
     screenshot_after: String(body.screenshotAfter ?? "").trim(),
   };
 }
@@ -188,8 +195,10 @@ function validate(body: Row): string | null {
   if (body.skipped) return null; // nothing was risked
   const risk = Number(body.riskPct);
   if (!Number.isFinite(risk) || risk <= 0) return "Risk % must be above 0";
-  // Graded under the rulebook: R, lots and the excursions all rest on the initial stop.
-  if (body.rulebookVersion && (body.stopPrice == null || body.stopPrice === "")) return "Add the initial stop";
+  // Graded under 1.2–1.x, R, lots and the excursions rested on the initial stop. Since 2.0
+  // nothing is logged as a price: the R:R and the excursions are typed in R.
+  const version = body.rulebookVersion ? String(body.rulebookVersion) : null;
+  if (version && !atLeast(version, "2.0") && (body.stopPrice == null || body.stopPrice === "")) return "Add the initial stop";
   return null;
 }
 
@@ -203,7 +212,7 @@ const COLUMNS = [
   "took_15m_swing", "htf_reason_type", "poi_tests", "level_sweep", "desk_agreed", "entry_type",
   "entry_price", "stop_price", "target_price", "lots", "atr", "mss_beyond", "exit_time", "exit_price",
   "exit_reason", "early_stop_move", "release_at_be", "mfe_price", "mae_price", "target_before_stop",
-  "max_fav_price", "screenshot_after",
+  "max_fav_price", "mfe_r", "mae_r", "max_fav_r", "screenshot_after",
 ];
 
 /**

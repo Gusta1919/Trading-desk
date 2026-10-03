@@ -14,7 +14,7 @@ import { adherence, deskStatus, weekSpan } from "./discipline";
 import { hypothesisResults } from "./hypotheses";
 import type { NewsDay } from "./newsRules";
 import { dayBudget } from "./risk";
-import { tokenValues, type Rulebook } from "./rulebook";
+import { autoFactor, tokenValues, type Rulebook } from "./rulebook";
 import { minutesOf } from "./rules";
 import { deskNow } from "./tz";
 import {
@@ -328,7 +328,7 @@ export function buildBriefing(
         body:
           status.dayOff.reason === "rule-break"
             ? "Any rule break ends the day. The trade is recorded; there is no next one today."
-            : `Breaking the one-trade rule or a loss limit costs ${doc ? tokenValues(doc)["consequence.daysOff.word"] : "two"} trading days. They started after ${status.dayOff.from}. Use them to review the journal, not to watch the chart.`,
+            : `${doc?.consequences.anyBreak ? "Any rule break" : "Breaking the one-trade rule or a loss limit"} costs ${doc ? tokenValues(doc)["consequence.daysOff.word"] : "two"} trading days. They started after ${status.dayOff.from}. Use them to review the journal, not to watch the chart.`,
         why: "A consequence decided in advance is not a punishment, it is a circuit breaker: it takes the decision away from the state that broke the rule.",
       });
     }
@@ -721,9 +721,9 @@ export function buildBriefing(
       });
     }
 
-    // The Compass is a frozen snapshot — and it goes stale.
+    // Before 2.0 the Compass was read from a frozen snapshot — and that goes stale. Since 2.0 you read it live.
     const age = Math.floor((new Date(`${today}T12:00:00Z`).getTime() - new Date(`${doc.compass.frozenOn}T12:00:00Z`).getTime()) / 86_400_000);
-    if (age > doc.compass.refreshDays) {
+    if (autoFactor(doc, "compass") && age > doc.compass.refreshDays) {
       add({
         id: "compass-age",
         tone: "info",

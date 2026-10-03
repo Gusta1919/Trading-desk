@@ -11,6 +11,7 @@ import { releasesHeld } from "./discipline";
 import { MIN_GROUP, mean, shrunk } from "./insights";
 import { fill, tokenValues, type Hypothesis, type Rulebook } from "./rulebook";
 import { isClosed } from "./stats";
+import { excursions } from "./rules";
 import type { Trade } from "./types";
 
 export interface HypothesisSide {
@@ -103,7 +104,7 @@ function measure(h: Hypothesis, closed: Trade[], doc: Rulebook): { n: number; si
       };
     }
     case "runners": {
-      const logged = closed.filter((t) => t.mfePrice != null && t.stopPrice != null && t.entryPrice != null);
+      const logged = closed.filter((t) => excursions(t).mfeR != null);
       return { n: logged.length, sides: [], note: "Answered by the Exit lab in the Risk lab." };
     }
     case "shorts":

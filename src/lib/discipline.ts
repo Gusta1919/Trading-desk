@@ -8,11 +8,13 @@
  * after every write, so deleting a mistaken first trade also clears the "second trade
  * today" on the one after it, and the two days off that came with it.
  *
- * The consequence ladder (rulebook, Discipline and enforcement):
+ * The consequences, as the rulebook a trade was graded under sets them. Since 2.0 there
+ * is one: any flagged taken trade → the rest of that New York day and the next N
+ * trading days off (weekdays; skip days count as days). Before 2.0, a ladder:
  *  - any flagged taken trade → the rest of that New York day off
  *  - N flagged taken trades in one ISO week → the next ISO week at reduced risk
  *  - a second trade, or trading after the daily or weekly stop → the next N trading
- *    days off (weekdays; skip days count as days)
+ *    days off
  *
  * Skipped setups — logged, never taken — count toward nothing here.
  */
@@ -181,12 +183,14 @@ export function evaluateHistory(input: DisciplineInput): { byId: Map<string, Tra
     if (!flags.length) continue;
     // Any rule break: the rest of the day off.
     if (!timeline.dayOff.has(day)) timeline.dayOff.set(day, { reason: "rule-break", from: day });
-    // Enough breaks in one week: the next week at reduced risk.
     const n = (timeline.breaksByWeek.get(week) ?? 0) + 1;
     timeline.breaksByWeek.set(week, n);
-    if (n >= doc.consequences.breaks && !timeline.halfWeeks.has(nextWeek(day))) timeline.halfWeeks.set(nextWeek(day), week);
-    // The one-trade rule or a loss limit: the next trading days off.
-    if (flags.some((f) => LIMIT_FLAGS.includes(f))) {
+    // Before 2.0, enough breaks in one week put the next week at reduced risk.
+    if (!doc.consequences.anyBreak && n >= doc.consequences.breaks && !timeline.halfWeeks.has(nextWeek(day))) {
+      timeline.halfWeeks.set(nextWeek(day), week);
+    }
+    // The next trading days off: since 2.0 for any break, before it for the one-trade rule or a loss limit.
+    if (doc.consequences.anyBreak || flags.some((f) => LIMIT_FLAGS.includes(f))) {
       const days = nextTradingDays(day, doc.consequences.daysOff);
       const until = days[days.length - 1];
       for (const d of days) {

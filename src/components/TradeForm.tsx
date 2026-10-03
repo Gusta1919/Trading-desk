@@ -23,12 +23,9 @@ import {
   displacementMultiple,
   excursions,
   inEntryWindow,
-  lotSize,
+  maxFavROf,
   minutesOf,
-  plannedRR,
   sessionAt,
-  stopOnRightSide,
-  sweepDepthOf,
   timeOf,
 } from "@/lib/rules";
 import { DESK_LABEL, deskDay, deskTime } from "@/lib/tz";
@@ -71,7 +68,6 @@ interface FormState {
   /** Session is filled in from the time until you pick one yourself. */
   sessionTouched: boolean;
   riskPct: string;
-  /** Typed only when the three prices aren't there to work it out. */
   plannedRR: string;
   pnlUsd: string;
   followedPlan: boolean | null;
@@ -91,12 +87,11 @@ interface FormState {
   screenshot: string;
   screenshotAfter: string;
 
-  boxHigh: string;
-  boxLow: string;
-  /** Typed only when the box's high and low aren't. */
+  /*
+   * No prices: the box size and the sweep depth are typed in $, and the excursions in R.
+   * A trade logged before 2.0 keeps the prices it was saved with, untouched.
+   */
   boxSize: string;
-  sweepExtreme: string;
-  /** Typed only when the sweep's extreme isn't. */
   sweepDepth: string;
   took15mSwing: boolean | null;
   htfReasonType: HtfReasonType | "";
@@ -106,23 +101,19 @@ interface FormState {
   deskTouched: boolean;
 
   entryType: EntryType | "";
-  entryPrice: string;
-  stopPrice: string;
-  targetPrice: string;
-  lots: string;
+  /** Only for a trade graded under a version that worked displacement out from these two. */
   atr: number | null;
   mssBeyond: number | null;
 
   /** "HH:mm" — always the trade's own day. */
   exitTime: string;
-  exitPrice: string;
   exitReason: ExitReason | "";
   earlyStopMove: boolean | null;
   releaseAtBe: boolean | null;
-  mfePrice: string;
-  maePrice: string;
+  mfeR: string;
+  maeR: string;
   targetBeforeStop: Trade["targetBeforeStop"];
-  maxFavPrice: string;
+  maxFavR: string;
 }
 
 const str = (v: number | null | undefined) => (v != null ? String(v) : "");
@@ -151,11 +142,8 @@ function toForm(t: Trade | null, instrument: string): FormState {
     screenshot: t?.screenshot ?? "",
     screenshotAfter: t?.screenshotAfter ?? "",
 
-    boxHigh: str(t?.boxHigh),
-    boxLow: str(t?.boxLow),
-    boxSize: t?.boxHigh == null || t?.boxLow == null ? str(t?.boxSize) : "",
-    sweepExtreme: str(t?.sweepExtreme),
-    sweepDepth: t?.sweepExtreme == null ? str(t?.sweepDepth) : "",
+    boxSize: str(t?.boxSize),
+    sweepDepth: str(t?.sweepDepth),
     took15mSwing: t?.took15mSwing ?? null,
     htfReasonType: t?.htfReasonType ?? "",
     poiTests: t?.poiTests ?? "",
@@ -164,22 +152,18 @@ function toForm(t: Trade | null, instrument: string): FormState {
     deskTouched: Boolean(t?.deskAgreed),
 
     entryType: t?.entryType ?? "",
-    entryPrice: str(t?.entryPrice),
-    stopPrice: str(t?.stopPrice),
-    targetPrice: str(t?.targetPrice),
-    lots: str(t?.lots),
     atr: t?.atr ?? null,
     mssBeyond: t?.mssBeyond ?? null,
 
     exitTime: t?.exitTime ? timeOf(t.exitTime) : "",
-    exitPrice: str(t?.exitPrice),
     exitReason: t?.exitReason ?? "",
     earlyStopMove: t?.earlyStopMove ?? null,
     releaseAtBe: t?.releaseAtBe ?? null,
-    mfePrice: str(t?.mfePrice),
-    maePrice: str(t?.maePrice),
+    // An older trade's excursions, worked out from its prices once, then kept in R.
+    mfeR: t ? str(excursions(t).mfeR) : "",
+    maeR: t ? str(excursions(t).maeR) : "",
     targetBeforeStop: t?.targetBeforeStop ?? "",
-    maxFavPrice: str(t?.maxFavPrice),
+    maxFavR: t ? str(maxFavROf(t)) : "",
   };
 }
 
@@ -398,28 +382,12 @@ export function TradeForm({
   const resultPct = pnl != null && balanceBefore > 0 ? (pnl / balanceBefore) * 100 : null;
   const resultR = resultPct != null && risk ? resultPct / risk : null;
 
-  /* ── Prices ── */
+  /* ── What was measured ── */
 
-  const entry = parseNum(f.entryPrice);
-  const stop = parseNum(f.stopPrice);
-  const target = parseNum(f.targetPrice);
-  const rrFromPrices = plannedRR(entry, stop, target);
   const riskUsd = risk != null ? round2((balanceBefore * risk) / 100) : null;
-  const lotsHere = lotSize(riskUsd, entry, stop, rb.ozPerLot);
-  const lotsSecond = lotSize(risk != null ? (L.secondAccount * risk) / 100 : null, entry, stop, rb.ozPerLot);
-  const wrongSide = stopOnRightSide(f.direction, entry, stop) === false;
-  const boxHigh = parseNum(f.boxHigh);
-  const boxLow = parseNum(f.boxLow);
-  const boxSize = boxHigh != null && boxLow != null ? round2(Math.abs(boxHigh - boxLow)) : parseNum(f.boxSize);
-  const sweepDepth = sweepDepthOf(f.direction, boxHigh, boxLow, parseNum(f.sweepExtreme)) ?? parseNum(f.sweepDepth);
+  const boxSize = parseNum(f.boxSize);
+  const sweepDepth = parseNum(f.sweepDepth);
   const exitStamp = f.exitTime ? `${day}T${f.exitTime}` : "";
-  const { mfeR, maeR } = excursions({
-    direction: f.direction,
-    entryPrice: entry,
-    stopPrice: stop,
-    mfePrice: parseNum(f.mfePrice),
-    maePrice: parseNum(f.maePrice),
-  });
   const held = releasesHeld({ date: f.date, exitTime: exitStamp, news: f.news }, rb);
 
   /** The trade as it will be saved, with the flags and allowance it was judged to have. */
@@ -447,7 +415,7 @@ export function TradeForm({
       entryModel: trade?.entryModel ?? "",
       riskPct: f.skipped ? 0 : (risk ?? 0),
       plannedRiskPct: f.skipped ? null : j.allowed,
-      plannedRR: rrFromPrices ?? parseNum(f.plannedRR),
+      plannedRR: parseNum(f.plannedRR),
       // Derived on the server from the dollars and the balance at the time.
       resultR: trade?.resultR ?? null,
       followedPlan: f.followedPlan,
@@ -469,9 +437,10 @@ export function TradeForm({
       notes: f.notes,
       screenshot: f.screenshot.trim(),
       rulebookVersion: version,
-      boxHigh,
-      boxLow,
-      sweepExtreme: parseNum(f.sweepExtreme),
+      // The prices a trade from before 2.0 was logged with stay exactly as they were.
+      boxHigh: trade?.boxHigh ?? null,
+      boxLow: trade?.boxLow ?? null,
+      sweepExtreme: trade?.sweepExtreme ?? null,
       sweepDepth,
       took15mSwing: f.took15mSwing,
       htfReasonType: f.htfReasonType,
@@ -479,22 +448,25 @@ export function TradeForm({
       levelSweep: f.levelSweep,
       deskAgreed: f.deskAgreed,
       entryType: f.entryType,
-      entryPrice: entry,
-      stopPrice: stop,
-      targetPrice: target,
-      lots: parseNum(f.lots) ?? lotsHere,
+      entryPrice: trade?.entryPrice ?? null,
+      stopPrice: trade?.stopPrice ?? null,
+      targetPrice: trade?.targetPrice ?? null,
+      lots: trade?.lots ?? null,
       riskUsd,
       atr: f.atr,
       mssBeyond: f.mssBeyond,
       exitTime: exitStamp,
-      exitPrice: parseNum(f.exitPrice),
+      exitPrice: trade?.exitPrice ?? null,
       exitReason: f.exitReason,
       earlyStopMove: f.earlyStopMove,
       releaseAtBe: held.length ? f.releaseAtBe : null,
-      mfePrice: parseNum(f.mfePrice),
-      maePrice: parseNum(f.maePrice),
+      mfePrice: trade?.mfePrice ?? null,
+      maePrice: trade?.maePrice ?? null,
       targetBeforeStop: f.exitReason && EARLY_EXITS.includes(f.exitReason) ? f.targetBeforeStop : "",
-      maxFavPrice: f.exitReason === "target" ? parseNum(f.maxFavPrice) : null,
+      maxFavPrice: trade?.maxFavPrice ?? null,
+      mfeR: parseNum(f.mfeR),
+      maeR: parseNum(f.maeR),
+      maxFavR: f.exitReason === "target" ? parseNum(f.maxFavR) : null,
       screenshotAfter: f.screenshotAfter.trim(),
     };
   }
@@ -526,7 +498,6 @@ export function TradeForm({
         setStep("setup");
         return setError(`Grade the setup first — still to answer: ${result.missingFactors.map((x) => x.name).join(", ")}`);
       }
-      if (stop == null) return setError("Add the initial stop — R, lots and the excursions all need it.");
     }
     setSaving(true);
     try {
@@ -835,35 +806,12 @@ export function TradeForm({
 
                 <Card index={2} title="Setup">
                   <div className="grid gap-4 sm:grid-cols-4">
-                    <Field label="Box high">
-                      <NumberInput value={f.boxHigh} onChange={(v) => set("boxHigh", v)} placeholder="—" suffix="$" />
-                    </Field>
-                    <Field label="Box low">
-                      <NumberInput value={f.boxLow} onChange={(v) => set("boxLow", v)} placeholder="—" suffix="$" />
-                    </Field>
                     <Field label="Box size">
-                      {boxHigh != null && boxLow != null ? (
-                        <Readout value={`$${boxSize}`} />
-                      ) : (
-                        <NumberInput value={f.boxSize} onChange={(v) => set("boxSize", v)} placeholder="—" suffix="$" />
-                      )}
+                      <NumberInput value={f.boxSize} onChange={(v) => set("boxSize", v)} placeholder="high − low" suffix="$" />
                     </Field>
-                    <Field label="Sweep extreme">
-                      <NumberInput
-                        value={f.sweepExtreme}
-                        onChange={(v) => set("sweepExtreme", v)}
-                        placeholder={f.direction === "short" ? "above the high" : "below the low"}
-                        suffix="$"
-                      />
-                    </Field>
-                  </div>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-4">
                     <Field label="Sweep depth">
-                      {parseNum(f.sweepExtreme) != null && sweepDepth != null ? (
-                        <Readout value={`$${sweepDepth}`} hint={depthHint(sweepDepth, rb)} />
-                      ) : (
-                        <NumberInput value={f.sweepDepth} onChange={(v) => set("sweepDepth", v)} placeholder="$ beyond the edge" suffix="$" />
-                      )}
+                      <NumberInput value={f.sweepDepth} onChange={(v) => set("sweepDepth", v)} placeholder="beyond the edge" suffix="$" />
+                      {sweepDepth != null && <p className="anim-fade mt-1 text-[11px] text-faint">{depthHint(sweepDepth, rb)}</p>}
                     </Field>
                     <Field label="Took a 15m swing">
                       <YesNo value={f.took15mSwing} onChange={(v) => set("took15mSwing", v)} />
@@ -871,6 +819,8 @@ export function TradeForm({
                     <Field label="Level sweep">
                       <YesNo value={f.levelSweep} onChange={(v) => set("levelSweep", v)} />
                     </Field>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-x-6 gap-y-4">
                     <Field label="HTF reason">
                       <Segmented
                         size="sm"
@@ -880,8 +830,6 @@ export function TradeForm({
                         options={HTF_REASON_TYPES.map((x) => ({ value: x, label: x }))}
                       />
                     </Field>
-                  </div>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     <Field label="POI">
                       <Segmented
                         size="sm"
@@ -903,41 +851,8 @@ export function TradeForm({
                   </div>
                 </Card>
 
-                <Card index={3} title="Entry">
+                <Card index={3} title="Risk and result">
                   <div className="grid gap-4 sm:grid-cols-4">
-                    <Field label="Entry type">
-                      <Segmented
-                        size="sm"
-                        allowNone
-                        value={f.entryType || null}
-                        onChange={(v) => set("entryType", v ?? "")}
-                        options={[
-                          { value: "market", label: "Market" },
-                          { value: "limit", label: "Limit" },
-                        ]}
-                      />
-                    </Field>
-                    <Field label="Entry price">
-                      <NumberInput value={f.entryPrice} onChange={(v) => set("entryPrice", v)} placeholder="—" suffix="$" />
-                    </Field>
-                    <Field label={f.skipped ? "Initial stop" : "Initial stop *"}>
-                      <NumberInput value={f.stopPrice} onChange={(v) => set("stopPrice", v)} placeholder="required" suffix="$" />
-                    </Field>
-                    <Field label="Target">
-                      <NumberInput value={f.targetPrice} onChange={(v) => set("targetPrice", v)} placeholder="opposite edge" suffix="$" />
-                    </Field>
-                  </div>
-                  {f.direction === "short" && (
-                    <p className="mt-2 text-[11px] text-faint">
-                      Add the spread on the platform for the stop and the target.
-                    </p>
-                  )}
-                  {wrongSide && (
-                    <p className="mt-2 text-[12px] font-medium text-warn">
-                      The stop is on the wrong side of the entry for a {f.direction}.
-                    </p>
-                  )}
-                  <div className="mt-4 grid gap-4 sm:grid-cols-4">
                     <Field label="Risk">
                       <NumberInput
                         value={f.riskPct}
@@ -946,51 +861,8 @@ export function TradeForm({
                         suffix="%"
                       />
                     </Field>
-                    <Field label="Risk $">
-                      <Readout value={riskUsd != null ? fmtUsd(riskUsd) : "—"} hint={`of ${fmtUsd(balanceBefore)}`} />
-                    </Field>
-                    <Field label="Lots">
-                      <NumberInput
-                        value={f.lots}
-                        onChange={(v) => set("lots", v)}
-                        placeholder={lotsHere != null ? String(lotsHere) : "—"}
-                        suffix="lots"
-                      />
-                    </Field>
                     <Field label="Planned R:R">
-                      {rrFromPrices != null ? (
-                        <Readout value={`${rrFromPrices}R`} hint="gross, from the prices" />
-                      ) : (
-                        <NumberInput value={f.plannedRR} onChange={(v) => set("plannedRR", v)} placeholder="2" suffix="R" />
-                      )}
-                    </Field>
-                  </div>
-                  {lotsHere != null && (
-                    <p className="mt-2 flex flex-wrap items-center gap-x-3 text-[12px] text-soft">
-                      <span>
-                        {lotsHere} lots risks {riskUsd != null ? fmtUsd(riskUsd) : "—"} on this account
-                      </span>
-                      {parseNum(f.lots) == null || parseNum(f.lots) !== lotsHere ? (
-                        <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => set("lots", String(lotsHere))}>
-                          use {lotsHere}
-                        </button>
-                      ) : null}
-                      {lotsSecond != null && (
-                        <span className="text-faint">
-                          · {values["limits.second"]} account: {lotsSecond} lots
-                        </span>
-                      )}
-                    </p>
-                  )}
-                </Card>
-
-                <Card index={4} title="Exit">
-                  <div className="grid gap-4 sm:grid-cols-4">
-                    <Field label={`Exit time · ${DESK_LABEL}`}>
-                      <input type="time" className="field num" value={f.exitTime} onChange={(e) => set("exitTime", e.target.value)} />
-                    </Field>
-                    <Field label="Exit price">
-                      <NumberInput value={f.exitPrice} onChange={(v) => set("exitPrice", v)} placeholder="—" suffix="$" />
+                      <NumberInput value={f.plannedRR} onChange={(v) => set("plannedRR", v)} placeholder="2" suffix="R" />
                     </Field>
                     <Field label="Result">
                       <NumberInput value={f.pnlUsd} onChange={(v) => set("pnlUsd", v)} placeholder="empty = open" suffix="$" />
@@ -1009,10 +881,35 @@ export function TradeForm({
                     </Field>
                   </div>
                   <p className="mt-2 text-[11px] text-faint">
-                    The broker's dollar result, spread and commission already in it; the percentage and R are worked out for
-                    you. Leave it empty while the trade is open.
+                    {riskUsd != null && (
+                      <>
+                        <span className="num text-soft">{fmtUsd(riskUsd)}</span> at risk of {fmtUsd(balanceBefore)} ·{" "}
+                      </>
+                    )}
+                    The broker's dollar result, costs already in it; the % and R are worked out for you. Leave it empty while
+                    the trade is open.
                   </p>
                   <div className="mt-4">
+                    <Field label="Entry type">
+                      <Segmented
+                        size="sm"
+                        allowNone
+                        value={f.entryType || null}
+                        onChange={(v) => set("entryType", v ?? "")}
+                        options={[
+                          { value: "market", label: "Market" },
+                          { value: "limit", label: "Limit" },
+                        ]}
+                      />
+                    </Field>
+                  </div>
+                </Card>
+
+                <Card index={4} title="Exit">
+                  <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
+                    <Field label={`Exit time · ${DESK_LABEL}`}>
+                      <input type="time" className="field num" value={f.exitTime} onChange={(e) => set("exitTime", e.target.value)} />
+                    </Field>
                     <Field label="Exit reason">
                       <Segmented
                         size="sm"
@@ -1033,19 +930,16 @@ export function TradeForm({
                       </Field>
                     )}
                   </div>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-4">
-                    <Field label="Best price (MFE)">
-                      <NumberInput value={f.mfePrice} onChange={(v) => set("mfePrice", v)} placeholder="—" suffix="$" />
+                  <div className="mt-4 grid gap-4 sm:grid-cols-3">
+                    <Field label="Best it got (MFE)">
+                      <NumberInput value={f.mfeR} onChange={(v) => set("mfeR", v)} placeholder="in your favour" suffix="R" />
                     </Field>
-                    <Field label="Worst price (MAE)">
-                      <NumberInput value={f.maePrice} onChange={(v) => set("maePrice", v)} placeholder="—" suffix="$" />
-                    </Field>
-                    <Field label="MFE · MAE">
-                      <Readout value={`${mfeR != null ? fmtR(mfeR) : "—"} · ${maeR != null ? `${maeR}R` : "—"}`} hint="from the initial stop" />
+                    <Field label="Worst it got (MAE)">
+                      <NumberInput value={f.maeR} onChange={(v) => set("maeR", v)} placeholder="against you" suffix="R" />
                     </Field>
                     {f.exitReason === "target" ? (
-                      <Field label={`Furthest price until ${rb.timeStop}`}>
-                        <NumberInput value={f.maxFavPrice} onChange={(v) => set("maxFavPrice", v)} placeholder="optional" suffix="$" />
+                      <Field label={`Furthest by ${rb.timeStop}`}>
+                        <NumberInput value={f.maxFavR} onChange={(v) => set("maxFavR", v)} placeholder="optional" suffix="R" />
                       </Field>
                     ) : f.exitReason && EARLY_EXITS.includes(f.exitReason) ? (
                       <Field label={`Target before stop by ${rb.timeStop}?`}>
@@ -1063,6 +957,7 @@ export function TradeForm({
                       </Field>
                     ) : null}
                   </div>
+                  <p className="mt-2 text-[11px] text-faint">In R from your stop: how far it went your way and against you before the exit. They feed the Exit lab.</p>
                 </Card>
 
                 <Card index={5} title="Review">
@@ -1215,16 +1110,6 @@ function depthHint(depth: number, rb: Rulebook) {
   return `very deep — beyond $${rb.sweep.p95}`;
 }
 
-/** A worked-out value, the same height as the fields beside it. */
-function Readout({ value, hint }: { value: string; hint?: string }) {
-  return (
-    <div className="flex h-[38px] items-center justify-between gap-2 rounded-xl bg-subtle px-3.5">
-      <span className="num text-[14px] font-medium">{value}</span>
-      {hint && <span className="truncate text-[11px] text-faint">{hint}</span>}
-    </div>
-  );
-}
-
 function YesNo({ value, onChange }: { value: boolean | null; onChange: (v: boolean | null) => void }) {
   return (
     <ToneToggle
@@ -1261,12 +1146,14 @@ function RulebookHint({
         <span className="text-faint">Target </span>the opposite box edge<span className="text-faint"> · R:R </span>
         <span className="num">{values["rr.range"]}</span>
       </p>
-      <p className="text-soft">
-        <span className="text-faint">Compass today </span>
-        <span className="num">
-          long {compassFor(rb, day, "long") ?? "—"}% · short {compassFor(rb, day, "short") ?? "—"}%
-        </span>
-      </p>
+      {autoFactor(rb, "compass") && (
+        <p className="text-soft">
+          <span className="text-faint">Compass today </span>
+          <span className="num">
+            long {compassFor(rb, day, "long") ?? "—"}% · short {compassFor(rb, day, "short") ?? "—"}%
+          </span>
+        </p>
+      )}
       <p className="text-soft">
         <span className="text-faint">Invalidated when </span>
         <Glossed text="price trades through the stop at the external swing" />

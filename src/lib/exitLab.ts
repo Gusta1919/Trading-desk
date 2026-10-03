@@ -14,7 +14,7 @@
  *    trade is left out of that row rather than guessed.
  *  - Breakeven at 1R: a losing trade whose MFE reached 1R is scored 0R.
  */
-import { excursions, priceR } from "./rules";
+import { excursions, maxFavROf } from "./rules";
 import { isClosed } from "./stats";
 import type { Trade } from "./types";
 
@@ -66,7 +66,7 @@ export function exitLab(trades: Trade[], minTrades: number): ExitLab {
         if (mfe >= x) return x;
         if (t.exitReason !== "target") return t.resultR!;
         // It hit its own (smaller) target; whether it would have gone on to X is only known from the furthest price.
-        const fav = priceR(t.direction, t.entryPrice, t.stopPrice, t.maxFavPrice);
+        const fav = maxFavROf(t);
         if (fav == null) return null;
         return fav >= x ? x : null;
       }),

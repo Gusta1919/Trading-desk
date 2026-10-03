@@ -6,9 +6,11 @@
  * feeds is filled in here instead:
  *  - the briefing is moved to the day the page is opened, so it always counts as today's;
  *  - gold candles are synthetic, drawn around the briefing's spot;
- *  - the news week is a small sample, its releases on the current week's days.
- * Check-ins and open items save in memory for the visit; every other write is refused
- * with a message, since the trade maths and the flags live in the server.
+ *  - the news week is a small sample, its releases on this week's days (next week's at
+ *    the weekend, like the Calendar's week strip), with two skip days in it.
+ * Check-ins, open items and rulebook edits save in memory for the visit, so the
+ * changelog fills as you edit; trades are refused with a message, since their maths and
+ * flags live in the server.
  */
 (function () {
   var S = window.__PREVIEW__;
@@ -71,7 +73,8 @@
 
   function calendar() {
     var d = new Date(today + "T12:00:00Z");
-    var monday = new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * DAY);
+    var wd = d.getUTCDay();
+    var monday = new Date(d.getTime() + (wd === 6 ? 2 : wd === 0 ? 1 : 1 - wd) * DAY);
     var on = function (n) {
       return new Date(monday.getTime() + n * DAY).toISOString().slice(0, 10);
     };
@@ -81,10 +84,12 @@
       [1, 4, 30, "RBA Rate Statement", "AUD", "Medium", "", ""],
       [2, 8, 15, "ADP Non-Farm Employment Change", "USD", "High", "52K", "54K"],
       [2, 10, 30, "Crude Oil Inventories", "USD", "Low", "-1.2M", "1.8M"],
+      [2, 14, 0, "Federal Funds Rate", "USD", "High", "4.00%", "4.25%"],
       [3, 7, 0, "BOE Monetary Policy Summary", "GBP", "High", "", ""],
+      [3, 8, 30, "Core PCE Price Index m/m", "USD", "High", "0.2%", "0.2%"],
       [3, 8, 30, "Unemployment Claims", "USD", "Medium", "232K", "229K"],
-      [4, 8, 30, "Core PCE Price Index m/m", "USD", "High", "0.2%", "0.2%"],
-      [4, 8, 30, "Personal Spending m/m", "USD", "Medium", "0.5%", "0.5%"],
+      [4, 8, 30, "Non-Farm Employment Change", "USD", "High", "51K", "22K"],
+      [4, 8, 30, "Unemployment Rate", "USD", "High", "4.3%", "4.3%"],
       [4, 10, 0, "Revised UoM Consumer Sentiment", "USD", "Medium", "55.4", "55.4"],
     ];
     var events = rows.map(function (r, i) {
@@ -122,7 +127,22 @@
 
   var checkins = S.checkins.slice();
   var openItems = S.openItems.slice();
-  var READ_ONLY = "This preview is read-only: trades and rulebook changes aren't saved. Run the desk on your Mac to save.";
+  var READ_ONLY = "This preview doesn't save trades. Run the desk on your Mac to log one.";
+
+  /* Rulebook versions, newest first; an edit adds one, as the server would. */
+  var current = S.rulebook;
+  var versions = S.versions.slice();
+  function nextVersion(v, bump) {
+    var m = /^(\d+)\.(\d+)$/.exec(v) || [0, "1", "0"];
+    return bump === "major" ? Number(m[1]) + 1 + ".0" : m[1] + "." + (Number(m[2]) + 1);
+  }
+  function addVersion(doc, reason, bump) {
+    var version = nextVersion(current.version, bump);
+    current = { version: version, reason: reason, createdAt: new Date().toISOString(), doc: Object.assign({}, doc, { version: version }) };
+    S.versionDocs[version] = current;
+    versions.unshift({ version: version, reason: reason, createdAt: current.createdAt });
+    return current;
+  }
 
   function reply(status, body) {
     return Promise.resolve(
@@ -136,9 +156,9 @@
   function answer(path, query, method, body) {
     if (method === "GET") {
       if (path === "/api/trades") return reply(200, S.trades);
-      if (path === "/api/limits") return reply(200, S.limits);
-      if (path === "/api/rulebook") return reply(200, S.rulebook);
-      if (path === "/api/rulebook/versions") return reply(200, S.versions);
+      if (path === "/api/limits") return reply(200, current.doc.limits);
+      if (path === "/api/rulebook") return reply(200, current);
+      if (path === "/api/rulebook/versions") return reply(200, versions);
       var v = path.match(/^\/api\/rulebook\/versions\/(.+)$/);
       if (v) {
         var doc = S.versionDocs[decodeURIComponent(v[1])];
@@ -148,7 +168,7 @@
       if (path === "/api/checkins") return reply(200, checkins);
       if (path === "/api/bias") return reply(200, bias);
       if (path === "/api/candles") return reply(200, candles(query.get("tf") || "15m"));
-      if (path === "/api/news/rules") return reply(200, S.newsRules);
+      if (path === "/api/news/rules") return reply(200, current.doc.news);
       if (path === "/api/news/calendar") return reply(200, calendar());
       if (path === "/api/news/headlines") return reply(200, headlines());
       if (path === "/api/health") return reply(200, { ok: true });
@@ -162,6 +182,18 @@
       });
       checkins = [saved].concat(checkins.filter(function (x) { return x.date !== c[1]; }));
       return reply(200, saved);
+    }
+    if (path === "/api/rulebook" && method === "PUT") {
+      if (!String(body.reason || "").trim()) return reply(400, { error: "Every change needs a one-line reason" });
+      return reply(200, addVersion(body.doc, String(body.reason).trim(), body.bump));
+    }
+    if (path === "/api/limits" && method === "PUT") {
+      var reason = String(body.reason || "").trim();
+      if (!reason) return reply(400, { error: "Every change needs a one-line reason" });
+      var limits = Object.assign({}, body);
+      delete limits.reason;
+      addVersion(Object.assign({}, current.doc, { limits: limits }), reason, "minor");
+      return reply(200, limits);
     }
     var o = path.match(/^\/api\/open-items\/(.+)$/);
     if (o && method === "PUT") {

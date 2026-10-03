@@ -3,13 +3,18 @@ import {
   ArrowRight,
   Award,
   Ban,
+  Bold,
   BookOpen,
+  Braces,
   CalendarClock,
   Check,
   ChevronDown,
   Crosshair,
+  Heading2,
   History,
   ListChecks,
+  ListOrdered,
+  List as ListIcon,
   Pencil,
   Plus,
   ShieldAlert,
@@ -18,7 +23,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Fragment, createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api, type OpenItem } from "@/lib/api";
 import { answersCappingAt, factorCap, withUnit } from "@/lib/grading";
 import { hypothesisResults } from "@/lib/hypotheses";
@@ -26,6 +31,7 @@ import { fmtR } from "@/lib/format";
 import {
   WEEKDAY_KEYS,
   WEEKDAY_NAMES,
+  atLeast,
   autoFactor,
   fill,
   inline,
@@ -748,10 +754,11 @@ function Ladder() {
   );
 }
 
-/** The consequence ladder: what a broken rule costs, mild to severe. */
+/** What a broken rule costs: since 2.0 one rule, before it a ladder from mild to severe. */
 function ConsequenceLadder() {
   const { doc } = useCtx();
   const c = doc.consequences;
+  if (c.anyBreak) return <DaysOff days={c.daysOff} />;
   const steps = [
     { when: "Any rule break", then: "rest of the day off", colour: "var(--color-warn)" },
     {
@@ -781,6 +788,40 @@ function ConsequenceLadder() {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Since 2.0: any rule broken → the next N trading days off, drawn as the days it costs. */
+function DaysOff({ days }: { days: number }) {
+  const colour = "var(--color-down)";
+  return (
+    <div
+      className="anim-rise flex flex-wrap items-center gap-x-5 gap-y-3 rounded-xl border px-5 py-4"
+      style={{ borderColor: tint(colour, 30), backgroundColor: tint(colour, 7) }}
+    >
+      <div className="min-w-0">
+        <p className="text-[12.5px] text-soft">Any rule broken</p>
+        <p className="mt-0.5 flex items-center gap-1.5 text-[15px] font-semibold text-down">
+          <ArrowRight size={14} className="shrink-0" />
+          {days} trading {days === 1 ? "day" : "days"} off
+        </p>
+      </div>
+      <ol className="ml-auto flex items-center gap-1.5" aria-hidden>
+        <li className="rounded-lg border border-down/40 px-2.5 py-1 text-[11px] font-medium text-down">break</li>
+        {Array.from({ length: days }, (_, i) => (
+          <li
+            key={i}
+            className="anim-pop rounded-lg px-2.5 py-1 text-[11px] font-medium text-ink"
+            style={{ backgroundColor: tint(colour, 22), ...stagger(i + 1, 140) }}
+          >
+            day {i + 1}
+          </li>
+        ))}
+        <li className="anim-fade rounded-lg bg-up/15 px-2.5 py-1 text-[11px] font-medium text-up" style={stagger(days + 1, 140)}>
+          back
+        </li>
+      </ol>
+    </div>
   );
 }
 
@@ -874,10 +915,14 @@ function OpenItems() {
   );
 }
 
+/** Every version from the rulebook's fresh start on (or all of them, before 2.0), newest first. */
 function Changelog() {
   const { state, doc, view } = useCtx();
+  const from = doc.changelogFrom;
   const rows = [
-    ...state.versions.map((v) => ({ version: v.version, date: deskDay(new Date(v.createdAt)), change: v.reason, stored: true })),
+    ...state.versions
+      .filter((v) => !from || atLeast(v.version, from))
+      .map((v) => ({ version: v.version, date: deskDay(new Date(v.createdAt)), change: v.reason, stored: true })),
     ...doc.history.map((h) => ({ ...h, stored: false })),
   ];
   return (
@@ -961,9 +1006,19 @@ function DecisionFlow() {
 
 /* ── Editing a section ───────────────────────────────────────────────── */
 
+/** The small formatting the text understands, as buttons: each acts at the cursor. */
+type Format = "heading" | "bullet" | "numbered" | "bold";
+const FORMATS: { id: Format; label: ReactNode; title: string }[] = [
+  { id: "heading", label: <Heading2 size={14} />, title: "Heading — ### at the start of the line" },
+  { id: "bullet", label: <ListIcon size={14} />, title: "Bullet — - at the start of the line" },
+  { id: "numbered", label: <ListOrdered size={14} />, title: "Numbered — 1. at the start of the line" },
+  { id: "bold", label: <Bold size={14} />, title: "Bold — **around the words**" },
+];
+
 /**
- * One section's values and text in one place. Saving writes the whole rulebook as the
- * next version, so a change here can never leave the text and the logic out of step.
+ * One section's values and text in one place, with the section drawn live beside them
+ * exactly as the rulebook will show it. Saving writes the whole rulebook as the next
+ * version, so a change here can never leave the text and the logic out of step.
  */
 function SectionEditor({
   section,
@@ -978,11 +1033,15 @@ function SectionEditor({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const outer = useCtx();
   const [draft, setDraft] = useState<Rulebook>(() => structuredClone(doc));
   const [reason, setReason] = useState("");
   const [bump, setBump] = useState<"minor" | "major">("minor");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [query, setQuery] = useState("");
+  const text = useRef<HTMLTextAreaElement>(null);
   const values = useMemo(() => tokenValues(draft), [draft]);
   const problems = useMemo(() => {
     try {
@@ -993,9 +1052,45 @@ function SectionEditor({
   }, [draft]);
   const changed = JSON.stringify(draft) !== JSON.stringify(doc);
   const mine = draft.sections.find((s) => s.id === section.id)!;
+  const { colour, icon: Icon } = lookOf(section.id);
+  const next = nextVersion(version, bump);
   const setSection = (patch: Partial<Section>) =>
     setDraft((d) => ({ ...d, sections: d.sections.map((s) => (s.id === section.id ? { ...s, ...patch } : s)) }));
   const patch = (p: Partial<Rulebook>) => setDraft((d) => ({ ...d, ...p }));
+
+  /** Puts `insert` at the cursor (or around the selection), then the cursor after it. */
+  function edit(make: (body: string, from: number, to: number) => { body: string; cursor: number }) {
+    const el = text.current;
+    const from = el?.selectionStart ?? mine.body.length;
+    const to = el?.selectionEnd ?? from;
+    const out = make(mine.body, from, to);
+    setSection({ body: out.body });
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(out.cursor, out.cursor);
+    });
+  }
+  const format = (f: Format) =>
+    edit((body, from, to) => {
+      if (f === "bold") {
+        const words = body.slice(from, to) || "bold";
+        return { body: `${body.slice(0, from)}**${words}**${body.slice(to)}`, cursor: from + words.length + 4 };
+      }
+      const prefix = f === "heading" ? "### " : f === "bullet" ? "- " : "1. ";
+      const lineStart = body.lastIndexOf("\n", from - 1) + 1;
+      return { body: `${body.slice(0, lineStart)}${prefix}${body.slice(lineStart)}`, cursor: from + prefix.length };
+    });
+  const insertValue = (key: string) => {
+    edit((body, from, to) => {
+      const token = `{{${key}}}`;
+      return { body: `${body.slice(0, from)}${token}${body.slice(to)}`, cursor: from + token.length };
+    });
+    setPicking(false);
+    setQuery("");
+  };
+  const choices = Object.entries(values)
+    .filter(([k, v]) => !k.startsWith("ref:") && v != null)
+    .filter(([k, v]) => !query || `${k} ${v}`.toLowerCase().includes(query.toLowerCase()));
 
   async function save() {
     if (!reason.trim()) return setError("Add a one-line reason — it goes in the changelog.");
@@ -1013,64 +1108,137 @@ function SectionEditor({
 
   return (
     <Modal open onClose={onClose} width="max-w-6xl">
-      <div className="flex max-h-[calc(100vh-3rem)] flex-col">
-        <header className="flex shrink-0 items-center justify-between border-b px-7 pb-4 pt-5">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-faint">Edit the rulebook</p>
-            <h2 className="text-[18px] font-semibold tracking-tight">{section.title}</h2>
+      <div className="relative flex max-h-[calc(100vh-3rem)] flex-col overflow-hidden rounded-2xl" style={{ "--sec": colour } as CSSProperties}>
+        <Glow colour={colour} />
+
+        {/* ── The section being edited, its name editable in place ── */}
+        <header className="relative flex shrink-0 items-center gap-4 border-b px-7 pb-4 pt-5">
+          <span
+            className="anim-stamp flex size-10 shrink-0 items-center justify-center rounded-xl"
+            style={{ color: colour, backgroundColor: tint(colour, 15) }}
+          >
+            <Icon size={19} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-faint">Edit the rulebook · v{version}</p>
+            <input
+              id="rb-edit-title"
+              aria-label="Section title"
+              className="-ml-1.5 w-full rounded-lg bg-transparent px-1.5 py-0.5 text-[19px] font-semibold tracking-tight outline-none transition-colors hover:bg-subtle focus:bg-subtle"
+              value={mine.title}
+              onChange={(e) => setSection({ title: e.target.value })}
+            />
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-faint hover:bg-subtle hover:text-ink">
+          <button onClick={onClose} className="rounded-lg p-1.5 text-faint transition-colors hover:bg-subtle hover:text-ink" aria-label="Close">
             <X size={18} />
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="grid gap-6 px-7 py-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="min-w-0 space-y-5">
-              <ValuesEditor id={section.id} draft={draft} patch={patch} />
-              <Card title="Text">
-                <input className="field mb-3 font-medium" value={mine.title} onChange={(e) => setSection({ title: e.target.value })} />
+        <div className="relative min-h-0 flex-1 overflow-y-auto">
+          <div className="grid gap-6 px-7 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            {/* ── Left: what you change ── */}
+            <div className="min-w-0 space-y-4">
+              <div className="anim-rise space-y-4" style={stagger(1, 90)}>
+                <ValuesEditor id={section.id} draft={draft} patch={patch} />
+              </div>
+
+              <Card title="Text" index={2}>
+                <div className="mb-2 flex flex-wrap items-center gap-1">
+                  {FORMATS.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      title={f.title}
+                      onClick={() => format(f.id)}
+                      className="flex size-8 items-center justify-center rounded-lg text-soft transition-colors hover:bg-subtle hover:text-ink"
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                  <span className="mx-1 h-5 w-px bg-line" />
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setPicking((p) => !p)}
+                      aria-expanded={picking}
+                      className={cx(
+                        "flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors",
+                        picking ? "bg-subtle text-ink" : "text-soft hover:bg-subtle hover:text-ink",
+                      )}
+                    >
+                      <Braces size={13} /> Insert a value
+                    </button>
+                    {picking && (
+                      <div className="anim-pop absolute left-0 top-10 z-20 w-80 rounded-xl border bg-raised p-2" style={{ boxShadow: "var(--shadow-lift)" }}>
+                        <input
+                          id="rb-edit-value-search"
+                          autoFocus
+                          className="field mb-1.5 py-1.5 text-[12.5px]"
+                          placeholder="Search: risk, window, stop…"
+                          value={query}
+                          onChange={(e) => setQuery(e.target.value)}
+                          onKeyDown={(e) => e.key === "Escape" && (e.stopPropagation(), setPicking(false))}
+                        />
+                        <ul className="max-h-60 overflow-y-auto">
+                          {choices.map(([k, v]) => (
+                            <li key={k}>
+                              <button
+                                type="button"
+                                onClick={() => insertValue(k)}
+                                className="flex w-full items-baseline justify-between gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-subtle"
+                              >
+                                <span className="num truncate text-[11.5px] text-faint">{k}</span>
+                                <span className="num shrink-0 text-[12px] text-ink">{v}</span>
+                              </button>
+                            </li>
+                          ))}
+                          {!choices.length && <li className="px-2 py-1.5 text-[12px] text-faint">Nothing matches.</li>}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <textarea
-                  className="field num min-h-[260px] resize-y text-[12.5px] leading-relaxed [field-sizing:content]"
+                  id="rb-edit-body"
+                  ref={text}
+                  aria-label="Section text"
+                  className="field num min-h-[240px] resize-y text-[12.5px] leading-relaxed [field-sizing:content]"
                   value={mine.body}
                   onChange={(e) => setSection({ body: e.target.value })}
                 />
                 <p className="mt-2 text-[11px] text-faint">
-                  ### heading · - bullet · 1. numbered · &gt; aside · | table | · **bold** · [[table drawn from values]] ·{" "}
-                  {"{{token}}"} for any value — never type a number the values already hold.
+                  Numbers come from the values, never typed: insert one and it updates everywhere when the value changes.
                 </p>
               </Card>
             </div>
 
-            <aside className="space-y-4">
-              <Card title="Before you change a rule">
+            {/* ── Right: the section as it will read ── */}
+            <aside className="min-w-0 space-y-4 lg:sticky lg:top-0 lg:self-start">
+              <div className="anim-rise" style={stagger(3, 90)}>
+                <p className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-faint">
+                  <span className="size-1.5 animate-pulse rounded-full" style={{ backgroundColor: colour }} />
+                  Live preview
+                </p>
+                <RulebookContext.Provider value={{ ...outer, doc: draft, values, readOnly: true }}>
+                  <SectionCard section={mine} index={0} />
+                </RulebookContext.Provider>
+              </div>
+              <Card title="Before you change a rule" index={4}>
                 <ul className="space-y-1.5 text-[12px] text-soft">
                   {draft.guidance.map((g, i) => (
                     <li key={i} className="flex gap-2">
-                      <span className="mt-[7px] size-1 shrink-0 rounded-full bg-faint" />
+                      <span className="mt-[7px] size-1 shrink-0 rounded-full" style={{ backgroundColor: colour }} />
                       {fill(g, values)}
                     </li>
                   ))}
                 </ul>
-              </Card>
-              <Card title="Tokens">
-                <div className="max-h-72 space-y-0.5 overflow-y-auto text-[11px]">
-                  {Object.entries(values)
-                    .filter(([k]) => !k.startsWith("ref:"))
-                    .map(([k, v]) => (
-                      <p key={k} className="num flex justify-between gap-2">
-                        <span className="truncate text-faint">{`{{${k}}}`}</span>
-                        <span className="truncate text-soft">{v}</span>
-                      </p>
-                    ))}
-                </div>
               </Card>
             </aside>
           </div>
         </div>
 
         {problems.length > 0 && (
-          <div className="mx-7 mb-3 rounded-xl border border-warn/25 bg-warn/[0.06] px-4 py-3 text-[12px] text-warn">
+          <div className="anim-rise relative mx-7 mb-3 rounded-xl border border-warn/25 bg-warn/[0.06] px-4 py-3 text-[12px] text-warn">
             <p className="font-medium">Fix before saving:</p>
             <ul className="mt-1 list-inside list-disc space-y-0.5">
               {problems.slice(0, 8).map((p) => (
@@ -1080,14 +1248,19 @@ function SectionEditor({
           </div>
         )}
 
-        <footer className="flex shrink-0 flex-wrap items-center gap-3 border-t bg-raised px-7 py-4">
-          <input
-            className="field min-w-[280px] flex-1 text-[13px]"
-            placeholder="Why? One line — it goes in the changelog"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && changed && !problems.length && save()}
-          />
+        {/* ── Why, which version, save ── */}
+        <footer className="relative flex shrink-0 flex-wrap items-center gap-3 border-t bg-raised px-7 py-4">
+          <label className="relative min-w-[260px] flex-1">
+            <Pencil size={13} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-faint" />
+            <input
+              id="rb-edit-reason"
+              className="field pl-9 text-[13px]"
+              placeholder="Why? One line — it goes in the changelog"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && changed && !problems.length && save()}
+            />
+          </label>
           <Segmented
             size="sm"
             value={bump}
@@ -1097,12 +1270,12 @@ function SectionEditor({
               { value: "major", label: `v${nextVersion(version, "major")} · big change` },
             ]}
           />
-          {error && <span className="text-[12px] text-down">{error}</span>}
+          {error && <span className="anim-fade text-[12px] text-down">{error}</span>}
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button variant="accent" onClick={save} disabled={saving || !changed || problems.length > 0}>
-            <Check size={15} /> Save as v{nextVersion(version, bump)}
+            <Check size={15} /> {changed ? `Save as v${next}` : "No changes yet"}
           </Button>
         </footer>
       </div>
@@ -1110,10 +1283,14 @@ function SectionEditor({
   );
 }
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
+/** A card of the editor: it rises in after the one before it, its title marked in the section's colour. */
+function Card({ title, index = 0, children }: { title: string; index?: number; children: ReactNode }) {
   return (
-    <section className="rounded-2xl border bg-surface/40 px-5 py-4">
-      <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">{title}</h3>
+    <section className="anim-rise rounded-2xl border bg-surface/40 px-5 py-4" style={stagger(index, 90)}>
+      <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-faint">
+        <span className="size-1.5 rounded-full" style={{ backgroundColor: "var(--sec, var(--color-faint))" }} />
+        {title}
+      </h3>
       {children}
     </section>
   );
@@ -1205,7 +1382,8 @@ function ValuesEditor({ id, draft: d, patch }: { id: string; draft: Rulebook; pa
           <Card title="Grade ladder">
             <GradeLadder grades={d.grades} definition={d} onChange={(v) => patch({ grades: v })} />
           </Card>
-          <CompassEditor draft={d} patch={patch} />
+          {/* Before 2.0 the Compass came from this snapshot; since then it is read live. */}
+          {autoFactor(d, "compass") && <CompassEditor draft={d} patch={patch} />}
           <Card title="Review points">
             <Row>
               <Num label="A+ may return to" value={d.aPlus.riskPct} onChange={(v) => patch({ aPlus: { ...d.aPlus, riskPct: v } })} suffix="%" />
@@ -1386,6 +1564,19 @@ function LimitsCard({ draft: d, patch }: CardProps) {
 }
 
 function ConsequencesCard({ draft: d, patch }: CardProps) {
+  if (d.consequences.anyBreak) {
+    return (
+      <Card title="Consequence">
+        <Num
+          label="Trading days off after any rule break"
+          value={d.consequences.daysOff}
+          onChange={(v) => patch({ consequences: { ...d.consequences, daysOff: Math.max(1, Math.round(v)) } })}
+          suffix="days"
+          className="w-40"
+        />
+      </Card>
+    );
+  }
   return (
     <Card title="Consequences">
       <Row>

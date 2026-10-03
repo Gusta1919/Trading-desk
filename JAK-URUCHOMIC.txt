@@ -65,7 +65,7 @@ W APLIKACJI:
   Rulebook — zasady GOLD Model; każda zmiana wymaga powodu i tworzy nową wersję
 
 DANE DEMO (do wypróbowania Coacha, Risk laba i Compare):
-  npm run demo:add      ~9 tygodni transakcji demo z check-inami
+  npm run demo:add      ~13 tygodni transakcji demo z check-inami
                         (kilka celowych naruszeń, żeby Coach miał co pokazać)
   npm run demo:more     tylko 2 transakcje do Exit laba (MFE)
   npm run demo:fill     300 transakcji zdyscyplinowanego tradera

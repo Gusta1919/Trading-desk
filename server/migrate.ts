@@ -12,10 +12,12 @@ import {
   CONDENSED_REASON,
   FIRST_REASON,
   FIRST_VERSION,
+  FRESH_START_REASON,
   OPEN_ITEMS,
   PLAN_RETIRED_REASON,
   condenseRulebook,
   defaultRulebook,
+  freshStart,
   retirePlan,
 } from "../src/lib/rulebookText.js";
 import { currentRulebook, insertVersion } from "./rulebookStore.js";
@@ -334,6 +336,10 @@ const RULEBOOK_TRADE_COLUMNS: [string, string][] = [
   ["target_before_stop", "TEXT DEFAULT ''"],
   ["max_fav_price", "REAL"],
   ["screenshot_after", "TEXT DEFAULT ''"],
+  // Since 2.0 the excursions are logged in R directly; older trades keep their prices.
+  ["mfe_r", "REAL"],
+  ["mae_r", "REAL"],
+  ["max_fav_r", "REAL"],
 ];
 
 /**
@@ -465,5 +471,26 @@ export function migrateCondensed(db: Db, now = new Date()) {
       note = `v${version} written from v${current.version}`;
     }
     db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(CONDENSED_KEY, note);
+  })();
+}
+
+const FRESH_START_KEY = "rulebook:v2.0-fresh-start";
+
+/**
+ * Rulebook 2.0 (see `freshStart`): written once as the next major version, so every
+ * earlier version stays readable and every trade keeps the rules it was graded under.
+ * The changelog starts again here.
+ */
+export function migrateFreshStart(db: Db, now = new Date()) {
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(FRESH_START_KEY)) return;
+  db.transaction(() => {
+    const current = currentRulebook(db);
+    let note = "already 2.0";
+    if (!current.doc.changelogFrom) {
+      const version = nextVersion(current.version, "major");
+      insertVersion(db, version, FRESH_START_REASON, freshStart(current.doc, version), now.toISOString());
+      note = `v${version} written from v${current.version}`;
+    }
+    db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(FRESH_START_KEY, note);
   })();
 }

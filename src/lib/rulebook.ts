@@ -86,6 +86,11 @@ export interface Consequences {
   breaks: number;
   /** Trading days off after the one-trade rule or a loss limit is broken. */
   daysOff: number;
+  /**
+   * Since 2.0: one rule only. Any break costs the next `daysOff` trading days, and there
+   * are no half-risk weeks. Older versions keep the ladder above.
+   */
+  anyBreak?: boolean;
 }
 
 /** A section of the written rulebook. `body` is the small text format below. */
@@ -167,6 +172,9 @@ export interface Rulebook {
   calibration: { displacement: number; reviewFrom: number; reviewTo: number; rr: number; evidence: number };
   goLiveTrades: number;
   exitLabMin: number;
+
+  /** The first version the changelog lists — a fresh start hides what came before it. */
+  changelogFrom?: string;
 
   /* Text */
   flow: { gates: string[]; enter: string; manage: string; exit: string };
@@ -271,9 +279,14 @@ export function skipDayLines(n: NewsRules): string[] {
   return lines;
 }
 
-/** The displacement and Compass factors, found by what they do rather than by name. */
+/**
+ * The displacement and Compass factors, found by what they do rather than by name — or,
+ * since 2.0 answers both by hand, by their id.
+ */
 export const autoFactor = (doc: Pick<Rulebook, "factors">, kind: Factor["auto"]) =>
   doc.factors.find((f) => f.auto === kind) ?? null;
+export const factorFor = (doc: Pick<Rulebook, "factors">, kind: "compass" | "displacement") =>
+  autoFactor(doc, kind) ?? doc.factors.find((f) => f.id === (kind === "compass" ? "compass" : "disp")) ?? null;
 const numberCut = (f: Factor | null, i: number) =>
   f && f.kind === "number" && f.cuts[i] ? (f as NumberFactor).cuts[i].value : null;
 
@@ -309,8 +322,8 @@ export function tokenValues(doc: Rulebook): Record<string, string | null> {
   };
   const traded = doc.grades.filter((c) => c.traded);
   const risks = [...new Set(traded.map((c) => c.riskPct))].sort((a, b) => a - b);
-  const disp = autoFactor(doc, "displacement");
-  const compass = autoFactor(doc, "compass");
+  const disp = factorFor(doc, "displacement");
+  const compass = factorFor(doc, "compass");
   const all = doc.compass.all;
   const share = (x: { hit: number; of: number }) =>
     x.of ? `${num(Number(((x.hit / x.of) * 100).toFixed(1)))}% (${x.hit} of ${x.of})` : null;
@@ -379,6 +392,7 @@ export function tokenValues(doc: Rulebook): Record<string, string | null> {
     "consequence.breaks.Word": capital(word(doc.consequences.breaks)),
     "consequence.factor.word": doc.consequences.factor === 0.5 ? "half" : `${num(doc.consequences.factor * 100)}%`,
     "consequence.daysOff.word": word(doc.consequences.daysOff),
+    "consequence.daysOff": num(doc.consequences.daysOff),
     "news.before": `${num(doc.news.beforeMin)} minutes`,
     "news.after": `${num(doc.news.afterMin)} minutes`,
     "news.windowCurrencies": and(doc.news.windowCurrencies),

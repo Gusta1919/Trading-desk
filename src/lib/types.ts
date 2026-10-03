@@ -97,6 +97,14 @@ export interface Trade {
   targetBeforeStop: "yes" | "no" | "unknown" | "";
   /** For target exits: the furthest favourable price until the time stop. */
   maxFavPrice: number | null;
+  /**
+   * Since 2.0 the excursions are logged in R, no prices needed: how far the trade went
+   * your way (MFE) and against you (MAE, positive), and for a target exit how far it
+   * would have gone by the time stop. Older trades work these out from their prices.
+   */
+  mfeR: number | null;
+  maeR: number | null;
+  maxFavR: number | null;
   screenshotAfter: string;
 
   createdAt: string;
@@ -158,6 +166,9 @@ export const EMPTY_RULEBOOK_FIELDS = {
   maePrice: null,
   targetBeforeStop: "",
   maxFavPrice: null,
+  mfeR: null,
+  maeR: null,
+  maxFavR: null,
   screenshotAfter: "",
 } satisfies Partial<Trade>;
 

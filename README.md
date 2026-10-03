@@ -29,15 +29,19 @@ open http://localhost:3847
   this week's rule adherence.
 - **Journal** — every trade in R and % of account, its exit reason, flags and rulebook
   version; click a row to edit.
-- **New trade** — the setup check first (auto rules, Compass, displacement, the grade and
-  what it may risk today), then the trade: prices, lot size, exit, MFE/MAE.
+- **New trade** — the setup check first (auto rules, then the factors: HTF timeframe,
+  displacement, bias, Compass, conviction; the grade and what it may risk today), then the
+  trade without prices: box size and sweep depth in $, risk, planned R:R and the $ result,
+  exit reason, MFE/MAE in R.
 - **Daily Bias** — today's gold briefing drawn over live price, and the desk's own
   "stand aside today" list worked out from the rulebook.
-- **Calendar** — results, flags, days off and skip days.
-- **Rulebook** — the GOLD Model's rules on one page (v1.4): the trading day drawn as a
-  timeline, the decision flow, news, the trade, grading and limits, every number live; an
-  edit mode per section, versions and changelog. Hypotheses, open items, glossary and the
-  backtesting protocol sit in the Reference panel.
+- **Calendar** — this week's no-trade days from the news on top; results, flags, days off
+  and skip days below.
+- **Rulebook** — the GOLD Model's rules on one page (2.0): the trading day drawn as a
+  timeline, the decision flow, news, the trade, grading and limits, every number live. Any
+  rule broken costs two trading days. Each section edits in place with a live preview; every
+  save is a version in the changelog, which starts at 2.0. Hypotheses and the glossary sit
+  in the Reference panel.
 - **Stats** — full stats, Compare, what drives your results, habits, well-being, and
   "By the rulebook": every grade, factor answer and journal field against results.
 - **News** — the economic calendar with skip days and release windows marked, and the wire.
@@ -62,7 +66,7 @@ open http://localhost:3847
 - `npm run preview:build` (with the desk running) builds `dist-preview/`: the app with a snapshot of
   the desk baked in, for viewing without the server. `scripts/preview/shim.js` answers the app's
   `/api` calls in the browser; the briefing moves to the day it's opened, and the candles and the
-  news week are samples.
+  news week are samples. Rulebook edits and check-ins save for the visit; trades don't.
 
 ## Code map
 

@@ -179,6 +179,18 @@ describe("the consequence ladder", () => {
     assert.deepEqual(j.byId.get(real.id)!.flags, []);
   });
 
+  it("2.0: any rule break costs the next two trading days, and no week is halved", () => {
+    const two = { ...doc, consequences: { ...doc.consequences, anyBreak: true, daysOff: 2 } };
+    const judge2 = (trades: Trade[]) => evaluateHistory({ trades, checkins: [], rulebookOf: () => two, now: LATE });
+    const a = ruledTrade(`${MON}T04:30`, { exitReason: "other" });
+    const b = ruledTrade(`${WED}T04:30`, { exitReason: "other" });
+    const j = judge2([a, b]);
+    assert.equal(j.timeline.dayOff.get(MON)?.reason, "rule-break");
+    assert.deepEqual(j.timeline.dayOff.get(TUE), { reason: "days-off", from: MON, until: WED });
+    assert.ok(j.byId.get(b.id)!.flags.includes("during_day_off"));
+    assert.equal(j.timeline.halfWeeks.size, 0);
+  });
+
   it("judges a draft against the rest before it is saved", () => {
     const a = ruledTrade(`${MON}T04:30`);
     const draft = ruledTrade(`${MON}T09:45`);
