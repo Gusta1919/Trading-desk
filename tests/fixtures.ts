@@ -34,7 +34,6 @@ export function ruledTrade(date: string, extra: Partial<Trade> = {}): Trade {
     flagNote: "",
     skipped: false,
     hypotheticalR: null,
-    expectedMinutes: null,
     costPct: null,
     boxSize: null,
     pnlUsd: null,

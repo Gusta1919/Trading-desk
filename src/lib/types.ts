@@ -39,8 +39,6 @@ export interface Trade {
   skipped: boolean;
   /** For a skipped setup: what it would have made, in R, if you know. */
   hypotheticalR: number | null;
-  /** How long you expect to be in the trade, for the news-in-window warning. */
-  expectedMinutes: number | null;
   /** Commission + swap as a % of the account. Null = never measured, not zero. */
   costPct: number | null;
   /** How wide the strategy's box was, in that strategy's unit. */
@@ -418,11 +416,14 @@ export type StrategyInput = Omit<Strategy, "id" | "createdAt" | "updatedAt">;
 export type Definition = Pick<Strategy, "baseRules" | "factors" | "grades">;
 
 /**
- * A trade's frozen copy of its strategy's definition, and how it was answered.
+ * A trade's frozen copy of the rules it was graded against, and how it was answered.
  * `answers` holds an option id for a choice factor and a number for a number factor.
  */
 export interface SetupSnapshot extends Definition {
-  strategyName: string;
+  /** On trades graded before the rulebook: the name of what they were graded against. */
+  strategyName?: string;
+  /** On trades graded under the rulebook: its version. */
+  rulebookVersion?: string;
   ticked: string[];
   answers: Record<string, string | number>;
   grade: Grade | null;

@@ -70,22 +70,41 @@ export function currenciesOf(symbol: string): string[] {
 
 /**
  * The releases on a trade's New York day that could move its symbol — red, orange and
- * holidays, in the order they happen.
+ * holidays, in the order they happen — plus the red releases and holidays the
+ * rulebook judges on other currencies (an ECB or BoE decision), so the trade's saved
+ * copy is enough to check its news rule long after the live calendar has moved on.
  *
  * `nyDay` is the trade's own "YYYY-MM-DD". Trade times are stored as New York wall
  * clock, so the day is read straight off the string: turning it into a Date would read
  * it as this machine's time and slide early-morning trades onto the previous day.
  */
-export function newsForTrade(events: CalendarEvent[], symbol: string, nyDay: string): CalendarEvent[] {
+export function newsForTrade(
+  events: CalendarEvent[],
+  symbol: string,
+  nyDay: string,
+  ruleCurrencies: string[] = [],
+): CalendarEvent[] {
   const currencies = new Set(currenciesOf(symbol));
+  const judged = new Set(ruleCurrencies);
   return events
     .filter(
       (e) =>
         e.at &&
-        e.impact !== "Low" &&
-        currencies.has(e.currency) &&
-        deskDay(new Date(e.at)) === nyDay,
+        deskDay(new Date(e.at)) === nyDay &&
+        ((e.impact !== "Low" && currencies.has(e.currency)) ||
+          ((e.impact === "High" || e.impact === "Holiday") && judged.has(e.currency))),
     )
     .sort((a, b) => a.at!.localeCompare(b.at!));
 }
 
+/** Every currency the news rules can judge: skip pairs, holidays and windows. */
+export function ruleCurrencies(rules: NewsRules): string[] {
+  return [
+    ...new Set([
+      ...rules.skip.map((p) => p.currency),
+      ...rules.holidayCurrencies,
+      ...rules.windowCurrencies,
+      ...rules.windowExtra.map((p) => p.currency),
+    ]),
+  ];
+}

@@ -12,6 +12,8 @@ import { NewsView } from "@/components/NewsView";
 import { unlockAudio, clearTitle, testChime } from "@/lib/alerts";
 import { useNews, useNewsAlerts } from "@/lib/useNews";
 import { useDailyBias } from "@/lib/useDailyBias";
+import { useRulebook } from "@/lib/useRulebook";
+import type { Plan } from "@/lib/plans";
 import { countsForTrading } from "@/lib/newsRules";
 import { StatsStrip } from "@/components/StatsStrip";
 import { StatsView } from "@/components/StatsView";
@@ -53,7 +55,10 @@ export default function App() {
   const [view, setViewState] = useState<View>(loadView);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [checkins, setCheckins] = useState<CheckInData[]>([]);
-  const [limits, setLimits] = useState<Limits | null>(null);
+  const rulebook = useRulebook();
+  /* Your limits are part of the rulebook; null until it has loaded from the server. */
+  const limits: Limits | null = rulebook.loaded ? rulebook.doc.limits : null;
+  const [plans, setPlans] = useState<Plan[]>([]);
 
   /* News is owned here so the trade blocker and the alerts work on every tab. */
   const news = useNews();
@@ -99,9 +104,18 @@ export default function App() {
   );
 
   const saveLimits = (next: Limits) => {
-    setLimits(next);
-    api.saveLimits(next, "Changed in the risk chip").then(setLimits).catch(() => {});
+    api
+      .saveLimits(next, "Changed in the risk chip")
+      .then(() => rulebook.reload())
+      .catch(() => {});
   };
+
+  const loadPlans = useCallback(() => {
+    api.plans().then(setPlans).catch(() => {});
+  }, []);
+  useEffect(() => {
+    loadPlans();
+  }, [loadPlans]);
 
   const loadStrategies = useCallback(async () => {
     setStrategies(await api.strategies().catch(() => []));
@@ -140,11 +154,6 @@ export default function App() {
         setCheckInOpen(!list.some((c) => c.date === dayKey(new Date())));
       })
       .catch(() => setCheckInOpen(true));
-  }, []);
-
-  // Your risk lines and the prop firm's drive the trade form and the Coach, so they load with everything else.
-  useEffect(() => {
-    api.limits().then(setLimits).catch(() => {});
   }, []);
 
   const saveCheckin = (c: CheckInData) =>
@@ -343,14 +352,14 @@ export default function App() {
 
       <TradeForm
         calendar={news.events}
-        limits={limits}
+        doc={rulebook.doc}
+        rulebookOf={rulebook.rulebookOf}
         open={formOpen}
         trade={editing}
         trades={trades}
-        strategies={strategies}
+        plans={plans}
         checkins={checkins}
         week={thisWeek}
-        onStrategySaved={loadStrategies}
         nudge={coachNudge}
         onClose={() => setFormOpen(false)}
         onSaved={load}

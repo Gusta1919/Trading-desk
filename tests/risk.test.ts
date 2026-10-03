@@ -41,7 +41,6 @@ function trade(riskPct: number, resultR: number | null, extra: Partial<Trade> = 
     flagNote: "",
     skipped: false,
     hypotheticalR: null,
-    expectedMinutes: null,
     costPct: null,
     boxSize: null,
     pnlUsd: null,

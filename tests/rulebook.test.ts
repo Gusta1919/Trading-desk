@@ -155,3 +155,16 @@ describe("versions", () => {
     assert.ok(!atLeast(null, "1.2"));
   });
 });
+
+describe("glossary tips", () => {
+  it("marks each term once, by any of its names, never inside another word", async () => {
+    const { gloss } = await import("../src/lib/glossary");
+    const g = defaultRulebook().glossary;
+    const parts = gloss("5m MSS after the sweep; MSS again. MAE and EQL, not MSSX.", g);
+    assert.deepEqual(
+      parts.filter((p) => p.meaning).map((p) => p.text),
+      ["MSS", "MAE", "EQL"],
+    );
+    assert.equal(parts.map((p) => p.text).join(""), "5m MSS after the sweep; MSS again. MAE and EQL, not MSSX.");
+  });
+});

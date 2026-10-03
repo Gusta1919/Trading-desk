@@ -53,7 +53,6 @@ function trade(date: string, grade: string, riskPct: number, resultR: number | n
     flagNote: "",
     skipped: false,
     hypotheticalR: null,
-    expectedMinutes: null,
     costPct: null,
     boxSize: null,
     pnlUsd: null,
