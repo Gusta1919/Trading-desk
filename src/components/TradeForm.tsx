@@ -263,8 +263,8 @@ export function TradeForm({
     () =>
       takenTrades(trades)
         .filter((t) => t.id !== trade?.id && t.date <= f.date && t.pnlUsd != null)
-        .reduce((a, t) => a + (t.pnlUsd ?? 0), L.startBalance),
-    [trades, trade?.id, f.date, L.startBalance],
+        .reduce((a, t) => a + (t.pnlUsd ?? 0), L.openingBalance),
+    [trades, trade?.id, f.date, L.openingBalance],
   );
   const resultPct = pnl != null && balanceBefore > 0 ? (pnl / balanceBefore) * 100 : null;
   const resultR = resultPct != null && risk ? resultPct / risk : null;

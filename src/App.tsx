@@ -100,7 +100,7 @@ export default function App() {
 
   const saveLimits = (next: Limits) => {
     setLimits(next);
-    api.saveLimits(next).then(setLimits).catch(() => {});
+    api.saveLimits(next, "Changed in the risk chip").then(setLimits).catch(() => {});
   };
 
   const loadStrategies = useCallback(async () => {

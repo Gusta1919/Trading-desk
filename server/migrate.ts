@@ -7,6 +7,8 @@
  * the meta table records it) — so running any of this again changes nothing.
  */
 import type Database from "better-sqlite3";
+import { FIRST_REASON, FIRST_VERSION, OPEN_ITEMS, defaultRulebook } from "../src/lib/rulebookText.js";
+import { insertVersion } from "./rulebookStore.js";
 
 type Db = Database.Database;
 type Row = Record<string, unknown>;
@@ -273,6 +275,140 @@ export function seedGoldModel(db: Db) {
     db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(
       GOLD_SEED_KEY,
       row ? `seeded ${row.id}` : "no GOLD Model found",
+    );
+  })();
+}
+
+/* ── The rulebook: one strategy, versioned (v1.2) ────────────────────── */
+
+export const RULEBOOK_KEY = "rulebook:v1.2";
+/** Demo rows carry this tag; nothing without it is ever removed. */
+const DEMO_TAG = "[demo]";
+
+/** What the old limits row defaulted to — a value still equal to it was never chosen by you. */
+const OLD_LIMIT_DEFAULTS = {
+  start_balance: 200000,
+  max_risk_pct: 1,
+  daily_stop_pct: 1,
+  daily_loss_pct: 5,
+  max_loss_pct: 10,
+} as const;
+
+/** The trade columns the rulebook's journal fields need. */
+const RULEBOOK_TRADE_COLUMNS: [string, string][] = [
+  ["rulebook_version", "TEXT"],
+  ["box_high", "REAL"],
+  ["box_low", "REAL"],
+  ["sweep_extreme", "REAL"],
+  ["sweep_depth", "REAL"],
+  ["took_15m_swing", "INTEGER"],
+  ["htf_reason_type", "TEXT DEFAULT ''"],
+  ["poi_tests", "TEXT DEFAULT ''"],
+  ["level_sweep", "INTEGER"],
+  ["desk_agreed", "TEXT DEFAULT ''"],
+  ["entry_type", "TEXT DEFAULT ''"],
+  ["entry_price", "REAL"],
+  ["stop_price", "REAL"],
+  ["target_price", "REAL"],
+  ["lots", "REAL"],
+  ["risk_usd", "REAL"],
+  ["atr", "REAL"],
+  ["mss_beyond", "REAL"],
+  ["exit_time", "TEXT DEFAULT ''"],
+  ["exit_price", "REAL"],
+  ["exit_reason", "TEXT DEFAULT ''"],
+  ["early_stop_move", "INTEGER"],
+  ["release_at_be", "INTEGER"],
+  ["mfe_price", "REAL"],
+  ["mae_price", "REAL"],
+  ["target_before_stop", "TEXT DEFAULT ''"],
+  ["max_fav_price", "REAL"],
+  ["screenshot_after", "TEXT DEFAULT ''"],
+];
+
+/**
+ * Moves the desk onto the rulebook, in the brief's order. The columns and tables are
+ * checked every start (cheap, and safe to repeat); everything that writes data runs
+ * once, recorded under RULEBOOK_KEY.
+ *
+ *  1. remove the demo rows (the same rows `npm run demo:remove` removes)
+ *  2. write rulebook v1.2, with the changelog rows 1.0 and 1.1 inside it
+ *  3. add the new trade columns
+ *  4. create the plans, rulebook-versions and open-items tables
+ *  5. carry your limits over, taking the new default only where the old one was untouched
+ */
+export function migrateRulebook(db: Db, now = new Date()) {
+  addStrategySystemColumns(db);
+  for (const [column, definition] of RULEBOOK_TRADE_COLUMNS) addColumn(db, "trades", column, definition);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rulebook_versions (
+      version    TEXT PRIMARY KEY,
+      major      INTEGER NOT NULL,
+      minor      INTEGER NOT NULL,
+      reason     TEXT NOT NULL DEFAULT '',
+      doc        TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS plans (
+      date       TEXT PRIMARY KEY,   -- New York day, "YYYY-MM-DD"
+      bias       TEXT DEFAULT '',    -- bullish | bearish | unclear | ''
+      levels     TEXT DEFAULT '{}',
+      pois       TEXT DEFAULT '',
+      desk_check TEXT DEFAULT '',    -- agree | disagree | none | ''
+      notes      TEXT DEFAULT '',
+      created_at TEXT NOT NULL,      -- never changed by an edit: "written on time" rests on it
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS open_items (
+      id         TEXT PRIMARY KEY,
+      text       TEXT NOT NULL,
+      done       INTEGER NOT NULL DEFAULT 0,
+      done_at    TEXT,
+      sort       INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+  `);
+
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(RULEBOOK_KEY)) return;
+
+  const stamp = now.toISOString();
+  db.transaction(() => {
+    // 1. Demo rows — tagged ones only.
+    const trades = db.prepare("DELETE FROM trades WHERE substr(notes, 1, ?) = ?").run(DEMO_TAG.length, DEMO_TAG).changes;
+    const checkins = db.prepare("DELETE FROM checkins WHERE note = ?").run(DEMO_TAG).changes;
+
+    // 2 + 5. Rulebook v1.2, with your limits carried over.
+    const doc = defaultRulebook();
+    const row = db.prepare("SELECT * FROM limits WHERE id = 1").get() as Row | undefined;
+    if (row) {
+      const keep = (column: keyof typeof OLD_LIMIT_DEFAULTS, fresh: number) => {
+        const v = Number(row[column]);
+        return Number.isFinite(v) && v !== OLD_LIMIT_DEFAULTS[column] ? v : fresh;
+      };
+      doc.limits = {
+        ...doc.limits,
+        enabled: row.enabled == null ? true : Boolean(row.enabled),
+        startBalance: keep("start_balance", doc.limits.startBalance),
+        maxRiskPct: keep("max_risk_pct", doc.limits.maxRiskPct),
+        dailyStopPct: keep("daily_stop_pct", doc.limits.dailyStopPct),
+        dailyLossPct: keep("daily_loss_pct", doc.limits.dailyLossPct),
+        maxLossPct: keep("max_loss_pct", doc.limits.maxLossPct),
+      };
+    }
+    if (!db.prepare("SELECT 1 FROM rulebook_versions WHERE version = ?").get(FIRST_VERSION)) {
+      insertVersion(db, FIRST_VERSION, FIRST_REASON, doc, stamp);
+    }
+
+    // The open items, seeded once.
+    if (!(db.prepare("SELECT COUNT(*) AS n FROM open_items").get() as { n: number }).n) {
+      const add = db.prepare("INSERT INTO open_items (id, text, done, sort, created_at) VALUES (?, ?, 0, ?, ?)");
+      OPEN_ITEMS.forEach((text, i) => add.run(id(), text, i, stamp));
+    }
+
+    db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(
+      RULEBOOK_KEY,
+      `v${FIRST_VERSION} written; removed ${trades} demo trades and ${checkins} demo check-ins`,
     );
   })();
 }

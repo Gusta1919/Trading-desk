@@ -5,6 +5,13 @@ import { getCandles } from "./candles.js";
 import { gmailStatus, syncBias } from "./gmailBias.js";
 import { db } from "./db.js";
 import { getCalendar, getHeadlines, startCalendarRefresh } from "./news.js";
+import {
+  RulebookError,
+  currentRulebook,
+  getVersion,
+  listVersions,
+  saveRulebook,
+} from "./rulebookStore.js";
 
 const app = express();
 const PORT = 3848;
@@ -23,6 +30,11 @@ const parseJson = <T>(raw: unknown, fallback: T): T => {
 };
 
 const FLAGS = new Set(["over_risk", "non_traded_grade", "after_daily_stop"]);
+
+/** A nullable yes/no column, read back as true, false or null. */
+const bool = (v: unknown) => (v == null ? null : Boolean(v));
+/** Only one of a fixed set of words, or "". */
+const oneOf = (v: unknown, allowed: string[]) => (allowed.includes(String(v)) ? String(v) : "");
 
 function rowToTrade(row: Row) {
   return {
@@ -57,6 +69,34 @@ function rowToTrade(row: Row) {
     news: JSON.parse((row.news as string) || "[]"),
     notes: row.notes ?? "",
     screenshot: row.screenshot ?? "",
+    rulebookVersion: row.rulebook_version ?? null,
+    boxHigh: row.box_high ?? null,
+    boxLow: row.box_low ?? null,
+    sweepExtreme: row.sweep_extreme ?? null,
+    sweepDepth: row.sweep_depth ?? null,
+    took15mSwing: bool(row.took_15m_swing),
+    htfReasonType: row.htf_reason_type ?? "",
+    poiTests: row.poi_tests ?? "",
+    levelSweep: bool(row.level_sweep),
+    deskAgreed: row.desk_agreed ?? "",
+    entryType: row.entry_type ?? "",
+    entryPrice: row.entry_price ?? null,
+    stopPrice: row.stop_price ?? null,
+    targetPrice: row.target_price ?? null,
+    lots: row.lots ?? null,
+    riskUsd: row.risk_usd ?? null,
+    atr: row.atr ?? null,
+    mssBeyond: row.mss_beyond ?? null,
+    exitTime: row.exit_time ?? "",
+    exitPrice: row.exit_price ?? null,
+    exitReason: row.exit_reason ?? "",
+    earlyStopMove: bool(row.early_stop_move),
+    releaseAtBe: bool(row.release_at_be),
+    mfePrice: row.mfe_price ?? null,
+    maePrice: row.mae_price ?? null,
+    targetBeforeStop: row.target_before_stop ?? "",
+    maxFavPrice: row.max_fav_price ?? null,
+    screenshotAfter: row.screenshot_after ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -112,8 +152,37 @@ function bodyToColumns(body: Row) {
     ),
     notes: String(body.notes ?? ""),
     screenshot: String(body.screenshot ?? "").trim(),
+    rulebook_version: body.rulebookVersion ? String(body.rulebookVersion) : null,
+    box_high: num(body.boxHigh),
+    box_low: num(body.boxLow),
+    sweep_extreme: num(body.sweepExtreme),
+    sweep_depth: num(body.sweepDepth),
+    took_15m_swing: yesNo(body.took15mSwing),
+    htf_reason_type: oneOf(body.htfReasonType, ["FVG", "OB", "VIMB"]),
+    poi_tests: oneOf(body.poiTests, ["fresh", "once", "2+"]),
+    level_sweep: yesNo(body.levelSweep),
+    desk_agreed: oneOf(body.deskAgreed, ["yes", "no", "none"]),
+    entry_type: oneOf(body.entryType, ["market", "limit"]),
+    entry_price: num(body.entryPrice),
+    stop_price: num(body.stopPrice),
+    target_price: num(body.targetPrice),
+    lots: num(body.lots),
+    atr: num(body.atr),
+    mss_beyond: num(body.mssBeyond),
+    exit_time: String(body.exitTime ?? ""),
+    exit_price: num(body.exitPrice),
+    exit_reason: oneOf(body.exitReason, ["target", "stop", "trail", "time", "release", "other"]),
+    early_stop_move: yesNo(body.earlyStopMove),
+    release_at_be: yesNo(body.releaseAtBe),
+    mfe_price: num(body.mfePrice),
+    mae_price: num(body.maePrice),
+    target_before_stop: oneOf(body.targetBeforeStop, ["yes", "no", "unknown"]),
+    max_fav_price: num(body.maxFavPrice),
+    screenshot_after: String(body.screenshotAfter ?? "").trim(),
   };
 }
+
+const yesNo = (v: unknown) => (v == null || v === "" ? null : v ? 1 : 0);
 
 function validate(body: Row): string | null {
   if (!body.date) return "Date is required";
@@ -121,6 +190,8 @@ function validate(body: Row): string | null {
   if (body.skipped) return null; // nothing was risked
   const risk = Number(body.riskPct);
   if (!Number.isFinite(risk) || risk <= 0) return "Risk % must be above 0";
+  // Graded under the rulebook: R, lots and the excursions all rest on the initial stop.
+  if (body.rulebookVersion && (body.stopPrice == null || body.stopPrice === "")) return "Add the initial stop";
   return null;
 }
 
@@ -129,7 +200,11 @@ const COLUMNS = [
   "planned_rr", "result_r", "followed_plan", "grade", "emotion", "mistakes",
   "checklist", "checklist_total", "cost_pct", "box_size", "pnl_usd", "notes", "screenshot",
   "news", "planned_risk_pct", "setup_snapshot", "flags", "flag_note", "skipped", "hypothetical_r",
-  "expected_minutes",
+  "expected_minutes", "rulebook_version", "box_high", "box_low", "sweep_extreme", "sweep_depth",
+  "took_15m_swing", "htf_reason_type", "poi_tests", "level_sweep", "desk_agreed", "entry_type",
+  "entry_price", "stop_price", "target_price", "lots", "atr", "mss_beyond", "exit_time", "exit_price",
+  "exit_reason", "early_stop_move", "release_at_be", "mfe_price", "mae_price", "target_before_stop",
+  "max_fav_price", "screenshot_after",
 ];
 
 /**
@@ -142,15 +217,16 @@ const COLUMNS = [
  *
  *   percent = pnl / balance before the trade × 100
  *   R       = percent / the risk that was taken
+ *   risk $  = balance before the trade × the risk %
+ *
+ * It starts from the opening balance — what the account held when this journal
+ * began — not from the size the account was opened with.
  *
  * Trades with no dollar figure keep whatever R they already have, so anything typed
  * in by hand before this existed still counts toward the running balance.
  */
 function recomputeResults() {
-  const start = Number(
-    (db.prepare("SELECT start_balance FROM limits WHERE id = 1").get() as Row | undefined)
-      ?.start_balance ?? 200000,
-  );
+  const start = currentRulebook(db).doc.limits.openingBalance;
   const rows = db
     // Skipped setups never touched the account.
     .prepare(
@@ -158,23 +234,26 @@ function recomputeResults() {
     )
     .all() as Row[];
 
-  const update = db.prepare("UPDATE trades SET result_r = ? WHERE id = ?");
+  const update = db.prepare("UPDATE trades SET result_r = ?, risk_usd = ? WHERE id = ?");
+  const sized = db.prepare("UPDATE trades SET risk_usd = ? WHERE id = ?");
   let balance = start;
 
   const apply = db.transaction(() => {
     for (const r of rows) {
       const pnl = r.pnl_usd == null ? null : Number(r.pnl_usd);
       const risk = Number(r.risk_pct) || 0;
+      const riskUsd = Number(((balance * risk) / 100).toFixed(2));
 
       if (pnl == null) {
         // No dollars: trust the stored R and let it move the balance anyway.
+        sized.run(riskUsd, r.id);
         const pct = (Number(r.result_r) || 0) * risk;
         balance += (balance * pct) / 100;
         continue;
       }
       const pct = balance > 0 ? (pnl / balance) * 100 : 0;
       const resultR = risk > 0 ? pct / risk : 0;
-      update.run(Number(resultR.toFixed(6)), r.id);
+      update.run(Number(resultR.toFixed(6)), riskUsd, r.id);
       balance += pnl;
     }
   });
@@ -433,15 +512,6 @@ function rowToWeek(row: Row) {
   };
 }
 
-const rowToLimits = (row: Row) => ({
-  enabled: Boolean(row.enabled),
-  startBalance: Number(row.start_balance ?? 200000),
-  maxRiskPct: Number(row.max_risk_pct ?? 1),
-  dailyStopPct: Number(row.daily_stop_pct ?? 1),
-  dailyLossPct: Number(row.daily_loss_pct),
-  maxLossPct: Number(row.max_loss_pct),
-});
-
 /*
  * News is fetched by the server, never the browser: the calendar feed sends no CORS
  * headers, and a server can cache one copy instead of every tab fetching its own.
@@ -501,33 +571,143 @@ app.get("/api/candles", async (req, res) => {
   }
 });
 
+/*
+ * The limits live in the rulebook now. The old limits row stays in the database,
+ * untouched, but is no longer read or written.
+ */
 app.get("/api/limits", (_req, res) => {
-  res.json(rowToLimits(db.prepare("SELECT * FROM limits WHERE id = 1").get() as Row));
+  res.json(currentRulebook(db).doc.limits);
 });
 
+/** A change to a limit is a rule change: it becomes a new rulebook version. */
 app.put("/api/limits", (req, res) => {
+  const current = currentRulebook(db).doc;
   const pct = (v: unknown, fallback: number) => {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 && n <= 100 ? n : fallback;
   };
-  const current = db.prepare("SELECT * FROM limits WHERE id = 1").get() as Row;
-  const balance = Number(req.body?.startBalance);
-  db.prepare(`
-    UPDATE limits SET enabled = ?, start_balance = ?, max_risk_pct = ?, daily_stop_pct = ?,
-      daily_loss_pct = ?, max_loss_pct = ?, updated_at = ?
-    WHERE id = 1
-  `).run(
-    req.body?.enabled === false ? 0 : 1,
-    Number.isFinite(balance) && balance > 0 ? balance : Number(current.start_balance),
-    pct(req.body?.maxRiskPct, Number(current.max_risk_pct)),
-    pct(req.body?.dailyStopPct, Number(current.daily_stop_pct)),
-    pct(req.body?.dailyLossPct, Number(current.daily_loss_pct)),
-    pct(req.body?.maxLossPct, Number(current.max_loss_pct)),
-    new Date().toISOString(),
-  );
-  // Every percentage in the journal is measured from this number.
+  const money = (v: unknown, fallback: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  const b = req.body ?? {};
+  const l = current.limits;
+  const limits = {
+    ...l,
+    enabled: b.enabled === false ? false : true,
+    startBalance: money(b.startBalance, l.startBalance),
+    openingBalance: money(b.openingBalance, l.openingBalance),
+    secondAccount: money(b.secondAccount, l.secondAccount),
+    maxRiskPct: pct(b.maxRiskPct, l.maxRiskPct),
+    dailyStopPct: pct(b.dailyStopPct, l.dailyStopPct),
+    weeklyStopPct: pct(b.weeklyStopPct, l.weeklyStopPct),
+    dailyLossPct: pct(b.dailyLossPct, l.dailyLossPct),
+    maxLossPct: pct(b.maxLossPct, l.maxLossPct),
+    phase1TargetPct: pct(b.phase1TargetPct, l.phase1TargetPct),
+    phase2TargetPct: pct(b.phase2TargetPct, l.phase2TargetPct),
+  };
+  if (JSON.stringify(limits) === JSON.stringify(l)) return void res.json(l);
+  try {
+    saveRulebook(db, { ...current, limits }, String(b.reason ?? ""), "minor");
+  } catch (err) {
+    return void res.status(400).json({ error: (err as Error).message, problems: (err as RulebookError).problems });
+  }
+  // Every percentage in the journal is measured from the opening balance.
   recomputeResults();
-  res.json(rowToLimits(db.prepare("SELECT * FROM limits WHERE id = 1").get() as Row));
+  res.json(currentRulebook(db).doc.limits);
+});
+
+/* ── The rulebook ────────────────────────────────────────────────────── */
+
+app.get("/api/rulebook", (_req, res) => {
+  res.json(currentRulebook(db));
+});
+
+app.get("/api/rulebook/versions", (_req, res) => {
+  res.json(listVersions(db));
+});
+
+app.get("/api/rulebook/versions/:version", (req, res) => {
+  const v = getVersion(db, req.params.version);
+  if (!v) return void res.status(404).json({ error: "No such version" });
+  res.json(v);
+});
+
+/** Saving is always a new version, with a reason. Nothing that was saved is ever rewritten. */
+app.put("/api/rulebook", (req, res) => {
+  try {
+    const saved = saveRulebook(db, req.body?.doc, String(req.body?.reason ?? ""), req.body?.bump === "major" ? "major" : "minor");
+    recomputeResults();
+    res.status(201).json(saved);
+  } catch (err) {
+    res.status(400).json({ error: (err as Error).message, problems: (err as RulebookError).problems ?? [] });
+  }
+});
+
+/* ── Daily plans ─────────────────────────────────────────────────────── */
+
+function rowToPlan(row: Row) {
+  return {
+    date: row.date,
+    bias: row.bias ?? "",
+    levels: parseJson(row.levels, {}),
+    pois: row.pois ?? "",
+    deskCheck: row.desk_check ?? "",
+    notes: row.notes ?? "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+app.get("/api/plans", (_req, res) => {
+  const rows = db.prepare("SELECT * FROM plans ORDER BY date DESC").all() as Row[];
+  res.json(rows.map(rowToPlan));
+});
+
+/** One plan per New York day. Editing keeps the time it was first written — that is what "on time" means. */
+app.put("/api/plans/:date", (req, res) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(req.params.date)) return void res.status(400).json({ error: "Bad date" });
+  const b = req.body ?? {};
+  const now = new Date().toISOString();
+  const existing = db.prepare("SELECT created_at FROM plans WHERE date = ?").get(req.params.date) as
+    | { created_at: string }
+    | undefined;
+  db.prepare(`
+    INSERT OR REPLACE INTO plans (date, bias, levels, pois, desk_check, notes, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    req.params.date,
+    oneOf(b.bias, ["bullish", "bearish", "unclear"]),
+    JSON.stringify(b.levels && typeof b.levels === "object" ? b.levels : {}),
+    String(b.pois ?? ""),
+    oneOf(b.deskCheck, ["agree", "disagree", "none"]),
+    String(b.notes ?? ""),
+    existing?.created_at ?? now,
+    now,
+  );
+  res.json(rowToPlan(db.prepare("SELECT * FROM plans WHERE date = ?").get(req.params.date) as Row));
+});
+
+/* ── Open items ──────────────────────────────────────────────────────── */
+
+const rowToItem = (row: Row) => ({
+  id: row.id,
+  text: row.text,
+  done: Boolean(row.done),
+  doneAt: row.done_at ?? null,
+});
+
+app.get("/api/open-items", (_req, res) => {
+  res.json((db.prepare("SELECT * FROM open_items ORDER BY sort, created_at").all() as Row[]).map(rowToItem));
+});
+
+app.put("/api/open-items/:id", (req, res) => {
+  const done = Boolean(req.body?.done);
+  const result = db
+    .prepare("UPDATE open_items SET done = ?, done_at = ? WHERE id = ?")
+    .run(done ? 1 : 0, done ? new Date().toISOString() : null, req.params.id);
+  if (result.changes === 0) return void res.status(404).json({ error: "Not found" });
+  res.json(rowToItem(db.prepare("SELECT * FROM open_items WHERE id = ?").get(req.params.id) as Row));
 });
 
 app.get("/api/weeks", (_req, res) => {

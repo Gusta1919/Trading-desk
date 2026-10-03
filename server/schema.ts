@@ -6,7 +6,7 @@
  * is only added when missing, and data is moved aside, never deleted.
  */
 import type Database from "better-sqlite3";
-import { migrateStrategyDefinitions, seedGoldModel } from "./migrate.js";
+import { migrateRulebook, migrateStrategyDefinitions, seedGoldModel } from "./migrate.js";
 
 export function setupSchema(db: Database.Database) {
   /**
@@ -15,9 +15,11 @@ export function setupSchema(db: Database.Database) {
    */
   function retireLegacySchema() {
     const cols = db.prepare("PRAGMA table_info(trades)").all() as { name: string }[];
-    // v1 stored prices and quantities; v2 never has an entry_price column.
+    // v1 stored prices and quantities and had no risk_pct. v2 gained an entry_price
+    // of its own with the rulebook, so the test is the missing risk_pct, not the price.
     // (Don't test for strategy_id — v2 uses that name too, for the strategy link.)
-    const isLegacy = cols.some((c) => c.name === "entry_price");
+    const isLegacy =
+      cols.some((c) => c.name === "entry_price") && !cols.some((c) => c.name === "risk_pct");
     const alreadyRetired = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='legacy_trades'")
       .get();
@@ -228,4 +230,6 @@ export function setupSchema(db: Database.Database) {
   // The strategy system: base rules, grade factors, grade cards — converted once, never wiped.
   migrateStrategyDefinitions(db);
   seedGoldModel(db);
+  // One strategy, versioned: the GOLD Model becomes the rulebook (v1.2).
+  migrateRulebook(db);
 }

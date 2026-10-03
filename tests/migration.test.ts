@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { GOLD_SEED_KEY } from "../server/migrate";
 import { setupSchema } from "../server/schema";
+import { RulebookError, currentRulebook, getVersion, listVersions, saveRulebook } from "../server/rulebookStore";
 
 type Row = Record<string, unknown>;
 
@@ -137,5 +138,107 @@ describe("migration", () => {
     assert.equal(l.max_risk_pct, 1);
     assert.equal(l.daily_stop_pct, 1);
     assert.equal(l.daily_loss_pct, 5); // the firm's line is untouched
+  });
+});
+
+describe("migration to the rulebook", () => {
+  /** The old database with the demo rows and real check-ins the live desk had. */
+  function withDemo() {
+    const db = oldDatabase();
+    setupSchema(db);
+    db.exec("DELETE FROM meta WHERE key = 'rulebook:v1.2'; DELETE FROM rulebook_versions; DELETE FROM open_items;");
+    const now = "2026-10-01T00:00:00.000Z";
+    const trade = db.prepare(
+      "INSERT INTO trades (id, date, symbol, direction, risk_pct, notes, created_at, updated_at) VALUES (?, ?, 'XAUUSD', 'long', 0.5, ?, ?, ?)",
+    );
+    trade.run("demo-1", "2026-09-01T04:30", "[demo] A setup", now, now);
+    trade.run("real-1", "2026-09-02T04:30", "my own [demo] note", now, now);
+    const checkin = db.prepare(
+      "INSERT INTO checkins (date, answers, note, score, verdict, created_at) VALUES (?, '{}', ?, 90, 'ready', ?)",
+    );
+    checkin.run("2026-09-01", "[demo]", now);
+    checkin.run("2026-10-02", "", now);
+    return db;
+  }
+
+  it("removes only the tagged demo rows and keeps real ones", () => {
+    const db = withDemo();
+    setupSchema(db);
+    const ids = (db.prepare("SELECT id FROM trades ORDER BY id").all() as Row[]).map((r) => r.id);
+    assert.deepEqual(ids, ["real-1", "trade-1"]);
+    const days = (db.prepare("SELECT date FROM checkins").all() as Row[]).map((r) => r.date);
+    assert.deepEqual(days, ["2026-10-02"]);
+  });
+
+  it("writes v1.2 once, with the limits carried over and the new defaults only where untouched", () => {
+    const db = withDemo();
+    db.prepare("UPDATE limits SET daily_stop_pct = 0.75 WHERE id = 1").run(); // changed by you
+    setupSchema(db);
+    setupSchema(db);
+    const rows = db.prepare("SELECT version, reason FROM rulebook_versions").all() as Row[];
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].version, "1.2");
+    const doc = currentRulebook(db).doc;
+    assert.equal(doc.limits.maxRiskPct, 0.5); // was the old default of 1
+    assert.equal(doc.limits.dailyStopPct, 0.75); // yours, kept
+    assert.equal(doc.limits.weeklyStopPct, 2);
+    assert.equal(doc.limits.openingBalance, 193_933.27);
+    assert.equal(doc.history.length, 2);
+  });
+
+  it("adds the trade columns and the new tables, and seeds the open items once", () => {
+    const db = withDemo();
+    setupSchema(db);
+    setupSchema(db);
+    const cols = (db.prepare("PRAGMA table_info(trades)").all() as Row[]).map((c) => c.name);
+    for (const c of ["rulebook_version", "stop_price", "mfe_price", "exit_reason", "screenshot_after"]) {
+      assert.ok(cols.includes(c), c);
+    }
+    for (const t of ["plans", "rulebook_versions", "open_items"]) {
+      assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t), t);
+    }
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM open_items").get() as Row).n, 5);
+  });
+
+  it("never touches the strategies, limits, news-rules or legacy tables", () => {
+    const db = withDemo();
+    const before = db.prepare("SELECT * FROM strategies ORDER BY id").all();
+    const limits = db.prepare("SELECT * FROM limits").all();
+    setupSchema(db);
+    assert.deepEqual(db.prepare("SELECT * FROM strategies ORDER BY id").all(), before);
+    assert.deepEqual(db.prepare("SELECT * FROM limits").all(), limits);
+  });
+});
+
+describe("rulebook versions", () => {
+  it("saves a change as the next version, with its reason", () => {
+    const db = oldDatabase();
+    setupSchema(db);
+    const doc = currentRulebook(db).doc;
+    doc.grades[1].riskPct = 0.25;
+    const saved = saveRulebook(db, doc, "A down to a quarter while the edge is unproven");
+    assert.equal(saved.version, "1.3");
+    assert.equal(currentRulebook(db).doc.grades[1].riskPct, 0.25);
+    assert.equal(getVersion(db, "1.2")!.doc.grades[1].riskPct, 0.5); // the old one is untouched
+    assert.equal(saveRulebook(db, doc, "big change", "major").version, "2.0");
+  });
+
+  it("refuses a change without a reason, or with a broken document", () => {
+    const db = oldDatabase();
+    setupSchema(db);
+    const doc = currentRulebook(db).doc;
+    assert.throws(() => saveRulebook(db, doc, "  "), RulebookError);
+    assert.throws(() => saveRulebook(db, { ...doc, sections: [{ id: "x", title: "X", body: "{{nope}}" }] }, "why"), RulebookError);
+    assert.equal(listVersions(db).length, 1);
+  });
+
+  it("a trade keeps the version it was graded under after the rulebook is edited", () => {
+    const db = oldDatabase();
+    setupSchema(db);
+    db.prepare(
+      "INSERT INTO trades (id, date, symbol, direction, risk_pct, rulebook_version, created_at, updated_at) VALUES ('t', '2026-10-05T04:30', 'XAUUSD', 'long', 0.5, '1.2', 'x', 'x')",
+    ).run();
+    saveRulebook(db, currentRulebook(db).doc, "a wording change");
+    assert.equal((db.prepare("SELECT rulebook_version FROM trades WHERE id = 't'").get() as Row).rulebook_version, "1.2");
   });
 });
