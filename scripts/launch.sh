@@ -24,10 +24,6 @@ log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$1" | tee -a "$LOG_FILE"
 }
 
-notify() {
-  osascript -e "display notification \"$2\" with title \"Trade Assistant\"" 2>/dev/null || true
-}
-
 alert() {
   osascript -e "display alert \"Trade Assistant\" message \"$1\"" 2>/dev/null || true
 }
@@ -80,8 +76,6 @@ if ! desk_prepare >>"$LOG_FILE" 2>&1; then
   exit 1
 fi
 
-notify "Uruchamianie" "Startuję serwer Trade Assistant…"
-
 npm start >>"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 log "npm start pid=$SERVER_PID"
@@ -89,7 +83,6 @@ log "npm start pid=$SERVER_PID"
 if wait_for_server; then
   log "Server ready"
   open_app
-  notify "Gotowe" "Dziennik otwarty w przeglądarce."
   exit 0
 fi
 

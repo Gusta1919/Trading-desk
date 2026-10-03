@@ -18,12 +18,12 @@ desk_is_up() {
 # Stops whatever holds the desk's ports — an older copy left running, most often.
 desk_stop_stale() {
   local pids
-  pids="$(lsof -ti tcp:3847 -ti tcp:3848 2>/dev/null | sort -u)"
+  pids="$(lsof -ti tcp:3847 -ti tcp:3848 2>/dev/null | sort -u || true)"
   [ -z "$pids" ] && return 0
   kill $pids 2>/dev/null || true
   for _ in 1 2 3 4 5; do
     sleep 1
-    pids="$(lsof -ti tcp:3847 -ti tcp:3848 2>/dev/null | sort -u)"
+    pids="$(lsof -ti tcp:3847 -ti tcp:3848 2>/dev/null | sort -u || true)"
     [ -z "$pids" ] && return 0
   done
   kill -9 $pids 2>/dev/null || true
