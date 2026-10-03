@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { CheckIn } from "@/lib/checkin";
-import { fmtNum, fmtPct, fmtR, fmtRate, fmtUsd as money, fmtUsdSigned as signed, tone } from "@/lib/format";
+import { fmtNum, fmtPct, fmtR, fmtRate, tone } from "@/lib/format";
 import { accountState, ledger } from "@/lib/limits";
 import type { Rulebook } from "@/lib/rulebook";
 import { summarize } from "@/lib/stats";
@@ -81,22 +81,15 @@ export function StatsView({ trades, checkins, doc }: { trades: Trade[]; checkins
               <div className="space-y-5">
                 <Stat
                   label="Since you started · all accounts"
-                  value={signed(money$.total.pnl)}
+                  value={fmtPct(money$.total.pnlPct)}
                   size="display"
-                  tone={tone(money$.total.pnl)}
-                  sub={`${fmtPct(money$.total.pnlPct)} · together ${money(money$.total.balance)}`}
+                  tone={tone(money$.total.pnlPct)}
                 />
                 <ul className="divide-y rounded-xl border">
                   {money$.accounts.map((a, i) => (
                     <li key={a.name} className="anim-rise flex items-baseline justify-between gap-4 px-4 py-3" style={stagger(i + 2, 80)}>
-                      <span className="min-w-0">
-                        <span className="block text-body font-medium">{a.name}</span>
-                        <span className="num block text-caption text-faint">{money(a.balance)}</span>
-                      </span>
-                      <span className="num text-right">
-                        <span className={cx("block text-title font-medium", tone(a.pnl))}>{signed(a.pnl)}</span>
-                        <span className="block text-caption text-faint">{fmtPct(a.pnlPct)}</span>
-                      </span>
+                      <span className="min-w-0 text-body font-medium">{a.name}</span>
+                      <span className={cx("num text-title font-medium", tone(a.pnlPct))}>{fmtPct(a.pnlPct)}</span>
                     </li>
                   ))}
                 </ul>

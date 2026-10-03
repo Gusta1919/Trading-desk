@@ -2,8 +2,7 @@ import { Ban, ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { QUESTIONS, VERDICTS, type CheckIn } from "@/lib/checkin";
 import { dayOffLine, evaluateHistory, type DayOff } from "@/lib/discipline";
-import { fmtPct, fmtR, fmtTime, fmtUsdSigned, tone } from "@/lib/format";
-import { ledger } from "@/lib/limits";
+import { fmtPct, fmtR, fmtTime, tone } from "@/lib/format";
 import type { CalendarEvent } from "@/lib/news";
 import { coveredDays, fromEvent, fromTradeNews, inSkipRange, newsDay, type NewsItem } from "@/lib/newsRules";
 import type { Rulebook } from "@/lib/rulebook";
@@ -116,9 +115,7 @@ export function CalendarView({
   const shift = (n: number) => setMonth(new Date(month.getFullYear(), month.getMonth() + n, 1));
   const selectedAll = byDay.get(selected) ?? [];
   const selectedCheckIn = checkins.find((c) => c.date === selected);
-  const book = useMemo(() => ledger(trades, doc.limits), [trades, doc.limits]);
-  const usdOf = (t: Trade) => book.byTrade.get(t.id)?.reduce((a, b) => a + b, 0) ?? null;
-  const selectedUsd = selectedAll.reduce((a, t) => a + (usdOf(t) ?? 0), 0);
+  const selectedPct = selectedAll.filter((t) => !t.skipped && isClosed(t)).reduce((a, t) => a + tradePct(t), 0);
   const selectedRules = rulesOf(selected, selectedAll.filter((t) => !t.skipped), ![0, 6].includes(new Date(`${selected}T12:00`).getDay()));
 
   return (
@@ -203,7 +200,7 @@ export function CalendarView({
         key={selected}
         index={3}
         title={new Date(`${selected}T00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
-        sub={[selected === today ? "Today" : "", selectedUsd ? `${fmtUsdSigned(selectedUsd)} across all accounts` : ""].filter(Boolean).join(" · ") || undefined}
+        sub={[selected === today ? "Today" : "", selectedPct ? `${fmtPct(selectedPct)} on the day` : ""].filter(Boolean).join(" · ") || undefined}
       >
         {selectedCheckIn && <DayCheckIn checkin={selectedCheckIn} />}
         {selectedRules && (selectedRules.skip.length > 0 || selectedRules.dayOff || selectedRules.flags.length > 0) && (
@@ -232,7 +229,6 @@ export function CalendarView({
                     <>
                       <span className={cx("w-16 text-right font-medium", tone(t.resultR))}>{t.resultR == null ? "open" : fmtR(t.resultR)}</span>
                       <span className={cx("w-20 text-right font-medium", tone(isClosed(t) ? tradePct(t) : null))}>{isClosed(t) ? fmtPct(tradePct(t)) : "—"}</span>
-                      <span className={cx("w-24 text-right font-medium", tone(usdOf(t)))}>{usdOf(t) == null ? "—" : fmtUsdSigned(usdOf(t)!)}</span>
                     </>
                   )}
                 </button>

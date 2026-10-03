@@ -306,8 +306,8 @@ export default function App() {
           {view === "calendar" && (
             <PageHeader title="Calendar" sub="Each day's result, and the days the rules kept you out. Pick a day for its trades." />
           )}
-          {(view === "journal" || view === "calendar") && <StatsStrip trades={taken} limits={doc.limits} />}
-          {view === "journal" && <TradeList trades={trades} limits={doc.limits} onNew={openNew} onOpen={openEdit} />}
+          {(view === "journal" || view === "calendar") && <StatsStrip trades={taken} />}
+          {view === "journal" && <TradeList trades={trades} onNew={openNew} onOpen={openEdit} />}
           {view === "bias" && (
             <DailyBiasView
               state={dailyBias}

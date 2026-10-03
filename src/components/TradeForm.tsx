@@ -141,7 +141,6 @@ const parseNum = (s: string) => {
 /** Exits that came before the target: the ones where "would the target have been hit?" is worth asking. */
 const EARLY_EXITS: ExitReason[] = ["breakeven", "trail", "time", "release"];
 
-const fmtUsd = (x: number) => `$${Math.round(x).toLocaleString("en-US")}`;
 
 /**
  * Logging a trade: first the setup check, so every trade is graded before it is logged;
@@ -695,11 +694,11 @@ export function TradeForm({
                       <Field label="Result if taken" hint="From the chart: target, stop or the time stop, in R. Never counted.">
                         <NumberInput value={f.hypotheticalR} onChange={(v) => set("hypotheticalR", v)} placeholder="e.g. 2 or −1" suffix="R" />
                       </Field>
-                      <Field label="Best it got (MFE)">
-                        <NumberInput value={f.mfeR} onChange={(v) => set("mfeR", v)} placeholder="optional" suffix="R" />
+                      <Field label="Best it got (MFE)" hint="Furthest it went your way from where you'd have entered. 2 = twice the stop distance.">
+                        <NumberInput value={f.mfeR} onChange={(v) => set("mfeR", v)} placeholder="e.g. 2" suffix="R" />
                       </Field>
-                      <Field label="Worst it got (MAE)">
-                        <NumberInput value={f.maeR} onChange={(v) => set("maeR", v)} placeholder="optional" suffix="R" />
+                      <Field label="Worst it got (MAE)" hint="Furthest it went against you, as a positive number. 1 = it reached the stop.">
+                        <NumberInput value={f.maeR} onChange={(v) => set("maeR", v)} placeholder="e.g. 0.5" suffix="R" />
                       </Field>
                     </div>
                   </Card>
@@ -727,11 +726,6 @@ export function TradeForm({
                         </Field>
                       </div>
                       <p className="mt-2 text-caption text-faint">
-                        {riskUsd != null && (
-                          <>
-                            <span className="num text-soft">{fmtUsd(riskUsd)}</span> at risk of {fmtUsd(balanceBefore)} ·{" "}
-                          </>
-                        )}
                         The {L.accountName}'s dollar result, costs already in it. The % and R are worked out for you
                         {L.linked.length > 0 && <>, and {L.linked.map((x) => x.name).join(" and ")} take the same %</>}. Leave it empty while the trade is open.
                       </p>
@@ -755,18 +749,24 @@ export function TradeForm({
                         )}
                       </div>
                       <div className="mt-4 grid gap-4 sm:grid-cols-3">
-                        <Field label="Best it got (MFE)">
-                          <NumberInput value={f.mfeR} onChange={(v) => set("mfeR", v)} placeholder="in your favour" suffix="R" />
+                        <Field label="Best it got (MFE)" hint="Furthest price went your way before you exited. 2 = twice your stop distance.">
+                          <NumberInput value={f.mfeR} onChange={(v) => set("mfeR", v)} placeholder="e.g. 2" suffix="R" />
                         </Field>
-                        <Field label="Worst it got (MAE)">
-                          <NumberInput value={f.maeR} onChange={(v) => set("maeR", v)} placeholder="against you" suffix="R" />
+                        <Field label="Worst it got (MAE)" hint="Furthest price went against you before you exited, as a positive number. 1 = it reached your stop.">
+                          <NumberInput value={f.maeR} onChange={(v) => set("maeR", v)} placeholder="e.g. 0.5" suffix="R" />
                         </Field>
                         {f.exitReason === "target" ? (
-                          <Field label={`Furthest by ${rb.timeStop}`}>
-                            <NumberInput value={f.maxFavR} onChange={(v) => set("maxFavR", v)} placeholder="optional" suffix="R" />
+                          <Field
+                            label={`Furthest by ${rb.timeStop}`}
+                            hint={`Your target hit — how far price kept running from your entry until ${rb.timeStop}, even after you were out. Optional.`}
+                          >
+                            <NumberInput value={f.maxFavR} onChange={(v) => set("maxFavR", v)} placeholder="e.g. 3" suffix="R" />
                           </Field>
                         ) : f.exitReason && EARLY_EXITS.includes(f.exitReason) ? (
-                          <Field label={`Target before stop by ${rb.timeStop}?`}>
+                          <Field
+                            label={`Target before stop by ${rb.timeStop}?`}
+                            hint={`You left early — had you held, would price have reached your target before your stop, by ${rb.timeStop}?`}
+                          >
                             <Segmented
                               size="sm"
                               allowNone
@@ -781,7 +781,10 @@ export function TradeForm({
                           </Field>
                         ) : null}
                       </div>
-                      <p className="mt-2 text-caption text-faint">In R from your stop: how far it went your way and against you before the exit. They feed the Exit lab.</p>
+                      <p className="mt-2 text-caption text-faint">
+                        1R = the distance from your entry to your stop. Read these off the chart after the trade — the Exit lab uses them to test
+                        whether other targets or a move to breakeven would have paid more.
+                      </p>
                     </Card>
                   </>
                 )}

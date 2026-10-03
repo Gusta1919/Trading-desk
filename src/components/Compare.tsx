@@ -254,7 +254,8 @@ export function GroupTable({ groups, empty }: { groups: Group[]; empty: string }
   });
   const maxAbs = Math.max(...stats.map((s) => Math.abs(s.avgR ?? 0)), 0.0001);
   return (
-    <div className="-mx-6 overflow-x-auto">
+    // A fixed table never needs to scroll; "auto" here made the rows' rise animation open a vertical scrollbar.
+    <div className="-mx-6 overflow-x-clip">
       <table className="w-full table-fixed text-body">
         <colgroup>
           <col className="w-[34%]" />

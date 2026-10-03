@@ -1,16 +1,14 @@
 import { useMemo } from "react";
 import { adherence, weekSpan } from "@/lib/discipline";
-import { fmtNum, fmtPct, fmtR, fmtRate, fmtUsdSigned, tone } from "@/lib/format";
-import { ledger } from "@/lib/limits";
+import { fmtNum, fmtPct, fmtR, fmtRate, tone } from "@/lib/format";
 import { summarize } from "@/lib/stats";
 import { deskDay } from "@/lib/tz";
-import type { Limits, Trade } from "@/lib/types";
+import type { Trade } from "@/lib/types";
 import { Stat, stagger, useCountUp } from "./ui";
 
 /** The headline numbers over the journal and the calendar — readable from across the desk. */
-export function StatsStrip({ trades, limits }: { trades: Trade[]; limits: Limits }) {
+export function StatsStrip({ trades }: { trades: Trade[] }) {
   const s = useMemo(() => summarize(trades), [trades]);
-  const total = useMemo(() => ledger(trades, limits).total.pnl, [trades, limits]);
   // Rule adherence this ISO week — reviewed next to the result, target 100%.
   const week = useMemo(() => {
     const span = weekSpan(deskDay());
@@ -19,16 +17,8 @@ export function StatsStrip({ trades, limits }: { trades: Trade[]; limits: Limits
   const streak = s.currentStreak.outcome ? `${s.currentStreak.count}${s.currentStreak.outcome === "win" ? "W" : "L"}` : "—";
 
   return (
-    <div className="card grid grid-cols-3 gap-x-8 gap-y-4 px-6 py-4 lg:grid-cols-9">
+    <div className="card grid grid-cols-3 gap-x-8 gap-y-4 px-6 py-4 lg:grid-cols-8">
       <Kpi i={0} label="Net return" hint="Every closed trade's result as a % of the account at the time, added up." value={s.netPct} format={fmtPct} cls={tone(s.netPct)} />
-      <Kpi
-        i={0}
-        label="Total P&L"
-        hint={`Since the journal started, in dollars: ${[limits.accountName, ...limits.linked.map((a) => a.name)].join(" + ")}.`}
-        value={total}
-        format={(v) => fmtUsdSigned(v ?? 0)}
-        cls={tone(total)}
-      />
       <Kpi i={1} label="Win rate" hint="Wins ÷ (wins + losses). Breakevens are left out." value={s.winRate} format={fmtRate} />
       <Kpi i={2} label="Expectancy" hint="The average result per closed trade, in R (1R = what you risked on it)." value={s.expectancyR} format={fmtR} cls={tone(s.expectancyR)} />
       <Kpi

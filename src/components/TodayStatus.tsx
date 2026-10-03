@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { dayOffLine, type DeskStatus } from "@/lib/discipline";
-import { fmtPct, fmtUsd as money, fmtUsdSigned as signedMoney } from "@/lib/format";
+import { fmtPct } from "@/lib/format";
 import { ledger } from "@/lib/limits";
 import { goldMarket, inLabel, type GoldMarket } from "@/lib/market";
 import type { NewsDay, ReleaseWindow } from "@/lib/newsRules";
@@ -174,17 +174,15 @@ export function TodayCard({
         <div style={rise(lines.length + 3)} className={cx(block, "border-t pt-3")}>
           <div className="flex items-baseline justify-between">
             <span className="eyebrow">Since you started</span>
-            <span className={cx("num text-small font-medium", account.total.pnl > 0 ? "text-up" : account.total.pnl < 0 ? "text-down" : "text-soft")}>
-              {signedMoney(account.total.pnl)} · {fmtPct(account.total.pnlPct)}
+            <span className={cx("num text-small font-medium", account.total.pnlPct > 0 ? "text-up" : account.total.pnlPct < 0 ? "text-down" : "text-soft")}>
+              {fmtPct(account.total.pnlPct)}
             </span>
           </div>
           <ul className="num mt-1.5 space-y-0.5 text-caption text-faint">
             {account.accounts.map((a) => (
               <li key={a.name} className="flex justify-between gap-3">
                 <span className="truncate font-sans">{a.name}</span>
-                <span>
-                  {money(a.balance)} <span className={a.pnl > 0 ? "text-up" : a.pnl < 0 ? "text-down" : ""}>{signedMoney(a.pnl)}</span>
-                </span>
+                <span className={a.pnlPct > 0 ? "text-up" : a.pnlPct < 0 ? "text-down" : ""}>{fmtPct(a.pnlPct)}</span>
               </li>
             ))}
           </ul>

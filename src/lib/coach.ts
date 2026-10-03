@@ -7,7 +7,7 @@
  * what today allows, what is running from yesterday, and what is ready to decide.
  */
 import { VERDICTS, type CheckIn } from "./checkin";
-import { dayKey, fmtPct, fmtR, fmtUsd as money } from "./format";
+import { dayKey, fmtPct, fmtR } from "./format";
 import { classifyOutcome, groupBy, isClosed, summarize, tradePct } from "./stats";
 import { accountState } from "./limits";
 import { adherence, daysOffText, deskStatus, weekSpan } from "./discipline";
@@ -472,6 +472,7 @@ export function buildBriefing(
    */
   if (limits) {
     const A = accountState(trades, limits, now);
+    const floorLeftPct = A.balance > 0 ? (Math.max(0, A.room) / A.balance) * 100 : 0;
     const floorUsed = limits.maxLossPct > 0 ? 1 - A.room / ((limits.startBalance * limits.maxLossPct) / 100) : 0;
     if (A.dailyUsed >= 0.5 || floorUsed >= 0.5) {
       const dailyCritical = A.dailyUsed >= 0.8;
@@ -484,8 +485,8 @@ export function buildBriefing(
           : `You have used ${pct0(Math.max(A.dailyUsed, floorUsed))} of a firm limit`,
         body: dailyCritical
           ? "Stop for today. One more trade at normal size could end the account, and no setup is worth that. The daily line resets tomorrow; a breach does not."
-          : `Room above the firm's floor: ${money(A.room)}. Size the next trade so a full stop-out still leaves you inside both lines.`,
-        stat: `Balance ${money(A.balance)} · floor ${money(A.floor)} · safe risk now ${A.safeRisk.toFixed(2)}%.`,
+          : `Room above the firm's floor: ${floorLeftPct.toFixed(2)}% of the account. Size the next trade so a full stop-out still leaves you inside both lines.`,
+        stat: `Room to the floor ${floorLeftPct.toFixed(2)}% · safe risk now ${A.safeRisk.toFixed(2)}%.`,
         why: "Every other mistake in this journal costs you money you can win back. This one costs you the account, and the pressure of being near the line is exactly what makes traders size up to escape it.",
       });
     }
