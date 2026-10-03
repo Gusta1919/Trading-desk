@@ -614,36 +614,42 @@ function BaseRules() {
  */
 function FactorsTable() {
   const { doc, values } = useCtx();
-  const rungs: Grade[] = ["A+", "A", "B", "C"];
+  // C is no trade, so it gets no column: anything the three columns don't allow is a C.
+  const rungs: Grade[] = ["A+", "A", "B"];
   return (
-    <Table
-      head={["Factor", ...rungs.map((g) => <GradeBadge key={g} grade={g} size="sm" />)]}
-      rows={doc.factors.map((f) => [
-        <span key="n" className="block min-w-36">
-          {f.name}
-          {f.auto && <span className="ml-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cyan">auto</span>}
-          {f.hint && <span className="block text-[11px] text-faint">{fill(f.hint, values)}</span>}
-        </span>,
-        ...rungs.map((g) => {
-          const { any, labels } = allowedFor(f, g);
-          if (any) return <span key={g} className="text-[12px] italic text-faint">any</span>;
-          if (!labels.length) return <span key={g} className="text-faint">—</span>;
-          return (
-            <span key={g} className="flex flex-wrap gap-1">
-              {labels.map((l) => (
-                <span
-                  key={l}
-                  className={cx("whitespace-nowrap rounded-md px-1.5 py-0.5 text-[12px] text-ink", f.kind === "number" && "num")}
-                  style={{ backgroundColor: tint(GRADE_COLOUR[g], 12) }}
-                >
-                  {l}
-                </span>
-              ))}
-            </span>
-          );
-        }),
-      ])}
-    />
+    <>
+      <Table
+        head={["Factor", ...rungs.map((g) => <GradeBadge key={g} grade={g} size="sm" />)]}
+        rows={doc.factors.map((f) => [
+          <span key="n" className="block min-w-36">
+            {f.name}
+            {f.auto && <span className="ml-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cyan">auto</span>}
+            {f.hint && <span className="block text-[11px] text-faint">{fill(f.hint, values)}</span>}
+          </span>,
+          ...rungs.map((g) => {
+            const { any, labels } = allowedFor(f, g);
+            if (any) return <span key={g} className="text-[12px] italic text-faint">any</span>;
+            if (!labels.length) return <span key={g} className="text-faint">—</span>;
+            return (
+              <span key={g} className="flex flex-wrap gap-1">
+                {labels.map((l) => (
+                  <span
+                    key={l}
+                    className={cx("whitespace-nowrap rounded-md px-1.5 py-0.5 text-[12px] text-ink", f.kind === "number" && "num")}
+                    style={{ backgroundColor: tint(GRADE_COLOUR[g], 12) }}
+                  >
+                    {l}
+                  </span>
+                ))}
+              </span>
+            );
+          }),
+        ])}
+      />
+      <p className="mt-2 flex items-center gap-2 text-[12px] text-faint">
+        <GradeBadge grade="C" size="sm" /> Anything else — a missing base rule, a bias against you, real doubt — is a C: no trade.
+      </p>
+    </>
   );
 }
 
