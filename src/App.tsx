@@ -129,7 +129,7 @@ export default function App() {
 
   const today = checkins.find((c) => c.date === dayKey(new Date()));
 
-  /** A limit is a rule: saving one writes a new rulebook version, and every flag is re-judged. */
+  /** A limit is a rule: saving one is a change in the rulebook's changelog, and every flag is re-judged. */
   const saveLimits = async (next: Limits, reason: string) => {
     await api.saveLimits(next, reason);
     await rulebook.reload();
@@ -291,7 +291,6 @@ export default function App() {
           <RiskChip
             status={status}
             limits={limits}
-            version={rulebook.current?.version ?? null}
             evidence={rulebook.doc.calibration.evidence}
             onSave={saveLimits}
           />
@@ -344,7 +343,7 @@ export default function App() {
         </button>
         <button
           onClick={exportData}
-          title="Download a backup of everything: trades, check-ins, every rulebook version, open items"
+          title="Download a backup of everything: trades, check-ins, the rulebook and its changelog"
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink"
         >
           <Download size={14} /> <span className="hidden 2xl:inline">Backup</span>

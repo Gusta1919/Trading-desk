@@ -55,39 +55,47 @@ export function BaseRulesEditor({ value, onChange }: { value: BaseRule[]; onChan
           makes the setup a C.
         </p>
       )}
+      {/* One rule per card: the rule itself gets the full width, its hint and who answers it sit under it. */}
       {value.map((r, i) => (
-        <div key={r.id} className="flex items-center gap-2">
-          <Reorder onUp={() => onChange(move(value, i, -1))} onDown={() => onChange(move(value, i, 1))} first={i === 0} last={i === value.length - 1} />
-          <span className="num w-5 text-right text-[12px] text-faint">{i + 1}</span>
-          <input
-            className="field"
-            placeholder="e.g. Price swept the Asia range before London"
-            value={r.text}
-            onChange={(e) => edit(i, { text: e.target.value })}
-          />
-          <input
-            className="field w-56 text-[12px]"
-            placeholder="hint (optional)"
-            value={r.hint}
-            onChange={(e) => edit(i, { hint: e.target.value })}
-          />
-          <select
-            className="field w-48 text-[12px]"
-            value={r.auto ?? ""}
-            onChange={(e) => {
-              const v = e.target.value as AutoRule | "";
-              edit(i, { auto: AUTO_RULES.includes(v as AutoRule) ? (v as AutoRule) : undefined });
-            }}
-            title="Who answers this rule"
-          >
-            <option value="">Ticked by hand</option>
-            {AUTO_RULES.map((a) => (
-              <option key={a} value={a}>
-                Auto: {AUTO_RULE_LABEL[a]}
-              </option>
-            ))}
-          </select>
-          <RemoveButton onClick={() => onChange(value.filter((_, k) => k !== i))} />
+        <div key={r.id} className="space-y-2 rounded-xl border bg-surface/30 px-2.5 py-2.5">
+          <div className="flex items-center gap-2">
+            <Reorder onUp={() => onChange(move(value, i, -1))} onDown={() => onChange(move(value, i, 1))} first={i === 0} last={i === value.length - 1} />
+            <span className="num w-5 shrink-0 text-right text-[12px] text-faint">{i + 1}</span>
+            <input
+              aria-label={`Rule ${i + 1}`}
+              className="field min-w-0 flex-1 font-medium"
+              placeholder="e.g. Price swept the Asia range before London"
+              value={r.text}
+              onChange={(e) => edit(i, { text: e.target.value })}
+            />
+            <RemoveButton onClick={() => onChange(value.filter((_, k) => k !== i))} />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 pl-[3.25rem]">
+            <input
+              aria-label={`Rule ${i + 1} hint`}
+              className="field min-w-[10rem] flex-1 text-[12px]"
+              placeholder="hint (optional)"
+              value={r.hint}
+              onChange={(e) => edit(i, { hint: e.target.value })}
+            />
+            <select
+              aria-label={`Who answers rule ${i + 1}`}
+              className="field w-48 shrink-0 text-[12px]"
+              value={r.auto ?? ""}
+              onChange={(e) => {
+                const v = e.target.value as AutoRule | "";
+                edit(i, { auto: AUTO_RULES.includes(v as AutoRule) ? (v as AutoRule) : undefined });
+              }}
+              title="Who answers this rule"
+            >
+              <option value="">Ticked by hand</option>
+              {AUTO_RULES.map((a) => (
+                <option key={a} value={a}>
+                  Auto: {AUTO_RULE_LABEL[a]}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ))}
       <AddButton onClick={() => onChange([...value, { id: newId(), text: "", hint: "" }])}>Add rule</AddButton>

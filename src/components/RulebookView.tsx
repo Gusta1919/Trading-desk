@@ -11,7 +11,6 @@ import {
   ChevronDown,
   Crosshair,
   Heading2,
-  History,
   ListChecks,
   ListOrdered,
   List as ListIcon,
@@ -36,7 +35,6 @@ import {
   fill,
   inline,
   longDate,
-  nextVersion,
   parseBody,
   rulebookErrors,
   skipDayLines,
@@ -53,7 +51,7 @@ import { deskDay } from "@/lib/tz";
 import type { Grade, Trade } from "@/lib/types";
 import { GRADE_COLOUR, GradeBadge } from "./GradeBadge";
 import { BaseRulesEditor, FactorsEditor, GradeLadder } from "./RuleEditors";
-import { Button, Chips, DecimalInput, Modal, Segmented, cx, stagger } from "./ui";
+import { Button, Chips, DecimalInput, Modal, cx, stagger } from "./ui";
 
 /** What the drawn tables need beyond the document itself. */
 interface Ctx {
@@ -63,8 +61,8 @@ interface Ctx {
   state: RulebookState;
   openItems: OpenItem[];
   toggleItem: (id: string, done: boolean) => void;
+  /** True in the editor's live preview: nothing in it can be clicked into a change. */
   readOnly: boolean;
-  view: (version: string) => void;
 }
 const RulebookContext = createContext<Ctx | null>(null);
 const useCtx = () => useContext(RulebookContext)!;
@@ -94,9 +92,10 @@ const tint = (colour: string, pct: number) => `color-mix(in oklab, ${colour} ${p
 /**
  * The rulebook, in the desk's own style: the rules first, each section in its own
  * colour, every number read live from the values the logic uses; the background
- * (hypotheses, open items, glossary, backtesting, changelog) in a Reference panel.
- * Each section has an edit mode; saving any change asks for a reason and writes a
- * new version.
+ * (hypotheses, glossary, changelog) in a Reference panel. There is one rulebook, the
+ * one in force: each section edits in place, and every save is a line in the
+ * changelog. (Underneath, each save is kept, so a trade is still judged by the rules
+ * it was graded under — but that history is never shown or opened.)
  */
 export function RulebookView({
   state,
@@ -108,7 +107,6 @@ export function RulebookView({
   /** After a new version is saved: everything graded against the rules is re-read. */
   onSaved: () => void;
 }) {
-  const [viewing, setViewing] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [openItems, setOpenItems] = useState<OpenItem[]>([]);
   const [referenceOpen, setReferenceOpen] = useState(false);
@@ -118,10 +116,8 @@ export function RulebookView({
   }, []);
 
   const current = state.current;
-  const doc = viewing ? state.rulebookOf(viewing) : state.doc;
+  const doc = state.doc;
   const values = useMemo(() => tokenValues(doc), [doc]);
-  const version = viewing ?? current?.version ?? doc.version;
-  const readOnly = viewing != null && viewing !== current?.version;
   const rules = doc.sections.filter((s) => !s.reference);
   const reference = doc.sections.filter((s) => s.reference);
 
@@ -137,11 +133,10 @@ export function RulebookView({
     state,
     openItems,
     toggleItem,
-    readOnly,
-    view: (v) => setViewing(v === current?.version ? null : v),
+    readOnly: false,
   };
   const section = doc.sections.find((s) => s.id === editing) ?? null;
-  const edit = (id: string) => (!readOnly && !NOT_EDITABLE.has(id) ? () => setEditing(id) : undefined);
+  const edit = (id: string) => (!NOT_EDITABLE.has(id) ? () => setEditing(id) : undefined);
   const showReference = () => {
     setReferenceOpen(true);
     requestAnimationFrame(() => document.getElementById("rb-reference")?.scrollIntoView({ behavior: "smooth" }));
@@ -174,46 +169,19 @@ export function RulebookView({
         </nav>
 
         <div className="min-w-0 space-y-5">
-          {/* ── The rulebook's own header: version, last change, older versions ── */}
-          <header className="anim-rise card relative flex flex-wrap items-center gap-x-6 gap-y-3 overflow-hidden px-6 py-4">
+          {/* ── The rulebook's own header: its name and the last change ── */}
+          <header className="anim-rise card relative overflow-hidden px-6 py-4">
             <Glow colour="var(--color-accent)" />
-            <div className="relative min-w-0 flex-1">
+            <div className="relative min-w-0">
               <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-faint">Rulebook</p>
-              <h2 className="text-[20px] font-semibold tracking-tight">
-                {doc.name} <span className="num text-accent">v{version}</span>
-              </h2>
-              {current && !readOnly && (
+              <h2 className="text-[20px] font-semibold tracking-tight">{doc.name}</h2>
+              {current && (
                 <p className="truncate text-[12px] text-faint">
                   Last change {longDate(deskDay(new Date(current.createdAt)))} · {current.reason}
                 </p>
               )}
             </div>
-            <label className="relative flex items-center gap-2 text-[12px] text-soft">
-              <History size={14} className="text-faint" />
-              <select
-                className="field w-36 py-1.5 text-[12px]"
-                value={version}
-                onChange={(e) => ctx.view(e.target.value)}
-                title="Read an older version"
-              >
-                {state.versions.map((v) => (
-                  <option key={v.version} value={v.version}>
-                    v{v.version}
-                    {v.version === current?.version ? " · in force" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
           </header>
-
-          {readOnly && (
-            <div className="anim-rise card flex flex-wrap items-center gap-3 border-warn/30 px-5 py-3 text-[13px] text-warn">
-              Reading v{viewing}, read-only — trades graded under it keep exactly these rules.
-              <button onClick={() => setViewing(null)} className="text-soft underline underline-offset-2 hover:text-ink">
-                Back to v{current?.version}
-              </button>
-            </div>
-          )}
 
           {rules.map((s, i) => (
             <SectionCard key={s.id} section={s} index={i} onEdit={edit(s.id)} />
@@ -261,7 +229,6 @@ export function RulebookView({
           key={section.id}
           section={section}
           doc={state.doc}
-          version={current.version}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
@@ -915,29 +882,20 @@ function OpenItems() {
   );
 }
 
-/** Every version from the rulebook's fresh start on (or all of them, before 2.0), newest first. */
+/** Every change from the rulebook's fresh start on, newest first: when, and what. */
 function Changelog() {
-  const { state, doc, view } = useCtx();
+  const { state, doc } = useCtx();
   const from = doc.changelogFrom;
   const rows = [
     ...state.versions
       .filter((v) => !from || atLeast(v.version, from))
-      .map((v) => ({ version: v.version, date: deskDay(new Date(v.createdAt)), change: v.reason, stored: true })),
-    ...doc.history.map((h) => ({ ...h, stored: false })),
+      .map((v) => ({ date: deskDay(new Date(v.createdAt)), change: v.reason })),
+    ...doc.history.map((h) => ({ date: h.date, change: h.change })),
   ];
   return (
     <Table
-      head={["Version", "Date", "Change"]}
+      head={["Date", "Change"]}
       rows={rows.map((r) => [
-        r.stored ? (
-          <button key="v" onClick={() => view(r.version)} className="num underline decoration-faint underline-offset-2 hover:text-accent-2">
-            {r.version}
-          </button>
-        ) : (
-          <span key="v" className="num" title="From before the rulebook lived in the desk">
-            {r.version}
-          </span>
-        ),
         <span key="d" className="num whitespace-nowrap">
           {longDate(r.date)}
         </span>,
@@ -1023,20 +981,17 @@ const FORMATS: { id: Format; label: ReactNode; title: string }[] = [
 function SectionEditor({
   section,
   doc,
-  version,
   onClose,
   onSaved,
 }: {
   section: Section;
   doc: Rulebook;
-  version: string;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const outer = useCtx();
   const [draft, setDraft] = useState<Rulebook>(() => structuredClone(doc));
   const [reason, setReason] = useState("");
-  const [bump, setBump] = useState<"minor" | "major">("minor");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -1053,7 +1008,6 @@ function SectionEditor({
   const changed = JSON.stringify(draft) !== JSON.stringify(doc);
   const mine = draft.sections.find((s) => s.id === section.id)!;
   const { colour, icon: Icon } = lookOf(section.id);
-  const next = nextVersion(version, bump);
   const setSection = (patch: Partial<Section>) =>
     setDraft((d) => ({ ...d, sections: d.sections.map((s) => (s.id === section.id ? { ...s, ...patch } : s)) }));
   const patch = (p: Partial<Rulebook>) => setDraft((d) => ({ ...d, ...p }));
@@ -1093,11 +1047,11 @@ function SectionEditor({
     .filter(([k, v]) => !query || `${k} ${v}`.toLowerCase().includes(query.toLowerCase()));
 
   async function save() {
-    if (!reason.trim()) return setError("Add a one-line reason — it goes in the changelog.");
     setSaving(true);
     setError(null);
     try {
-      await api.saveRulebook(draft, reason.trim(), bump);
+      // The note is yours to write; without one the changelog still says what was edited.
+      await api.saveRulebook(draft, reason.trim() || `Edited ${mine.title || section.title}`, "minor");
       await onSaved();
     } catch (e) {
       setError((e as Error).message);
@@ -1120,7 +1074,7 @@ function SectionEditor({
             <Icon size={19} />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-faint">Edit the rulebook · v{version}</p>
+            <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-faint">Edit the rulebook</p>
             <input
               id="rb-edit-title"
               aria-label="Section title"
@@ -1255,27 +1209,18 @@ function SectionEditor({
             <input
               id="rb-edit-reason"
               className="field pl-9 text-[13px]"
-              placeholder="Why? One line — it goes in the changelog"
+              placeholder="What changed, and why? Optional — it goes in the changelog"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && changed && !problems.length && save()}
             />
           </label>
-          <Segmented
-            size="sm"
-            value={bump}
-            onChange={(v) => v && setBump(v)}
-            options={[
-              { value: "minor", label: `v${nextVersion(version, "minor")}` },
-              { value: "major", label: `v${nextVersion(version, "major")} · big change` },
-            ]}
-          />
           {error && <span className="anim-fade text-[12px] text-down">{error}</span>}
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button variant="accent" onClick={save} disabled={saving || !changed || problems.length > 0}>
-            <Check size={15} /> {changed ? `Save as v${next}` : "No changes yet"}
+            <Check size={15} /> {changed ? "Save" : "No changes yet"}
           </Button>
         </footer>
       </div>
@@ -1645,64 +1590,93 @@ function PairsEditor({ label, value, onChange }: { label: string; value: NewsPai
       <span className="label">{label}</span>
       <div className="space-y-2">
         {value.map((p, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <select className="field w-56 text-[12.5px]" value={p.category} onChange={(e) => onChange(value.map((x, k) => (k === i ? { ...x, category: e.target.value } : x)))}>
+          <div key={i} className="anim-rise flex items-center gap-2" style={stagger(i, 40)}>
+            <select
+              aria-label="Release kind"
+              className="field min-w-0 flex-1 text-[12.5px]"
+              value={p.category}
+              onChange={(e) => onChange(value.map((x, k) => (k === i ? { ...x, category: e.target.value } : x)))}
+            >
               {CATEGORY_IDS.map((c) => (
                 <option key={c} value={c}>
                   {categoryLabel(c)}
                 </option>
               ))}
             </select>
-            <select className="field num w-24 text-[12.5px]" value={p.currency} onChange={(e) => onChange(value.map((x, k) => (k === i ? { ...x, currency: e.target.value } : x)))}>
+            <select
+              aria-label="Currency"
+              className="field num w-24 shrink-0 text-[12.5px]"
+              value={p.currency}
+              onChange={(e) => onChange(value.map((x, k) => (k === i ? { ...x, currency: e.target.value } : x)))}
+            >
               {NEWS_CURRENCIES.map((c) => (
                 <option key={c}>{c}</option>
               ))}
             </select>
-            <button onClick={() => onChange(value.filter((_, k) => k !== i))} className="text-faint hover:text-down" title="Remove">
+            <button
+              onClick={() => onChange(value.filter((_, k) => k !== i))}
+              className="shrink-0 rounded-lg p-1.5 text-faint transition-colors hover:bg-subtle hover:text-down"
+              title="Remove"
+            >
               <X size={14} />
             </button>
           </div>
         ))}
-        <AddButton onClick={() => onChange([...value, { category: "rates", currency: "USD" }])}>Add</AddButton>
+        <AddButton onClick={() => onChange([...value, { category: "rates", currency: "USD" }])}>Add a release</AddButton>
       </div>
     </div>
   );
 }
 
+/** The news rules as two cards, one per thing they do: close a whole day, or pause entries around a release. */
 function NewsEditor({ draft: d, patch }: { draft: Rulebook; patch: (p: Partial<Rulebook>) => void }) {
   const n = d.news;
   const set = (p: Partial<Rulebook["news"]>) => patch({ news: { ...n, ...p } });
   return (
-    <Card title="News rules — only red releases count">
-      <div className="grid gap-6 md:grid-cols-2">
-        <PairsEditor label="Skip days: a red release of this kind" value={n.skip} onChange={(v) => set({ skip: v })} />
-        <div className="space-y-4">
+    <>
+      <Card title="Skip days — no trading at all">
+        <div className="space-y-5">
+          <PairsEditor label="A red release of this kind" value={n.skip} onChange={(v) => set({ skip: v })} />
           <div>
-            <span className="label">Skip days: bank holidays on</span>
+            <span className="label">Bank holidays on</span>
             <Chips options={NEWS_CURRENCIES} value={n.holidayCurrencies} onChange={(v) => set({ holidayCurrencies: v })} />
           </div>
           <div>
-            <span className="label">Skip days: a fixed range (MM-DD, inclusive)</span>
+            <span className="label">Every year from … to (MM-DD)</span>
             <div className="num flex items-center gap-2">
-              <input className="field w-24" value={n.skipRange?.from ?? ""} placeholder="12-22" onChange={(e) => set({ skipRange: e.target.value || n.skipRange?.to ? { from: e.target.value, to: n.skipRange?.to ?? "" } : null })} />
+              <input
+                aria-label="Skip range from"
+                className="field w-24"
+                value={n.skipRange?.from ?? ""}
+                placeholder="12-22"
+                onChange={(e) => set({ skipRange: e.target.value || n.skipRange?.to ? { from: e.target.value, to: n.skipRange?.to ?? "" } : null })}
+              />
               <span className="text-faint">to</span>
-              <input className="field w-24" value={n.skipRange?.to ?? ""} placeholder="01-02" onChange={(e) => set({ skipRange: { from: n.skipRange?.from ?? "", to: e.target.value } })} />
+              <input
+                aria-label="Skip range to"
+                className="field w-24"
+                value={n.skipRange?.to ?? ""}
+                placeholder="01-02"
+                onChange={(e) => set({ skipRange: { from: n.skipRange?.from ?? "", to: e.target.value } })}
+              />
             </div>
           </div>
         </div>
-        <div className="space-y-4">
+      </Card>
+      <Card title="Release windows — no new entries around a release">
+        <div className="space-y-5">
           <div>
-            <span className="label">Release windows: every other red release on</span>
+            <span className="label">Every other red release on</span>
             <Chips options={NEWS_CURRENCIES} value={n.windowCurrencies} onChange={(v) => set({ windowCurrencies: v })} />
           </div>
+          <PairsEditor label="And also these" value={n.windowExtra} onChange={(v) => set({ windowExtra: v })} />
           <Row>
-            <Num label="Window from" value={n.beforeMin} onChange={(v) => set({ beforeMin: v })} suffix="min before" className="w-36" />
-            <Num label="to" value={n.afterMin} onChange={(v) => set({ afterMin: v })} suffix="min after" className="w-36" />
+            <Num label="From" value={n.beforeMin} onChange={(v) => set({ beforeMin: v })} suffix="min before" className="w-36" />
+            <Num label="To" value={n.afterMin} onChange={(v) => set({ afterMin: v })} suffix="min after" className="w-36" />
           </Row>
         </div>
-        <PairsEditor label="Release windows: also these" value={n.windowExtra} onChange={(v) => set({ windowExtra: v })} />
-      </div>
-    </Card>
+      </Card>
+    </>
   );
 }
 

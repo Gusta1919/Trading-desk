@@ -684,7 +684,8 @@ export function TradeForm({
 
   const summary = definition ? answerSummary(definition, answers) : "";
   const title = trade ? "Edit trade" : "Log the trade";
-  const outsideWindow = !inEntryWindow(time, rb.entryWindows);
+  // Only when the rulebook checks the window itself; ticked by hand, it is yours to judge.
+  const outsideWindow = rb.baseRules.some((r) => r.auto === "entry-window") && !inEntryWindow(time, rb.entryWindows);
   const tradable = tradableToday(card, verdict);
 
   return (
@@ -724,7 +725,7 @@ export function TradeForm({
                 </div>
                 <div className="flex min-w-0 flex-col justify-center py-3 pr-4">
                   <span className="text-[14px] font-medium">
-                    {rb.name} · rulebook v{version}
+                    {rb.name}
                   </span>
                   <span className="truncate text-[12px] text-soft">
                     {ticked.length}/{definition.baseRules.length} base rules
@@ -757,7 +758,7 @@ export function TradeForm({
                     index={0}
                     title={
                       snapshot?.rulebookVersion
-                        ? `Setup — as graded under rulebook v${snapshot.rulebookVersion}`
+                        ? "Setup — as graded when it was logged"
                         : snapshot
                           ? `Setup — as graded against ${snapshot.strategyName || "the old strategy"} then`
                           : "Setup"
@@ -1044,7 +1045,7 @@ export function TradeForm({
                   <p className="mt-2 text-[11px] text-faint">Saved with the trade automatically.</p>
                 </Side>
 
-                <Side index={3} title={`Rulebook v${version ?? doc.version}`}>
+                <Side index={3} title="Rulebook">
                   <RulebookHint rb={rb} values={values} day={day} />
                 </Side>
 

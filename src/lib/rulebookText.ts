@@ -866,3 +866,19 @@ export function freshStart(doc: Rulebook, version: string): Rulebook {
       .map((s) => (SECTIONS_V2[s.id] && untouched(s) ? { ...s, body: SECTIONS_V2[s.id] } : s)),
   };
 }
+
+/* ── The entry window, ticked by hand ────────────────────────────────── */
+
+export const WINDOW_BY_HAND_REASON = "“Inside the entry window” is ticked by hand, like the other rules you judge yourself";
+
+/** The entry-window base rule stops being checked from the trade's time; you tick it. */
+export function windowByHand(doc: Rulebook): Rulebook {
+  return {
+    ...doc,
+    baseRules: doc.baseRules.map((r) => {
+      if (r.auto !== "entry-window") return r;
+      const { auto: _auto, ...byHand } = r;
+      return byHand;
+    }),
+  };
+}

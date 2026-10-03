@@ -13,12 +13,14 @@ import {
   FIRST_REASON,
   FIRST_VERSION,
   FRESH_START_REASON,
+  WINDOW_BY_HAND_REASON,
   OPEN_ITEMS,
   PLAN_RETIRED_REASON,
   condenseRulebook,
   defaultRulebook,
   freshStart,
   retirePlan,
+  windowByHand,
 } from "../src/lib/rulebookText.js";
 import { currentRulebook, insertVersion } from "./rulebookStore.js";
 
@@ -492,5 +494,25 @@ export function migrateFreshStart(db: Db, now = new Date()) {
       note = `v${version} written from v${current.version}`;
     }
     db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(FRESH_START_KEY, note);
+  })();
+}
+
+const WINDOW_BY_HAND_KEY = "rulebook:entry-window-by-hand";
+
+/**
+ * "Inside the entry window" becomes a rule you tick (see `windowByHand`). Saved as the
+ * next version like any edit, so trades graded before keep the automatic check they had.
+ */
+export function migrateWindowByHand(db: Db, now = new Date()) {
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(WINDOW_BY_HAND_KEY)) return;
+  db.transaction(() => {
+    const current = currentRulebook(db);
+    let note = "already by hand";
+    if (current.doc.baseRules.some((r) => r.auto === "entry-window")) {
+      const version = nextVersion(current.version, "minor");
+      insertVersion(db, version, WINDOW_BY_HAND_REASON, windowByHand(current.doc), now.toISOString());
+      note = `v${version} written from v${current.version}`;
+    }
+    db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(WINDOW_BY_HAND_KEY, note);
   })();
 }

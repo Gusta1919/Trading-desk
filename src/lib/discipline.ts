@@ -164,7 +164,10 @@ export function evaluateHistory(input: DisciplineInput): { byId: Map<string, Tra
       const overAllowance = t.riskPct > base + EPS && !stopped && !(card && !tradable) && !off;
       if (overCap || overAllowance) set.add("over_risk");
 
-      if (!inEntryWindow(timeOf(t.date), doc.entryWindows)) set.add("outside_entry_window");
+      // Checked from the trade's time only while the rulebook checks the window itself;
+      // ticked by hand, it counts the way you ticked it, like any other base rule.
+      const windowAuto = doc.baseRules.some((r) => r.auto === "entry-window");
+      if (windowAuto && !inEntryWindow(timeOf(t.date), doc.entryWindows)) set.add("outside_entry_window");
       const news = tradeNewsDay(t, doc);
       if (news.skip.length) set.add("skip_day");
       if (releaseWindowAt(minutesOf(timeOf(t.date))!, news)) set.add("in_release_window");

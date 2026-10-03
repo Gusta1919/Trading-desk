@@ -360,11 +360,6 @@ function Review({ t }: { t: Trade }) {
           {t.mistakes.length} mistake{t.mistakes.length > 1 && "s"}
         </span>
       )}
-      {t.rulebookVersion && (
-        <span className="text-faint" title={`Graded under rulebook v${t.rulebookVersion}`}>
-          v{t.rulebookVersion}
-        </span>
-      )}
     </div>
   );
 }

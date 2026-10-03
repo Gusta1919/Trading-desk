@@ -298,6 +298,14 @@ async function guard() {
   return api<RulebookVersion>("/rulebook");
 }
 
+/** A setup entered outside the window: its window rule unticked when you tick it yourself. */
+function outsideWindow(t: TradeInput, doc: RulebookVersion["doc"]): TradeInput {
+  if (doc.baseRules.some((r) => r.auto === "entry-window") || !t.setupSnapshot) return t;
+  const ticked = t.checklist.filter((id) => id !== "window");
+  const { grade } = computeGrade(doc, { ticked, answers: t.setupSnapshot.answers });
+  return { ...t, checklist: ticked, grade: grade ?? "", setupSnapshot: { ...t.setupSnapshot, ticked, grade } };
+}
+
 /** An entry time inside the morning window, mostly London. */
 const morning = () => `0${pick([4, 4, 5, 5, 6, 7])}:${pad(Math.floor(between(2, 58)))}`;
 
@@ -345,8 +353,10 @@ async function add() {
     const time = i === windowBreak ? "08:40" : morning(); // one entry in the 08:25–09:30 pause
     // Staged days take an A+, which even a Caution morning allows — so the break is the only flag.
     const staged = stagedDays.has(i);
-    const setup = tradableSetup(day, time, balance, doc, PROFILE, staged ? "A+" : undefined);
-    if (!setup) continue;
+    const found = tradableSetup(day, time, balance, doc, PROFILE, staged ? "A+" : undefined);
+    if (!found) continue;
+    // With the window ticked by hand, an entry in the pause leaves that rule unticked: a C.
+    const setup = i === windowBreak ? outsideWindow(found, doc) : found;
     const input = breaks ? { ...setup, ...breakFields(breaks, day), followedPlan: false } : setup;
     balance += await postDisciplined(input, staged);
     // Once: a second trade the same day — the one-trade rule, and two days off after it.

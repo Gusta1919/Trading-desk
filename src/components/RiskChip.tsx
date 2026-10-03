@@ -6,20 +6,16 @@ import { Button, cx } from "./ui";
 /**
  * Your risk lines, as one small label in the top bar: how much of today's stop is
  * left, and anything that takes it away. Click it to see the week too, or to change a
- * line — a change to a limit is a rule change, so it asks for a reason and becomes a
- * new rulebook version.
+ * line — a change to a limit is a rule change, so it goes in the rulebook's changelog.
  */
 export function RiskChip({
   status,
   limits,
-  version,
   evidence,
   onSave,
 }: {
   status: DeskStatus | null;
   limits: Limits | null;
-  /** The rulebook version in force, so the save button can say what it writes. */
-  version: string | null;
   /** Trades of evidence a riskier change needs, from the rulebook's guidance. */
   evidence: number;
   onSave: (next: Limits, reason: string) => Promise<void>;
@@ -74,11 +70,10 @@ export function RiskChip({
   const changed = draft && JSON.stringify(draft) !== JSON.stringify(limits);
   async function save() {
     if (!draft || !changed) return;
-    if (!reason.trim()) return setError("Add a one-line reason — every rule change is versioned.");
     setSaving(true);
     setError(null);
     try {
-      await onSave(draft, reason.trim());
+      await onSave(draft, reason.trim() || "Changed the risk limits");
       setOpen(false);
     } catch (e) {
       setError((e as Error).message);
@@ -159,7 +154,7 @@ export function RiskChip({
               <input
                 autoFocus
                 className="field py-1.5 text-[12px]"
-                placeholder="Why? One line — saved in the changelog"
+                placeholder="Why? Optional — saved in the changelog"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && save()}
@@ -170,7 +165,7 @@ export function RiskChip({
               {error && <p className="text-[11px] text-down">{error}</p>}
               <div className="flex justify-end">
                 <Button variant="accent" onClick={save} disabled={saving} className="px-3 py-1.5 text-[12px]">
-                  Save as a new version{version ? ` (after v${version})` : ""}
+                  Save
                 </Button>
               </div>
             </div>

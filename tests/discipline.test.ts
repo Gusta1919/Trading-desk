@@ -191,6 +191,14 @@ describe("the consequence ladder", () => {
     assert.equal(j.timeline.halfWeeks.size, 0);
   });
 
+  it("an entry window ticked by hand is never flagged from the trade's time", () => {
+    const byHand = { ...doc, baseRules: doc.baseRules.map((r) => (r.auto === "entry-window" ? { ...r, auto: undefined } : r)) };
+    const t = ruledTrade(`${MON}T08:40`);
+    const j = evaluateHistory({ trades: [t], checkins: [], rulebookOf: () => byHand, now: LATE });
+    assert.ok(!j.byId.get(t.id)!.flags.includes("outside_entry_window"));
+    assert.ok(judge([t]).byId.get(t.id)!.flags.includes("outside_entry_window")); // the automatic check, before
+  });
+
   it("judges a draft against the rest before it is saved", () => {
     const a = ruledTrade(`${MON}T04:30`);
     const draft = ruledTrade(`${MON}T09:45`);
