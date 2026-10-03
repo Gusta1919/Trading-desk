@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { allowedFor } from "../src/lib/grading";
+import { factorSteps } from "../src/lib/grading";
 import { condenseRulebook, defaultRulebook, freshStart, retirePlan, windowByHand } from "../src/lib/rulebookText";
 import { goldModelDefinition } from "../server/migrate";
 import {
@@ -193,21 +193,27 @@ describe("number factor validation", () => {
   });
 });
 
-describe("what each grade allows (the rulebook's table)", () => {
+describe("the rulebook's table: one step per answer", () => {
   const two = windowByHand(freshStart(condenseRulebook(retirePlan(defaultRulebook())), "2.0"));
   const f = (id: string) => two.factors.find((x) => x.id === id)!;
 
-  it("lists every answer that still reaches a grade, so lower grades are never empty", () => {
-    assert.deepEqual(allowedFor(f("htf-tf"), "A+").labels, ["4H, Daily or Weekly"]);
-    for (const g of ["A", "B", "C"] as const) assert.deepEqual(allowedFor(f("htf-tf"), g).labels, ["4H, Daily or Weekly", "1H"]);
+  it("lists every answer with the best grade it allows, best first", () => {
+    assert.deepEqual(factorSteps(f("htf-tf")), [
+      { label: "4H, Daily or Weekly", cap: "A+" },
+      { label: "1H", cap: "A" },
+    ]);
+    assert.deepEqual(
+      factorSteps(f("disp")).map((s) => [s.label, s.cap]),
+      [["≥1×", "A+"], ["0.25 to <1×", "A"], ["<0.25×", "B"]],
+    );
+    assert.deepEqual(
+      factorSteps(f("compass")).map((s) => [s.label, s.cap]),
+      [["≥60%", "A+"], ["<60%", "B"]],
+    );
   });
 
-  it("merges neighbouring ranges, and says 'any' when every answer reaches the grade", () => {
-    assert.deepEqual(allowedFor(f("disp"), "A+").labels, ["≥1×"]);
-    assert.deepEqual(allowedFor(f("disp"), "A").labels, ["≥0.25×"]);
-    assert.equal(allowedFor(f("disp"), "B").any, true);
-    assert.equal(allowedFor(f("disp"), "C").any, true);
-    assert.deepEqual(allowedFor(f("compass"), "A").labels, allowedFor(f("compass"), "A+").labels);
-    assert.equal(allowedFor(f("compass"), "C").any, allowedFor(f("compass"), "B").any);
+  it("keeps a C-only answer, so the C column is never empty", () => {
+    assert.deepEqual(factorSteps(f("bias")).at(-1)!.cap, "C");
+    assert.deepEqual(factorSteps(f("conviction")).map((s) => s.cap), ["A+", "A", "B", "C"]);
   });
 });

@@ -13,7 +13,6 @@ import {
   type Definition,
   type Factor,
   type Grade,
-  type NumberCut,
   type NumberFactor,
 } from "./types";
 
@@ -169,24 +168,16 @@ export function answersReaching(f: Factor, grade: Grade): string[] {
 }
 
 /**
- * What a grade allows on one factor, as the rulebook's table shows it: every answer that
- * still reaches it. A run of neighbouring number ranges reads as one range ("≥0.25"); when
- * every answer reaches the grade, `any` is set instead of listing them all.
+ * A factor's answers as the rulebook's table draws them: each with the best grade it still
+ * allows, best first. An answer allows its own grade and every grade below it, so on the
+ * table it runs from that grade to C — a staircase, one step per answer.
  */
-export function allowedFor(f: Factor, grade: Grade): { any: boolean; labels: string[] } {
-  if (f.kind === "choice") {
-    const ok = answersReaching(f, grade);
-    return { any: ok.length === f.options.length && f.options.length > 2, labels: ok };
-  }
-  const ok = f.caps.map((cap, i) => ({ cap, i })).filter(({ cap }) => gradeRank(cap) <= gradeRank(grade)).map(({ i }) => i);
-  if (!ok.length) return { any: false, labels: [] };
-  if (ok.length === f.caps.length) return { any: true, labels: [] };
-  const contiguous = ok.every((i, k) => k === 0 || i === ok[k - 1] + 1);
-  if (!contiguous) return { any: false, labels: ok.map((i) => withUnit(rangeLabel(f, i), f.unit)) };
-  const first = ok[0];
-  const last = ok[ok.length - 1];
-  const cuts = [first > 0 ? f.cuts[first - 1] : null, last < f.cuts.length ? f.cuts[last] : null].filter((c): c is NumberCut => c != null);
-  return { any: false, labels: [withUnit(rangeLabel({ ...f, cuts }, first > 0 ? 1 : 0), f.unit)] };
+export function factorSteps(f: Factor): { label: string; cap: Grade }[] {
+  const answers =
+    f.kind === "choice"
+      ? f.options.map((o) => ({ label: o.label, cap: o.cap }))
+      : f.caps.map((cap, i) => ({ label: withUnit(rangeLabel(f, i), f.unit), cap }));
+  return answers.map((a, i) => ({ ...a, i })).sort((a, b) => gradeRank(a.cap) - gradeRank(b.cap) || a.i - b.i).map(({ label, cap }) => ({ label, cap }));
 }
 
 /** The answers to a factor that cap a setup at exactly `grade`, in words. */

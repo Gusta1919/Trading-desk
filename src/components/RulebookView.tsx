@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { api, type OpenItem } from "@/lib/api";
-import { allowedFor, factorCap } from "@/lib/grading";
+import { factorCap, factorSteps } from "@/lib/grading";
 import { hypothesisResults } from "@/lib/hypotheses";
 import { fmtR } from "@/lib/format";
 import {
@@ -609,47 +609,70 @@ function BaseRules() {
 }
 
 /**
- * Every factor against every grade: what each grade still allows. An answer that allows an
- * A+ allows every grade below it too, so a column lists everything that reaches its grade.
+ * Every factor against every grade, drawn as a staircase: each answer is a bar that starts
+ * at the best grade it allows and runs on to C, because an answer that allows an A+ allows
+ * every grade below it too. Read a column top to bottom for what that grade accepts; read a
+ * factor's bars for what each answer costs.
  */
 function FactorsTable() {
   const { doc, values } = useCtx();
-  // C is no trade, so it gets no column: anything the three columns don't allow is a C.
-  const rungs: Grade[] = ["A+", "A", "B"];
+  const rungs: Grade[] = ["A+", "A", "B", "C"];
+  const columns = "grid grid-cols-[minmax(170px,1.25fr)_repeat(4,minmax(96px,1fr))]";
+  let bar = 0;
   return (
-    <>
-      <Table
-        head={["Factor", ...rungs.map((g) => <GradeBadge key={g} grade={g} size="sm" />)]}
-        rows={doc.factors.map((f) => [
-          <span key="n" className="block min-w-36">
-            {f.name}
-            {f.auto && <span className="ml-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cyan">auto</span>}
-            {f.hint && <span className="block text-[11px] text-faint">{fill(f.hint, values)}</span>}
-          </span>,
-          ...rungs.map((g) => {
-            const { any, labels } = allowedFor(f, g);
-            if (any) return <span key={g} className="text-[12px] italic text-faint">any</span>;
-            if (!labels.length) return <span key={g} className="text-faint">—</span>;
-            return (
-              <span key={g} className="flex flex-wrap gap-1">
-                {labels.map((l) => (
-                  <span
-                    key={l}
-                    className={cx("whitespace-nowrap rounded-md px-1.5 py-0.5 text-[12px] text-ink", f.kind === "number" && "num")}
-                    style={{ backgroundColor: tint(GRADE_COLOUR[g], 12) }}
-                  >
-                    {l}
-                  </span>
-                ))}
+    <div className="overflow-hidden rounded-xl border">
+      <div className={cx(columns, "border-b bg-subtle")}>
+        <span className="px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-faint">Factor</span>
+        {rungs.map((g) => (
+          <span key={g} className="flex items-center justify-center border-l py-2">
+            <GradeBadge grade={g} size="sm" />
+          </span>
+        ))}
+      </div>
+      {doc.factors.map((f) => {
+        const steps = factorSteps(f);
+        const rows = `1 / span ${steps.length}`;
+        return (
+          <div key={f.id} className={cx(columns, "border-b py-1.5 last:border-b-0")}>
+            <span className="px-4 py-1.5" style={{ gridColumn: 1, gridRow: rows }}>
+              <span className="block text-[13px] text-ink">
+                {f.name}
+                {f.auto && <span className="ml-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cyan">auto</span>}
               </span>
-            );
-          }),
-        ])}
-      />
-      <p className="mt-2 flex items-center gap-2 text-[12px] text-faint">
-        <GradeBadge grade="C" size="sm" /> Anything else — a missing base rule, a bias against you, real doubt — is a C: no trade.
-      </p>
-    </>
+              {f.hint && <span className="block text-[11px] leading-snug text-faint">{fill(f.hint, values)}</span>}
+            </span>
+            {/* Column guides behind the bars. */}
+            {rungs.map((g, c) => (
+              <span key={g} aria-hidden className="border-l" style={{ gridColumn: c + 2, gridRow: rows }} />
+            ))}
+            {steps.map((st, r) => {
+              const colour = GRADE_COLOUR[st.cap];
+              return (
+                <span
+                  key={st.label}
+                  className="relative z-10 px-1.5 py-[3px]"
+                  style={{ gridColumn: `${rungs.indexOf(st.cap) + 2} / ${rungs.length + 2}`, gridRow: r + 1 }}
+                >
+                  <span
+                    className="anim-grow flex min-h-[30px] items-center gap-2 rounded-lg border px-2.5 py-1 text-[12px] leading-tight text-ink"
+                    style={{
+                      borderColor: tint(colour, 34),
+                      // Over a solid ground, so the column guides never show through the bar.
+                      background: `linear-gradient(90deg, ${tint(colour, 24)}, ${tint(colour, 6)}), var(--color-surface)`,
+                      ...stagger(bar++, 45),
+                    }}
+                    title={`${st.label}: ${st.cap === "C" ? "no trade" : `${st.cap} at best`}`}
+                  >
+                    <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: colour }} />
+                    <span className={cx(f.kind === "number" && "num")}>{st.label}</span>
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
