@@ -1,7 +1,6 @@
-/** Shared builders for tests: a trade graded under the rulebook, a plan, the rulebook itself. */
-import type { Plan } from "../src/lib/plans";
+/** Shared builders for tests: a trade graded under the rulebook, and the rulebook itself (v1.3). */
 import type { Rulebook } from "../src/lib/rulebook";
-import { defaultRulebook } from "../src/lib/rulebookText";
+import { PLAN_RETIRED_VERSION, defaultRulebook, retirePlan } from "../src/lib/rulebookText";
 import { EMPTY_RULEBOOK_FIELDS, type Trade } from "../src/lib/types";
 
 let n = 0;
@@ -51,10 +50,5 @@ export function ruledTrade(date: string, extra: Partial<Trade> = {}): Trade {
   };
 }
 
-/** A plan for a day, written at a UTC instant (03:30 New York in October is 07:30Z). */
-export function plan(date: string, createdAtUtc = `${date}T07:30:00.000Z`): Plan {
-  return { date, bias: "bullish", levels: {}, pois: "", deskCheck: "", notes: "", createdAt: createdAtUtc, updatedAt: createdAtUtc };
-}
-
-export const doc: Rulebook = defaultRulebook();
+export const doc: Rulebook = { ...retirePlan(defaultRulebook()), version: PLAN_RETIRED_VERSION };
 export const rulebookOf = () => doc;

@@ -3,7 +3,7 @@
 A local, percentage-based trading journal built around one strategy — the GOLD Model —
 with its rulebook inside: every rule the desk can check is checked, every broken one is
 flagged and has consequences, and every change to a rule is versioned with a reason.
-A morning check-in and plan, and a coach that turns your own history into a briefing.
+A morning check-in, and a coach that turns your own history into a briefing.
 
 Everything runs on your machine: an Express API (port 3848) over a SQLite file, and a
 React page (port 3847). No account and no API keys. The only outside calls are read-only:
@@ -20,10 +20,11 @@ open http://localhost:3847
 
 ## The screen
 
-- **Morning** — the check-in (readiness → Ready / Caution / Sit out), then today's plan
-  (bias, level map, POIs, Compass, desk check). No plan by 04:00 NY, no trade today.
-- **Banner** — on every tab when a rule speaks: done for today, day off, days off until …,
-  half-risk week, weekly stop hit, skip day, no plan.
+- **Morning** — the check-in (readiness → Ready / Caution / Sit out), then today's status
+  and the Coach's briefing. Nothing to write down; on weekends there's no check-in at all.
+- **Today dock** — bottom-right on every tab: where the day stands right now (entries
+  open, release window, skip day, day off, done for today…); click for the whole day:
+  entry windows, time stop and every release window with its no-entry span.
 - **KPI strip** — net return, win rate, expectancy, profit factor, drawdown, streak, and
   this week's rule adherence.
 - **Journal** — every trade in R and % of account, its exit reason, flags and rulebook
@@ -32,7 +33,7 @@ open http://localhost:3847
   what it may risk today), then the trade: prices, lot size, exit, MFE/MAE.
 - **Daily Bias** — today's gold briefing drawn over live price, and the desk's own
   "stand aside today" list worked out from the rulebook.
-- **Calendar** — results, plan status, flags, days off and skip days, the weekly note.
+- **Calendar** — results, flags, days off and skip days.
 - **Rulebook** — the whole GOLD Model rulebook with live values, the decision flow, an
   edit mode per section, versions and changelog, hypotheses, open items, glossary.
 - **Stats** — full stats, Compare, what drives your results, habits, well-being, and
@@ -45,13 +46,14 @@ open http://localhost:3847
 
 ## Data
 
-- `data/trade-assistant.db` — SQLite; written the moment you save a trade, check-in or plan.
+- `data/trade-assistant.db` — SQLite; written the moment you save a trade or check-in.
 - `rulebook_versions` holds every version of the rulebook; the newest is in force, and each
   trade records the version it was graded under.
 - **Backup** button exports everything as JSON; copying `data/` is a full backup.
 - `legacy_*` tables hold the old (v1, USD-based) schema; `strategies`, `limits` and
   `news_rules` hold what the desk used before the rulebook. All are kept, untouched.
-- `npm run demo:add` / `demo:fill` / `demo:remove` — demo history, tagged `[demo]`.
+- `npm run demo:add` / `demo:more` / `demo:fill` / `demo:remove` — demo history, tagged `[demo]`
+  (`demo:more` adds just the two Exit-lab trades).
 
 ## Code map
 
@@ -67,7 +69,6 @@ open http://localhost:3847
 | `src/lib/rules.ts` | entry window, Compass, displacement, R:R, lots, MFE/MAE |
 | `src/lib/discipline.ts` | every flag, the consequence ladder, today's status, adherence |
 | `src/lib/newsRules.ts` | release kinds, skip days and release windows |
-| `src/lib/plans.ts` | the morning plan and "written on time" |
 | `src/lib/hypotheses.ts` | the rulebook's hypotheses, measured |
 | `src/lib/exitLab.ts` | the Exit lab |
 | `src/lib/checkin.ts` | check-in questions, scoring, verdicts |

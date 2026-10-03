@@ -1,5 +1,5 @@
 /**
- * The Coach under the rulebook: one trade a day, the consequences running, the plan,
+ * The Coach under the rulebook: one trade a day, the consequences running,
  * the weekly stop — and never the advice of the old rules ("B setups", "half size").
  *
  * 1 October 2026 is a Thursday; October is EDT, so 14:00Z is 10:00 in New York.
@@ -8,14 +8,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildBriefing, type CoachDesk } from "../src/lib/coach";
 import { BIAS_OPTION } from "../src/lib/rulebookText";
-import type { Plan } from "../src/lib/plans";
 import type { Trade, TradeFlag } from "../src/lib/types";
-import { doc, plan, rulebookOf, ruledTrade } from "./fixtures";
+import { doc, rulebookOf, ruledTrade } from "./fixtures";
 
 const NOW = new Date("2026-10-01T14:00:00Z");
 const TODAY = "2026-10-01";
-const plans = (days: string[]): Plan[] => days.map((d) => plan(d));
-const desk = (p: Plan[] = plans([TODAY])): CoachDesk => ({ doc, rulebookOf, plans: p, news: null });
+const desk = (): CoachDesk => ({ doc, rulebookOf, news: null });
 
 function trade(date: string, grade: string, resultR: number | null, flags: TradeFlag[] = [], extra: Partial<Trade> = {}): Trade {
   return ruledTrade(date, { grade, resultR, flags, ...extra });
@@ -67,16 +65,15 @@ describe("Coach — today", () => {
 });
 
 describe("Coach — the rulebook's consequences", () => {
-  it("says no plan, no trade once the deadline has passed", () => {
-    const c = card([], "no-plan", desk([]));
-    assert.ok(c);
-    assert.equal(brief([], desk([])).headline, "No plan, no trade today.");
+  it("never asks for a written plan — retired in v1.3", () => {
+    assert.ok(!card([], "no-plan"));
+    assert.ok(!card([], "plan-due"));
   });
 
   it("says day off after a second trade, until the days off end", () => {
     const yesterday = "2026-09-30";
     const trades = [trade(`${yesterday}T04:30`, "A", 1), trade(`${yesterday}T09:45`, "A", -1, ["second_trade_today"])];
-    const c = card(trades, "day-off", desk(plans([yesterday, TODAY])));
+    const c = card(trades, "day-off", desk());
     assert.ok(c);
     assert.match(c!.title, /until 2026-10-02/);
   });
@@ -84,17 +81,17 @@ describe("Coach — the rulebook's consequences", () => {
   it("warns of a half-risk week after two breaks last week", () => {
     // Flags on rulebook trades are always re-derived from the trade itself: an "other" exit is a discretionary one.
     const last = [trade("2026-09-21T04:30", "A", 1, [], { exitReason: "other" }), trade("2026-09-23T04:30", "A", 1, [], { exitReason: "other" })];
-    assert.ok(card(last, "half-risk", desk(plans(["2026-09-21", "2026-09-23", TODAY]))));
+    assert.ok(card(last, "half-risk", desk()));
   });
 
   it("says the weekly stop is hit after four losses", () => {
     const week = ["2026-09-28", "2026-09-29", "2026-09-30"].map((d) => trade(`${d}T04:30`, "A", -1));
     week.push(trade("2026-10-01T04:30", "A", -1));
-    assert.ok(card(week, "week-stop", desk(plans(["2026-09-28", "2026-09-29", "2026-09-30", TODAY]))));
+    assert.ok(card(week, "week-stop", desk()));
   });
 
   it("reports this week's rule adherence when a rule was broken", () => {
-    const c = card([trade("2026-09-29T04:30", "A", 1, ["early_stop_move"])], "adherence", desk(plans(["2026-09-29", TODAY])));
+    const c = card([trade("2026-09-29T04:30", "A", 1, ["early_stop_move"])], "adherence", desk());
     assert.ok(c);
     assert.match(c!.title, /0%/);
   });
@@ -152,7 +149,7 @@ describe("Coach — a long, realistic history runs cleanly", () => {
       };
       const ticked = doc.baseRules.map((r) => r.id);
       trades.push(
-        trade(`${day}T04:30`, i % 4 ? "A" : "A+", ((i * 37) % 11) / 3 - 1.2, i % 9 ? [] : ["no_plan"], {
+        trade(`${day}T04:30`, i % 4 ? "A" : "A+", ((i * 37) % 11) / 3 - 1.2, i % 9 ? [] : ["early_stop_move"], {
           checklist: ticked,
           setupSnapshot: { rulebookVersion: "1.2", baseRules: doc.baseRules, factors: doc.factors, grades: doc.grades, ticked, answers, grade: "A" },
           exitReason: i % 3 ? "target" : "stop",
@@ -162,7 +159,7 @@ describe("Coach — a long, realistic history runs cleanly", () => {
         }),
       );
     }
-    const b = brief(trades, desk(plans([TODAY])));
+    const b = brief(trades, desk());
     assert.ok(b.cards.length > 0);
     assert.ok(b.headline.length > 0);
     for (const c of b.cards) assert.ok(!/undefined|NaN|\{\{/.test(`${c.title} ${c.body} ${c.stat ?? ""}`), c.id);

@@ -9,7 +9,7 @@ const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${St
  * The desk's own "stand aside today", worked out from the rulebook rather than read
  * from the briefing — so the rules never depend on how a routine happened to word its
  * list. Skip day, release windows, the entry window, the time stop, and anything the
- * consequence ladder or the plan says about today.
+ * consequence ladder says about today.
  */
 export function StandAside({ doc, status, news }: { doc: Rulebook; status: DeskStatus | null; news: NewsDay | null }) {
   const values = tokenValues(doc);
@@ -23,7 +23,6 @@ export function StandAside({ doc, status, news }: { doc: Rulebook; status: DeskS
     });
   }
   if (status?.weekBudget.stopHit) lines.push({ tone: "down", text: "Weekly stop hit — stand aside for the rest of the week." });
-  if (status?.noPlan) lines.push({ tone: "down", text: `No plan written by ${doc.planBy} — no trade today.` });
   if (status?.doneForToday) lines.push({ tone: "soft", text: "Today's trade is done." });
   for (const w of news?.windows ?? []) {
     lines.push({ tone: "warn", text: `${hhmm(Math.max(0, w.start))}–${hhmm(w.end)} no new entries — ${w.currency} ${w.title}` });

@@ -7,8 +7,9 @@
  * the meta table records it) — so running any of this again changes nothing.
  */
 import type Database from "better-sqlite3";
-import { FIRST_REASON, FIRST_VERSION, OPEN_ITEMS, defaultRulebook } from "../src/lib/rulebookText.js";
-import { insertVersion } from "./rulebookStore.js";
+import { nextVersion } from "../src/lib/rulebook.js";
+import { FIRST_REASON, FIRST_VERSION, OPEN_ITEMS, PLAN_RETIRED_REASON, defaultRulebook, retirePlan } from "../src/lib/rulebookText.js";
+import { currentRulebook, insertVersion } from "./rulebookStore.js";
 
 type Db = Database.Database;
 type Row = Record<string, unknown>;
@@ -410,5 +411,28 @@ export function migrateRulebook(db: Db, now = new Date()) {
       RULEBOOK_KEY,
       `v${FIRST_VERSION} written; removed ${trades} demo trades and ${checkins} demo check-ins`,
     );
+  })();
+}
+
+const PLAN_RETIRED_KEY = "rulebook:v1.3-plan-retired";
+
+/**
+ * Retires the written daily plan (rulebook v1.3): the version in force is rewritten
+ * by `retirePlan` and saved as the next version, so v1.2 stays in the history exactly
+ * as it was. The plans and weeks tables, and every row in them, are left alone — the
+ * desk just stops reading them. Runs once, recorded under PLAN_RETIRED_KEY.
+ */
+export function migratePlanRetired(db: Db, now = new Date()) {
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(PLAN_RETIRED_KEY)) return;
+  db.transaction(() => {
+    const current = currentRulebook(db);
+    const hasPlan = current.doc.planBy != null || current.doc.baseRules.some((r) => r.id === "plan");
+    let note = "nothing to retire";
+    if (hasPlan) {
+      const version = nextVersion(current.version, "minor");
+      insertVersion(db, version, PLAN_RETIRED_REASON, retirePlan(current.doc), now.toISOString());
+      note = `v${version} written from v${current.version}`;
+    }
+    db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(PLAN_RETIRED_KEY, note);
   })();
 }

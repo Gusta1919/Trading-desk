@@ -822,11 +822,12 @@ function ValuesEditor({ id, draft: d, patch }: { id: string; draft: Rulebook; pa
         </>
       );
     case "prep":
-      return (
+      // v1.2 had a plan deadline here; since v1.3 nothing in daily preparation is a setting.
+      return d.planBy ? (
         <Card title="Deadline">
           <Time label="Plan written by" value={d.planBy} onChange={(v) => patch({ planBy: v })} />
         </Card>
-      );
+      ) : null;
     case "news":
       return <NewsEditor draft={d} patch={patch} />;
     case "setup":

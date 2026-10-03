@@ -13,26 +13,25 @@ import { unlockAudio, clearTitle, testChime } from "@/lib/alerts";
 import { useNews, useNewsAlerts } from "@/lib/useNews";
 import { useDailyBias } from "@/lib/useDailyBias";
 import { useRulebook } from "@/lib/useRulebook";
-import { briefingLean, type Plan } from "@/lib/plans";
+import { briefingLean } from "@/lib/dailyBias";
 import { countsForTrading, coveredDays, fromEvent, newsDay } from "@/lib/newsRules";
 import { deskStatus } from "@/lib/discipline";
 import { deskDay } from "@/lib/tz";
-import { PlanForm } from "@/components/PlanForm";
-import { StatusBanner } from "@/components/StatusBanner";
+import { TodayDock } from "@/components/TodayStatus";
 import { StandAside } from "@/components/StandAside";
 import { StatsStrip } from "@/components/StatsStrip";
 import { StatsView } from "@/components/StatsView";
 import { RulebookView } from "@/components/RulebookView";
 import { TradeForm } from "@/components/TradeForm";
 import { TradeList } from "@/components/TradeList";
-import { Button, Modal, Segmented, cx } from "@/components/ui";
+import { Button, Segmented, cx } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { CheckIn as CheckInData } from "@/lib/checkin";
 import type { Limits } from "@/lib/types";
 import { buildBriefing, nudge, type CoachDesk } from "@/lib/coach";
 import { takenTrades } from "@/lib/risk";
 import { dayKey } from "@/lib/format";
-import type { Trade, WeekNote } from "@/lib/types";
+import type { Trade } from "@/lib/types";
 
 /** Now, refreshed every minute — the rules change at 04:00, 08:25, 11:00 and 12:00. */
 function useNow(everyMs = 60_000) {
@@ -43,6 +42,12 @@ function useNow(everyMs = 60_000) {
   }, [everyMs]);
   return now;
 }
+
+/** Saturday or Sunday in New York — no session, so no check-in is asked for. */
+const isWeekendNY = (d = new Date()) => {
+  const wd = new Date(`${deskDay(d)}T12:00:00Z`).getUTCDay();
+  return wd === 0 || wd === 6;
+};
 
 type View = "journal" | "bias" | "calendar" | "rulebook" | "stats" | "news" | "risk" | "coach";
 
@@ -73,7 +78,6 @@ export default function App() {
   const rulebook = useRulebook();
   /* Your limits are part of the rulebook; null until it has loaded from the server. */
   const limits: Limits | null = rulebook.loaded ? rulebook.doc.limits : null;
-  const [plans, setPlans] = useState<Plan[]>([]);
 
   /* News is owned here so the trade blocker and the alerts work on every tab. */
   const news = useNews();
@@ -103,7 +107,6 @@ export default function App() {
     const id = window.setTimeout(() => setToastGone(alerts.lastAt), 12_000);
     return () => clearTimeout(id);
   }, [alerts.lastAt]);
-  const [weeks, setWeeks] = useState<WeekNote[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Trade | null>(null);
@@ -133,20 +136,7 @@ export default function App() {
     load();
   };
 
-  const loadPlans = useCallback(() => {
-    api.plans().then(setPlans).catch(() => {});
-  }, []);
-  useEffect(() => {
-    loadPlans();
-  }, [loadPlans]);
-
-  useEffect(() => {
-    api.weeks().then(setWeeks).catch(() => []);
-  }, []);
-
-  const saveWeek = (w: WeekNote) => setWeeks((list) => [w, ...list.filter((x) => x.week !== w.week)]);
-
-  /* Today as the rules see it: consequences, budgets, the plan — for the banners and the RiskChip. */
+  /* Today as the rules see it: consequences, budgets, the news — for the Today dock and the RiskChip. */
   const now = useNow();
   const todayNews = useMemo(() => {
     const day = deskDay(now);
@@ -158,28 +148,22 @@ export default function App() {
   const status = useMemo(
     () =>
       rulebook.loaded
-        ? deskStatus({ trades, plans, checkins, rulebookOf: rulebook.rulebookOf, doc: rulebook.doc, now, news: todayNews })
+        ? deskStatus({ trades, checkins, rulebookOf: rulebook.rulebookOf, doc: rulebook.doc, now, news: todayNews })
         : null,
-    [trades, plans, checkins, rulebook.loaded, rulebook.rulebookOf, rulebook.doc, now, todayNews],
+    [trades, checkins, rulebook.loaded, rulebook.rulebookOf, rulebook.doc, now, todayNews],
   );
-  /* What the Coach reads besides the trades: the rulebook, the plans, today's news. */
+  /* What the Coach reads besides the trades: the rulebook and today's news. */
   const desk: CoachDesk | null = useMemo(
-    () => (rulebook.loaded ? { doc: rulebook.doc, rulebookOf: rulebook.rulebookOf, plans, news: todayNews } : null),
-    [rulebook.loaded, rulebook.doc, rulebook.rulebookOf, plans, todayNews],
+    () => (rulebook.loaded ? { doc: rulebook.doc, rulebookOf: rulebook.rulebookOf, news: todayNews } : null),
+    [rulebook.loaded, rulebook.doc, rulebook.rulebookOf, todayNews],
   );
   const coachNudge = useMemo(
     // The Coach sets skipped setups aside itself.
     () => nudge(buildBriefing(trades, checkins, now, desk)),
     [trades, checkins, now, desk],
   );
-  /* The briefing's lean only counts when it is today's briefing. */
+  /* The briefing's lean only counts when it is today's briefing — it pre-fills "desk agreed" on today's trade. */
   const lean = dailyBias.freshness === "today" ? briefingLean(dailyBias.bias?.bias) : null;
-  const [planOpen, setPlanOpen] = useState(false);
-  const savePlan = (p: Plan) => {
-    setPlans((list) => [p, ...list.filter((x) => x.date !== p.date)]);
-    // A plan decides the day's no-plan flag; the server has re-judged the trades.
-    load();
-  };
 
   const load = useCallback(async () => {
     try {
@@ -201,9 +185,10 @@ export default function App() {
       .checkins()
       .then((list) => {
         setCheckins(list);
-        setCheckInOpen(!list.some((c) => c.date === dayKey(new Date())));
+        // Weekends are for analysis, not trading — the desk opens without the check-in.
+        setCheckInOpen(!isWeekendNY() && !list.some((c) => c.date === dayKey(new Date())));
       })
-      .catch(() => setCheckInOpen(true));
+      .catch(() => setCheckInOpen(!isWeekendNY()));
   }, []);
 
   const saveCheckin = (c: CheckInData) =>
@@ -235,8 +220,8 @@ export default function App() {
 
   /**
    * Saves a copy of everything as one JSON file — your own backup: trades, check-ins,
-   * plans, weekly notes, every rulebook version (the limits, the news rules and the
-   * settings live inside it) and the open items.
+   * every rulebook version (the limits, the news rules and the settings live inside
+   * it) and the open items.
    */
   async function exportData() {
     const openItems = await api.openItems().catch(() => []);
@@ -249,8 +234,6 @@ export default function App() {
             rulebookInForce: rulebook.current?.version ?? null,
             trades,
             checkins,
-            plans,
-            weeks,
             rulebookVersions: versions,
             openItems,
           },
@@ -274,15 +257,10 @@ export default function App() {
       <CheckIn
         trades={trades}
         checkins={checkins}
-        plans={plans}
-        weeks={weeks}
         doc={rulebook.doc}
         rulebookOf={rulebook.rulebookOf}
         calendar={news.events}
-        lean={lean}
         desk={desk}
-        onPlanSaved={savePlan}
-        onWeekSaved={saveWeek}
         onDone={(c) => {
           saveCheckin(c);
           setCheckInOpen(false);
@@ -366,7 +344,7 @@ export default function App() {
         </button>
         <button
           onClick={exportData}
-          title="Download a backup of everything: trades, check-ins, plans, weeks, every rulebook version, open items"
+          title="Download a backup of everything: trades, check-ins, every rulebook version, open items"
           className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] text-soft hover:bg-subtle hover:text-ink"
         >
           <Download size={14} /> <span className="hidden 2xl:inline">Backup</span>
@@ -381,7 +359,6 @@ export default function App() {
       )}
 
       <div className="mt-8 space-y-4">
-        {status && <StatusBanner status={status} news={todayNews} onWritePlan={() => setPlanOpen(true)} />}
         {/* The headline numbers stay visible on every tab — except Stats, which shows
             them in full, and Daily Bias, where the chart has to be the first thing on screen. */}
         {view !== "stats" && view !== "bias" && <StatsStrip trades={taken} />}
@@ -401,13 +378,9 @@ export default function App() {
               <CalendarView
                 trades={taken}
                 checkins={checkins}
-                plans={plans}
-                weeks={weeks}
                 doc={rulebook.doc}
                 rulebookOf={rulebook.rulebookOf}
                 calendar={news.events}
-                onWeekSaved={saveWeek}
-                since={rulebook.since}
                 onOpen={openEdit}
               />
             )}
@@ -436,7 +409,7 @@ export default function App() {
         <div
           key={alerts.lastAt}
           role="status"
-          className="anim-pop glass fixed bottom-6 right-6 z-[65] max-w-sm rounded-xl border px-4 py-3 text-[13px] shadow-[var(--shadow-lift)]"
+          className="anim-pop glass fixed bottom-[4.5rem] right-6 z-[65] max-w-sm rounded-xl border px-4 py-3 text-[13px] shadow-[var(--shadow-lift)]"
         >
           <button onClick={() => setToastGone(alerts.lastAt)} className="float-right ml-3 text-faint hover:text-ink" aria-label="Dismiss">
             ×
@@ -456,24 +429,8 @@ export default function App() {
         />
       )}
 
-      <Modal open={planOpen} onClose={() => setPlanOpen(false)} width="max-w-xl">
-        <div className="px-8 py-7">
-          <PlanForm
-            day={deskDay(now)}
-            plan={plans.find((p) => p.date === deskDay(now)) ?? null}
-            doc={rulebook.doc}
-            news={todayNews}
-            verdict={today?.verdict}
-            dayOff={status?.dayOff}
-            halfRisk={status?.halfRisk}
-            lean={lean}
-            onSaved={(p) => {
-              savePlan(p);
-              setPlanOpen(false);
-            }}
-          />
-        </div>
-      </Modal>
+      {/* Today's status, in the corner of every tab. */}
+      {rulebook.loaded && <TodayDock doc={rulebook.doc} status={status} news={todayNews} now={now} />}
 
       <TradeForm
         calendar={news.events}
@@ -482,10 +439,8 @@ export default function App() {
         open={formOpen}
         trade={editing}
         trades={trades}
-        plans={plans}
         checkins={checkins}
-        weeks={weeks}
-        onWeekSaved={saveWeek}
+        lean={lean}
         nudge={coachNudge}
         onClose={() => setFormOpen(false)}
         onSaved={load}

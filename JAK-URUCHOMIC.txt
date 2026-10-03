@@ -57,15 +57,17 @@ SKRÓT KLAWISZOWY (np. ⌘⇧T) — Shortcuts / Skróty:
 W APLIKACJI:
   N        — nowa transakcja (najpierw ocena setupu, potem transakcja)
   ⌘↵       — zapisz transakcję
-  1–5      — odpowiedzi w porannym check-inie (po nim: plan dnia)
-  Backup   — pobierz kopię wszystkiego: transakcje, check-iny, plany, notatki
-             tygodnia, każda wersja rulebooka (z limitami i regułami newsów),
-             otwarte punkty
+  1–5      — odpowiedzi w porannym check-inie (w weekend nie ma check-inu)
+  Today    — prawy dolny róg: status dnia (okna wejść, okna newsów, skip day);
+             kliknij, żeby zobaczyć cały dzień
+  Backup   — pobierz kopię wszystkiego: transakcje, check-iny, każda wersja
+             rulebooka (z limitami i regułami newsów), otwarte punkty
   Rulebook — zasady GOLD Model; każda zmiana wymaga powodu i tworzy nową wersję
 
 DANE DEMO (do wypróbowania Coacha, Risk laba i Compare):
-  npm run demo:add      ~9 tygodni transakcji demo z planami i check-inami
+  npm run demo:add      ~9 tygodni transakcji demo z check-inami
                         (kilka celowych naruszeń, żeby Coach miał co pokazać)
+  npm run demo:more     tylko 2 transakcje do Exit laba (MFE)
   npm run demo:fill     300 transakcji zdyscyplinowanego tradera
   npm run demo:remove   usuwa wszystko oznaczone [demo] — nic innego
   Demo kończy się 29.09.2026, więc nie dotyka żadnego prawdziwego dnia.

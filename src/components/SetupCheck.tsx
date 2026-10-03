@@ -492,7 +492,7 @@ export function GradePanel({
             {allowed}%
           </p>
           <p className="num text-[11px] text-faint">
-            day {budget.remaining}% of {limits.dailyStopPct}% · week {week.remaining}% of {limits.weeklyStopPct}% · cap{" "}
+            day {+budget.remaining.toFixed(2)}% of {limits.dailyStopPct}% · week {+week.remaining.toFixed(2)}% of {limits.weeklyStopPct}% · cap{" "}
             {limits.maxRiskPct}%{halfRisk ? " · ×½" : ""}
           </p>
         </div>

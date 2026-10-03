@@ -180,7 +180,6 @@ export type TradeFlag =
   | "past_time_stop"
   | "discretionary_exit"
   | "early_stop_move"
-  | "no_plan"
   | "during_day_off";
 
 export const FLAG_LABEL: Record<TradeFlag, string> = {
@@ -196,7 +195,6 @@ export const FLAG_LABEL: Record<TradeFlag, string> = {
   past_time_stop: "Held past the time stop",
   discretionary_exit: "Closed on a discretionary exit",
   early_stop_move: "Moved the stop before halfway",
-  no_plan: "No plan written on time",
   during_day_off: "Traded on a day off, or above half risk",
 };
 
@@ -293,11 +291,13 @@ export const EMOTIONS = ["Calm", "Focused", "Neutral", "Anxious", "Tilted"];
  *  - `daily-budget`: the day's loss budget is left and no trade was taken yet today
  *  - `news`: not a skip day and not inside a release window, at the entry time
  *  - `entry-window`: the entry time is inside the entry window
- *  - `plan`: a daily plan was written on time
+ *  - `plan`: v1.2 only — a daily plan written on time. Retired in v1.3; an old
+ *    snapshot's plan rule now reads as held, so the grades it gave stand.
  * When the data to decide is missing, the rule falls back to a hand tick.
  */
 export type AutoRule = "daily-budget" | "news" | "entry-window" | "plan";
-export const AUTO_RULES: AutoRule[] = ["daily-budget", "news", "entry-window", "plan"];
+/** The auto rules a rule can be given today — `plan` is kept only for v1.2 snapshots. */
+export const AUTO_RULES: AutoRule[] = ["daily-budget", "news", "entry-window"];
 
 /**
  * A yes/no condition that must hold for any trade. One unticked base rule caps the
@@ -330,7 +330,8 @@ export interface NumberCut {
  * A factor whose answer the desk fills in:
  *  - `compass`: the frozen Compass value for the trade's weekday and direction
  *  - `displacement`: the MSS close beyond the swing ÷ the 5m ATR(14)
- *  - `bias`: today's plan's bias against the trade's direction (still editable)
+ *  - `bias`: v1.2 only — the bias came from the daily plan. Since v1.3 the bias is
+ *    answered by hand, and an old snapshot's `bias` factor is a plain choice.
  */
 export type AutoFactor = "compass" | "displacement" | "bias";
 
@@ -424,16 +425,6 @@ export const checklistRecorded = (t: Pick<Trade, "checklist" | "checklistTotal">
   t.checklistTotal > 0 || t.checklist.length > 0;
 
 /* ── Weeks ───────────────────────────────────────────────────────────── */
-
-/** Your reasoning for the week — written once, referenced all week. */
-export interface WeekNote {
-  week: string; // "2026-W39"
-  bias: string; // long | short | neutral | ""
-  reasoning: string;
-  levels: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 /** ISO week key for a date, e.g. "2026-W39". */
 export function weekKey(d: Date): string {

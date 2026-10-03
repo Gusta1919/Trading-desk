@@ -13,7 +13,6 @@ import { costDrag, limitState } from "./limits";
 import { adherence, deskStatus, weekSpan } from "./discipline";
 import { hypothesisResults } from "./hypotheses";
 import type { NewsDay } from "./newsRules";
-import type { Plan } from "./plans";
 import { dayBudget } from "./risk";
 import { tokenValues, type Rulebook } from "./rulebook";
 import { minutesOf } from "./rules";
@@ -204,11 +203,10 @@ const dayOfYear = (d: Date) =>
 
 /* ── The briefing ────────────────────────────────────────────────────── */
 
-/** The desk the Coach reads besides your trades: the rulebook, the plans, today's news. */
+/** The desk the Coach reads besides your trades: the rulebook and today's news. */
 export interface CoachDesk {
   doc: Rulebook;
   rulebookOf: (version: string | null) => Rulebook;
-  plans: Plan[];
   /** Today as the news rules see it; null when the calendar doesn't cover today. */
   news?: NewsDay | null;
 }
@@ -243,7 +241,7 @@ export function buildBriefing(
 
   /*
    * Today, as the rulebook sees it: one trade a day, a daily and a weekly stop, the
-   * consequences still running, the plan and the news.
+   * consequences still running and the news.
    */
   const L = limits ?? DEFAULT_LIMITS;
   const budget = dayBudget(trades, today, L);
@@ -253,7 +251,7 @@ export function buildBriefing(
   const afterStop = todays.filter((t) => t.flags.includes("after_daily_stop"));
   const brokenToday = todays.filter((t) => t.flags.some((f) => f !== "after_daily_stop"));
   const status = desk
-    ? deskStatus({ trades: allTrades, plans: desk.plans, checkins, rulebookOf: desk.rulebookOf, doc: desk.doc, now, news: desk.news })
+    ? deskStatus({ trades: allTrades, checkins, rulebookOf: desk.rulebookOf, doc: desk.doc, now, news: desk.news })
     : null;
   const nowTime = deskNow(now).slice(11, 16);
   const nowMin = minutesOf(nowTime)!;
@@ -341,27 +339,6 @@ export function buildBriefing(
         priority: 97,
         title: "Skip day — no trading",
         body: `${desk?.news?.skip.length ? desk.news.skip.join(", ") : "The year-end break"}. The rulebook doesn't trade this day at all, however clean a setup looks.`,
-      });
-    }
-    if (status.noPlan) {
-      add({
-        id: "no-plan",
-        tone: "alert",
-        priority: 98,
-        title: "No plan, no trade today",
-        body:
-          status.plan === "late"
-            ? `The plan was written after ${doc?.planBy}. It still helps tomorrow's review, but it doesn't open today.`
-            : `No plan was written by ${doc?.planBy}. That alone makes today a no-trade day.`,
-        why: "The plan is where the calm version of you decides what counts as a setup. Without it, the chart decides — and the chart always has a setup.",
-      });
-    } else if (status.plan === "missing" && doc) {
-      add({
-        id: "plan-due",
-        tone: "warn",
-        priority: 92,
-        title: `Write today's plan before ${doc.planBy}`,
-        body: "Bias, levels, release windows, the Compass — and anything that makes today a no-trade day.",
       });
     }
   }
@@ -1122,8 +1099,6 @@ export function buildBriefing(
           : "Done for today. One trade, one thesis."
       : status?.dayOff
         ? "Day off. The desk is closed today."
-      : status?.noPlan
-        ? "No plan, no trade today."
       : tone === "alert"
         ? "Slow down. Read this before the session opens."
         : tone === "warn"

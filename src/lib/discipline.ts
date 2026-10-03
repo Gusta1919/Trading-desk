@@ -3,7 +3,7 @@
  *
  * Everything is derived, never stored as a decision. The history is walked in date
  * order; each trade is judged against what had happened before it — the day's and
- * the week's budgets, the consequences already running, the plan, the check-in — and
+ * the week's budgets, the consequences already running, the check-in — and
  * its flags in turn set the consequences for what follows. The server re-runs this
  * after every write, so deleting a mistaken first trade also clears the "second trade
  * today" on the one after it, and the two days off that came with it.
@@ -18,7 +18,6 @@
  */
 import type { CheckIn, Verdict } from "./checkin";
 import { fromTradeNews, newsDay, releaseWindowAt, type NewsDay, type NewsItem, inSkipRange } from "./newsRules";
-import { planStatus, type Plan, type PlanStatus } from "./plans";
 import { allowedRisk, dayBudget, gradeCard, takenTrades, weekBudget, weekOfDay, type DayBudget } from "./risk";
 import { atLeast, type Rulebook } from "./rulebook";
 import { FIRST_VERSION } from "./rulebookText";
@@ -34,7 +33,6 @@ export const LIMIT_FLAGS: TradeFlag[] = ["second_trade_today", "after_daily_stop
 
 export interface DisciplineInput {
   trades: Trade[];
-  plans: Plan[];
   checkins: Pick<CheckIn, "date" | "verdict">[];
   /** The rulebook a trade was graded under; null = the current one. */
   rulebookOf: (version: string | null) => Rulebook;
@@ -123,7 +121,6 @@ const byTime = (a: Trade, b: Trade) => a.date.localeCompare(b.date) || a.created
 export function evaluateHistory(input: DisciplineInput): { byId: Map<string, TradeJudgement>; timeline: Timeline } {
   const now = input.now ?? new Date();
   const nowStamp = deskNow(now);
-  const plans = new Map(input.plans.map((p) => [p.date, p]));
   const verdicts = new Map(input.checkins.map((c) => [c.date, c.verdict]));
   const taken = takenTrades(input.trades).sort(byTime);
 
@@ -175,7 +172,6 @@ export function evaluateHistory(input: DisciplineInput): { byId: Map<string, Tra
       if (pastTimeStop(t.date, t.exitTime, doc.timeStop) || stillOpenPastStop) set.add("past_time_stop");
       if (t.exitReason === "other") set.add("discretionary_exit");
       if (t.earlyStopMove === true) set.add("early_stop_move");
-      if (planStatus(plans.get(day), doc.planBy) !== "on-time") set.add("no_plan");
       flags = ALL_FLAGS.filter((f) => set.has(f));
     }
 
@@ -225,20 +221,19 @@ export interface DeskStatus {
   takenToday: Trade[];
   open: Trade[];
   doneForToday: boolean;
-  plan: PlanStatus;
-  /** Past the plan deadline without a plan written on time. */
-  noPlan: boolean;
   /** Today is a skip day — from today's news, or the fixed year-end range. */
   skipDay: boolean;
   verdict: Verdict | undefined;
   /** What each grade may risk right now, after everything above. */
   allowedByGrade: Record<Grade, number>;
+  /** Why no grade may be traded today, in a few words; null when the day is open. */
+  blocked: string | null;
 }
 
 /**
  * `news` is today as the news rules see it (null when the calendar has nothing for
- * today): a skip day leaves nothing tradable, like a missing plan does — both fail a
- * base rule, and a missing base rule makes any setup a C.
+ * today): a skip day leaves nothing tradable — it fails a base rule, and a missing
+ * base rule makes any setup a C.
  */
 export function deskStatus(input: DisciplineInput & { doc: Rulebook; news?: NewsDay | null }): DeskStatus {
   const now = input.now ?? new Date();
@@ -255,23 +250,33 @@ export function deskStatus(input: DisciplineInput & { doc: Rulebook; news?: News
   const dayOff = timeline.dayOff.get(day) ?? null;
   const halfRisk = timeline.halfWeeks.has(week);
   const multiplier = halfRisk ? doc.consequences.factor : 1;
-  const plan = planStatus(input.plans.find((p) => p.date === day), doc.planBy);
   const verdict = input.checkins.find((c) => c.date === day)?.verdict;
   const doneForToday = takenToday.filter(isClosed).length >= doc.maxTradesPerDay || dayB.stopHit;
 
-  const noPlan = plan !== "on-time" && stamp.slice(11, 16) >= doc.planBy;
   const skipDay = Boolean(input.news?.skip.length) || inSkipRange(day, doc.news);
+  // The first thing that closes the whole day, in the order the consequences matter.
+  const blocked = isWeekend(day)
+    ? "it's the weekend"
+    : dayOff
+      ? dayOff.reason === "rule-break"
+        ? "day off after a rule break today"
+        : `days off until ${dayOff.until}`
+      : weekB.stopHit
+        ? "the weekly stop is hit"
+        : dayB.stopHit
+          ? "the daily stop is hit"
+          : skipDay
+            ? "it's a skip day"
+            : takenToday.length >= doc.maxTradesPerDay
+              ? "today's trade is taken"
+              : verdict === "sit-out"
+                ? "the check-in says sit out"
+                : null;
   const allowedByGrade = {} as Record<Grade, number>;
   for (const card of doc.grades) {
     const gRisk = card.traded ? card.riskPct : 0;
-    const blocked =
-      dayOff ||
-      doneForToday ||
-      noPlan ||
-      skipDay ||
-      takenToday.length >= doc.maxTradesPerDay ||
-      !tradableToday(card, verdict);
-    allowedByGrade[card.grade] = blocked ? 0 : allowedRisk(gRisk, dayB, doc.limits, { week: weekB, multiplier });
+    const closed = blocked || doneForToday || !tradableToday(card, verdict);
+    allowedByGrade[card.grade] = closed ? 0 : allowedRisk(gRisk, dayB, doc.limits, { week: weekB, multiplier });
   }
   return {
     day,
@@ -284,11 +289,10 @@ export function deskStatus(input: DisciplineInput & { doc: Rulebook; news?: News
     takenToday,
     open,
     doneForToday,
-    plan,
-    noPlan,
     skipDay,
     verdict,
     allowedByGrade,
+    blocked,
   };
 }
 
@@ -300,7 +304,6 @@ export interface AutoContext {
   date: string;
   /** Taken trades before this one, excluding itself. */
   trades: Trade[];
-  plans: Plan[];
   /** The day's releases, or null when nothing is known about that day. */
   news: NewsItem[] | null;
 }
@@ -322,7 +325,8 @@ export function autoRuleState(auto: AutoRule, ctx: AutoContext): boolean | null 
     case "entry-window":
       return minutesOf(time) == null ? null : inEntryWindow(time, doc.entryWindows);
     case "plan":
-      return planStatus(ctx.plans.find((p) => p.date === day), doc.planBy) === "on-time";
+      // Retired in v1.3 — an old snapshot's plan rule stands as held.
+      return true;
     case "news": {
       if (inSkipRange(day, doc.news)) return false;
       if (ctx.news == null) return null;

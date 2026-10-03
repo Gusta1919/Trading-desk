@@ -120,10 +120,32 @@ export function RiskChip({
                 {status.dayOff.reason === "rule-break" ? "Day off — a rule was broken today." : `Days off until ${status.dayOff.until}.`}
               </p>
             )}
-            <p>
-              The next A+ may risk{" "}
-              <b className="num text-ink">{status.allowedByGrade["A+"]}%</b>, the next A{" "}
-              <b className="num text-ink">{status.allowedByGrade.A}%</b>.
+          </div>
+
+          {/* What a trade taken now may risk, and why when it's nothing. */}
+          <div className="mt-3 border-t pt-3 text-[11px] text-soft">
+            <p className="flex items-center justify-between gap-3">
+              <span>A new trade may risk</span>
+              {status.blocked ? (
+                <b className="num text-down">0%</b>
+              ) : (
+                <span className="num">
+                  {(["A+", "A"] as const).map((g, i) => (
+                    <span key={g}>
+                      {i > 0 && <span className="text-faint"> · </span>}
+                      <span className="text-faint">{g} </span>
+                      <b className={status.allowedByGrade[g] > 0 ? "text-ink" : "text-down"}>{status.allowedByGrade[g]}%</b>
+                    </span>
+                  ))}
+                </span>
+              )}
+            </p>
+            <p className="mt-1 text-faint">
+              {status.blocked
+                ? `Nothing today — ${status.blocked}.`
+                : status.verdict === "caution"
+                  ? "Caution check-in: A+ only today."
+                  : "The smallest of the grade's risk, what's left today and this week, and the max per trade."}
             </p>
           </div>
 

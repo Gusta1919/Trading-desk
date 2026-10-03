@@ -437,3 +437,17 @@ export function freshness(briefingDate: string | null, now: Date = new Date()): 
   if (clock.weekend) return "offday";
   return clock.minutes < RUN_AT_MIN + LATE_AFTER_MIN ? "waiting" : "late";
 }
+
+/**
+ * Which way the briefing leans: its largest of the three odds. A range day reads as
+ * "unclear" — it has no direction for a trade to agree or disagree with.
+ */
+export function briefingLean(
+  odds: { bullish: number; range: number; bearish: number } | null | undefined,
+): "bullish" | "bearish" | "unclear" | null {
+  if (!odds) return null;
+  const { bullish, range, bearish } = odds;
+  if (bullish > range && bullish > bearish) return "bullish";
+  if (bearish > range && bearish > bullish) return "bearish";
+  return "unclear";
+}

@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { Rulebook, RulebookVersion, VersionRow } from "./rulebook";
 import { defaultRulebook } from "./rulebookText";
-import { deskDay } from "./tz";
 
 export interface RulebookState {
   /** The version in force — the built-in v1.2 until the server answers. */
@@ -17,8 +16,6 @@ export interface RulebookState {
   /** Any version's document; the current one for null or an unknown version. */
   rulebookOf: (version: string | null) => Rulebook;
   loaded: boolean;
-  /** The New York day the first version was written — when the rulebook began. */
-  since: string | undefined;
   reload: () => Promise<void>;
 }
 
@@ -46,7 +43,5 @@ export function useRulebook(): RulebookState {
   const fallback = useMemo(() => defaultRulebook(), []);
   const doc = current?.doc ?? fallback;
   const rulebookOf = useCallback((v: string | null) => (v ? (docs.get(v) ?? doc) : doc), [docs, doc]);
-  const first = versions[versions.length - 1];
-  const since = first ? deskDay(new Date(first.createdAt)) : undefined;
-  return { doc, current, versions, rulebookOf, loaded: current != null, since, reload };
+  return { doc, current, versions, rulebookOf, loaded: current != null, reload };
 }

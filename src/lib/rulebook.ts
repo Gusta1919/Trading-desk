@@ -131,8 +131,8 @@ export interface Rulebook {
 
   /* When */
   box: TimeWindow;
-  /** The daily plan must exist by this time. */
-  planBy: string;
+  /** v1.2 only: the daily plan had to exist by this time. Retired in v1.3. */
+  planBy?: string;
   entryWindows: TimeWindow[];
   timeStop: string;
   /** The Compass measures the opposite side being reached by this time. */
@@ -320,7 +320,7 @@ export function tokenValues(doc: Rulebook): Record<string, string | null> {
     "box.from": doc.box.from,
     "box.to": doc.box.to,
     "box.name": `CRT ${hour12(doc.box.from)}–${hour12(doc.box.to)}AM box`,
-    planBy: doc.planBy,
+    planBy: doc.planBy ?? null,
     windows: and(doc.entryWindows.map((w) => span(w)!)),
     timeStop: doc.timeStop,
     compassBy: doc.compassBy,
@@ -555,7 +555,7 @@ export function rulebookErrors(doc: Rulebook): string[] {
   const times: [string, string][] = [
     ["Box start", doc.box.from],
     ["Box end", doc.box.to],
-    ["Plan deadline", doc.planBy],
+    ...(doc.planBy ? ([["Plan deadline", doc.planBy]] as [string, string][]) : []),
     ["Time stop", doc.timeStop],
     ["Compass cut-off", doc.compassBy],
     ...doc.entryWindows.flatMap((w, i): [string, string][] => [

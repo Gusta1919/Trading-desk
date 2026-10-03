@@ -1,9 +1,8 @@
 import type { CheckIn } from "./checkin";
 import type { Candle, Timeframe } from "./chart";
 import type { BiasFile } from "./dailyBias";
-import type { Plan, PlanInput } from "./plans";
 import type { Rulebook, RulebookVersion, VersionRow } from "./rulebook";
-import type { Limits, Trade, TradeInput, WeekNote } from "./types";
+import type { Limits, Trade, TradeInput } from "./types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -24,9 +23,6 @@ export const api = {
   update: (id: string, t: TradeInput) =>
     request<Trade>(`/api/trades/${id}`, { method: "PUT", body: JSON.stringify(t) }),
   remove: (id: string) => request<void>(`/api/trades/${id}`, { method: "DELETE" }),
-  weeks: () => request<WeekNote[]>("/api/weeks"),
-  saveWeek: (w: Pick<WeekNote, "week" | "bias" | "reasoning" | "levels">) =>
-    request<WeekNote>(`/api/weeks/${w.week}`, { method: "PUT", body: JSON.stringify(w) }),
   limits: () => request<Limits>("/api/limits"),
   /** A limit is a rule: changing one writes a new rulebook version, so it needs a reason. */
   saveLimits: (l: Limits, reason: string) =>
@@ -36,9 +32,6 @@ export const api = {
   version: (v: string) => request<RulebookVersion>(`/api/rulebook/versions/${encodeURIComponent(v)}`),
   saveRulebook: (doc: Rulebook, reason: string, bump: "minor" | "major") =>
     request<RulebookVersion>("/api/rulebook", { method: "PUT", body: JSON.stringify({ doc, reason, bump }) }),
-  plans: () => request<Plan[]>("/api/plans"),
-  savePlan: (p: PlanInput) =>
-    request<Plan>(`/api/plans/${p.date}`, { method: "PUT", body: JSON.stringify(p) }),
   openItems: () => request<OpenItem[]>("/api/open-items"),
   setOpenItem: (id: string, done: boolean) =>
     request<OpenItem>(`/api/open-items/${id}`, { method: "PUT", body: JSON.stringify({ done }) }),

@@ -7,10 +7,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { autoRuleState, deskStatus, evaluateHistory, judgeDraft, nextTradingDays } from "../src/lib/discipline";
-import { planOnTime } from "../src/lib/plans";
 import { weekBudget } from "../src/lib/risk";
 import type { Trade, TradeNews } from "../src/lib/types";
-import { doc, plan, rulebookOf, ruledTrade } from "./fixtures";
+import { doc, rulebookOf, ruledTrade } from "./fixtures";
 
 const MON = "2026-10-05";
 const TUE = "2026-10-06";
@@ -18,11 +17,10 @@ const WED = "2026-10-07";
 const THU = "2026-10-08";
 const FRI = "2026-10-09";
 const NEXT_MON = "2026-10-12";
-const allPlans = [MON, TUE, WED, THU, FRI, NEXT_MON, "2026-10-13", "2026-10-14"].map((d) => plan(d));
 const LATE = new Date("2026-10-20T12:00:00Z");
 
-function judge(trades: Trade[], extra: { plans?: typeof allPlans; checkins?: { date: string; verdict: "ready" | "caution" | "sit-out" }[]; now?: Date } = {}) {
-  return evaluateHistory({ trades, plans: extra.plans ?? allPlans, checkins: extra.checkins ?? [], rulebookOf, now: extra.now ?? LATE });
+function judge(trades: Trade[], extra: { checkins?: { date: string; verdict: "ready" | "caution" | "sit-out" }[]; now?: Date } = {}) {
+  return evaluateHistory({ trades, checkins: extra.checkins ?? [], rulebookOf, now: extra.now ?? LATE });
 }
 const flagsOf = (trades: Trade[], t: Trade, extra = {}) => judge(trades, extra).byId.get(t.id)!.flags;
 
@@ -87,13 +85,6 @@ describe("flags", () => {
       flagsOf([other], other).filter((f) => f === "discretionary_exit" || f === "early_stop_move"),
       ["discretionary_exit", "early_stop_move"],
     );
-  });
-
-  it("no plan, or a plan written after 04:00", () => {
-    const t = ruledTrade(`${MON}T04:30`);
-    assert.ok(flagsOf([t], t, { plans: [] }).includes("no_plan"));
-    assert.ok(flagsOf([t], t, { plans: [plan(MON, `${MON}T08:05:00.000Z`)] }).includes("no_plan")); // 04:05 NY
-    assert.ok(!flagsOf([t], t, { plans: [plan(MON, `${MON}T07:59:00.000Z`)] }).includes("no_plan")); // 03:59 NY
   });
 
   it("B and C are never tradable; the check-in narrows A+ and A further", () => {
@@ -191,7 +182,7 @@ describe("the consequence ladder", () => {
   it("judges a draft against the rest before it is saved", () => {
     const a = ruledTrade(`${MON}T04:30`);
     const draft = ruledTrade(`${MON}T09:45`);
-    const j = judgeDraft(draft, { trades: [a], plans: allPlans, checkins: [], rulebookOf, now: LATE });
+    const j = judgeDraft(draft, { trades: [a], checkins: [], rulebookOf, now: LATE });
     assert.ok(j.flags.includes("second_trade_today"));
   });
 });
@@ -199,43 +190,36 @@ describe("the consequence ladder", () => {
 describe("today's status", () => {
   const now = new Date(`${TUE}T10:00:00Z`); // 06:00 NY
   it("is done for today after the day's trade closes", () => {
-    const s = deskStatus({ trades: [ruledTrade(`${TUE}T04:30`)], plans: allPlans, checkins: [], rulebookOf, doc, now });
+    const s = deskStatus({ trades: [ruledTrade(`${TUE}T04:30`)], checkins: [], rulebookOf, doc, now });
     assert.equal(s.doneForToday, true);
     assert.equal(s.allowedByGrade["A+"], 0);
   });
   it("allows 0.5% on A+ and A, nothing on B, on a fresh day", () => {
-    const s = deskStatus({ trades: [], plans: allPlans, checkins: [], rulebookOf, doc, now });
+    const s = deskStatus({ trades: [], checkins: [], rulebookOf, doc, now });
     assert.deepEqual(s.allowedByGrade, { "A+": 0.5, A: 0.5, B: 0, C: 0 });
-    assert.equal(s.noPlan, false);
+    assert.equal(s.blocked, null);
   });
-  it("says no plan, no trade once 04:00 has passed without one", () => {
-    const s = deskStatus({ trades: [], plans: [], checkins: [], rulebookOf, doc, now });
-    assert.equal(s.noPlan, true);
-    const early = deskStatus({ trades: [], plans: [], checkins: [], rulebookOf, doc, now: new Date(`${TUE}T07:00:00Z`) });
-    assert.equal(early.noPlan, false); // 03:00 NY — still time to write it
+  it("says why nothing is allowed: the weekend, a taken trade, a sit-out check-in", () => {
+    const sat = deskStatus({ trades: [], checkins: [], rulebookOf, doc, now: new Date("2026-10-10T14:00:00Z") });
+    assert.equal(sat.blocked, "it's the weekend");
+    assert.deepEqual(sat.allowedByGrade, { "A+": 0, A: 0, B: 0, C: 0 });
+    const taken = deskStatus({ trades: [ruledTrade(`${TUE}T04:30`)], checkins: [], rulebookOf, doc, now });
+    assert.equal(taken.blocked, "today's trade is taken");
+    const sit = deskStatus({ trades: [], checkins: [{ date: TUE, verdict: "sit-out" }], rulebookOf, doc, now });
+    assert.equal(sit.blocked, "the check-in says sit out");
   });
   it("on Caution only A+ is allowed", () => {
-    const s = deskStatus({ trades: [], plans: allPlans, checkins: [{ date: TUE, verdict: "caution" }], rulebookOf, doc, now });
+    const s = deskStatus({ trades: [], checkins: [{ date: TUE, verdict: "caution" }], rulebookOf, doc, now });
     assert.deepEqual(s.allowedByGrade, { "A+": 0.5, A: 0, B: 0, C: 0 });
   });
 });
 
-describe("plans", () => {
-  it("counts as on time only before the deadline, by when it was first written", () => {
-    assert.ok(planOnTime(plan(MON, `${MON}T07:59:00.000Z`), "04:00"));
-    assert.ok(!planOnTime(plan(MON, `${MON}T08:00:00.000Z`), "04:00"));
-    assert.ok(planOnTime(plan(TUE, `${MON}T22:00:00.000Z`), "04:00")); // written the evening before
-    assert.ok(!planOnTime(null, "04:00"));
-  });
-});
-
 describe("automatic base rules", () => {
-  const ctx = (date: string, extra = {}) => ({ doc, date, trades: [] as Trade[], plans: allPlans, news: [], ...extra });
-  it("knows the entry window and the plan", () => {
+  const ctx = (date: string, extra = {}) => ({ doc, date, trades: [] as Trade[], news: [], ...extra });
+  it("knows the entry window; the retired v1.2 plan rule reads as held", () => {
     assert.equal(autoRuleState("entry-window", ctx(`${MON}T04:30`)), true);
     assert.equal(autoRuleState("entry-window", ctx(`${MON}T08:30`)), false);
     assert.equal(autoRuleState("plan", ctx(`${MON}T04:30`)), true);
-    assert.equal(autoRuleState("plan", ctx(`${MON}T04:30`, { plans: [] })), false);
   });
   it("answers the news rule, or hands it back when there is no data", () => {
     assert.equal(autoRuleState("news", ctx(`${MON}T04:30`)), true);
@@ -254,7 +238,7 @@ describe("today's allowance on a skip day", () => {
   it("is nothing, whatever the grade", () => {
     const now = new Date(`${FRI}T10:00:00Z`);
     const news = { skip: ["US Non-Farm Payrolls"], windows: [] };
-    const s = deskStatus({ trades: [], plans: allPlans, checkins: [], rulebookOf, doc, now, news });
+    const s = deskStatus({ trades: [], checkins: [], rulebookOf, doc, now, news });
     assert.equal(s.skipDay, true);
     assert.deepEqual(s.allowedByGrade, { "A+": 0, A: 0, B: 0, C: 0 });
   });

@@ -7,7 +7,6 @@ import { describe, it } from "node:test";
 import { computeGrade } from "../src/lib/grading";
 import { BIAS_OPTION, defaultRulebook } from "../src/lib/rulebookText";
 import {
-  biasAnswer,
   compassFor,
   displacementMultiple,
   excursions,
@@ -95,16 +94,6 @@ describe("displacement", () => {
   it("puts a Compass of exactly 60% above the cut", () => {
     assert.equal(gradeWith({ compass: 59.9 }), "B");
     assert.equal(gradeWith({ compass: 60 }), "A+");
-  });
-});
-
-describe("daily bias from the plan", () => {
-  it("matches, is unclear, or is against the trade", () => {
-    assert.equal(biasAnswer("bullish", "long"), BIAS_OPTION.matches);
-    assert.equal(biasAnswer("bearish", "short"), BIAS_OPTION.matches);
-    assert.equal(biasAnswer("bullish", "short"), BIAS_OPTION.against);
-    assert.equal(biasAnswer("unclear", "long"), BIAS_OPTION.unclear);
-    assert.equal(biasAnswer("", "long"), null);
   });
 });
 

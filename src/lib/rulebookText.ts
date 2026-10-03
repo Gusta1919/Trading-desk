@@ -572,3 +572,55 @@ Guidance (shown while editing, never blocking):
   { id: "glossary", title: "Glossary", body: "[[glossary]]" },
   { id: "changelog", title: "Changelog", body: "[[changelog]]" },
 ];
+
+/* ── v1.3: the written plan retired ──────────────────────────────────── */
+
+export const PLAN_RETIRED_VERSION = "1.3";
+export const PLAN_RETIRED_REASON =
+  "Written daily plan retired: the first gate is now a decided daily bias, ticked in the setup check; the desk shows today's status itself";
+
+/** The base rule that replaces "Written daily plan exists". */
+export const BIAS_RULE = { id: "bias-decided", text: "Daily bias decided", hint: "Bullish, Bearish or Unclear, before the entry" };
+
+const PREP_V13 = `Nothing has to be written down: the desk shows today's status (skip day, entry windows, release windows) on every tab. Decide the daily bias before the first entry.
+
+1. **Calendar:** is today a skip day, and which red releases fall inside the entry window?
+2. **Level map:** PDH/PDL, PWH/PWL, the monthly, quarterly and yearly highs and lows, the ATH, and obvious EQH/EQL.
+3. **HTF points of interest:** 1H, 4H, Daily and Weekly FVGs, OBs and VIMBs near current price.
+4. **Daily bias:** Bullish, Bearish or Unclear. It comes from the Daily chart and the level map, i.e. where the next draw on liquidity sits. You form most of it yourself.
+5. **Desk check:** the Daily Bias briefing may support or question the bias. It can veto a trade, but it can never create one or flip the bias.
+6. **Compass:** today's weekday value for both directions, from the frozen snapshot ({{ref:grading}}).`;
+
+const NO_PLAN_LINE = "- **No plan, no trade.** No written plan by {{planBy}} NY means no trading that day.";
+const NO_BIAS_LINE = "- **No bias, no trade.** The daily bias (Bullish, Bearish or Unclear) is decided before the first entry.";
+
+/**
+ * The v1.3 change applied to whatever version is in force: the plan base rule becomes
+ * "Daily bias decided", the bias factor is answered by hand, the plan deadline goes,
+ * and the text that spoke of the plan is rewritten. Text you edited yourself is kept;
+ * only a leftover {{planBy}} in it is written out as the time it stood for.
+ */
+export function retirePlan(doc: Rulebook): Rulebook {
+  const was = doc.planBy ?? "04:00";
+  const { planBy: _gone, ...rest } = doc;
+  const outPlan = (text: string) => text.split("{{planBy}}").join(was);
+  return {
+    ...rest,
+    baseRules: doc.baseRules.map((r) => (r.id === "plan" ? { ...BIAS_RULE } : r)),
+    factors: doc.factors.map((f) => {
+      if (f.auto !== "bias") return f;
+      const { auto: _auto, ...plain } = f;
+      return { ...plain, hint: "your daily bias against the trade's direction" };
+    }),
+    flow: {
+      ...doc.flow,
+      gates: doc.flow.gates.map((g) => (g === "Plan written by {{planBy}} NY?" ? "Daily bias decided?" : outPlan(g))),
+    },
+    sections: doc.sections.map((s) => {
+      if (s.id === "prep" && s.body.startsWith("No written plan by {{planBy}} NY means no trading that day.")) {
+        return { ...s, body: PREP_V13 };
+      }
+      return { ...s, body: outPlan(s.body.replace(NO_PLAN_LINE, NO_BIAS_LINE)) };
+    }),
+  };
+}

@@ -15,7 +15,7 @@ import {
   tokenValues,
   type Rulebook,
 } from "../src/lib/rulebook";
-import { defaultRulebook } from "../src/lib/rulebookText";
+import { BIAS_RULE, PLAN_RETIRED_VERSION, defaultRulebook, retirePlan } from "../src/lib/rulebookText";
 
 const v = (doc: Rulebook, key: string) => tokenValues(doc)[key];
 
@@ -166,5 +166,32 @@ describe("glossary tips", () => {
       ["MSS", "MAE", "EQL"],
     );
     assert.equal(parts.map((p) => p.text).join(""), "5m MSS after the sweep; MSS again. MAE and EQL, not MSSX.");
+  });
+});
+
+describe("v1.3 — the written plan retired", () => {
+  const v13 = { ...retirePlan(defaultRulebook()), version: PLAN_RETIRED_VERSION };
+  it("swaps the plan rule for a hand-ticked 'daily bias decided'", () => {
+    assert.equal(v13.baseRules.length, 9);
+    assert.ok(!v13.baseRules.some((r) => r.id === "plan"));
+    const bias = v13.baseRules.find((r) => r.id === BIAS_RULE.id)!;
+    assert.equal(bias.text, "Daily bias decided");
+    assert.equal(bias.auto, undefined);
+    assert.deepEqual(v13.baseRules.filter((r) => r.auto).map((r) => r.auto), ["news", "entry-window", "daily-budget"]);
+  });
+  it("answers the bias factor by hand, drops the deadline, and rewrites the gate", () => {
+    assert.equal(v13.factors.find((f) => f.id === "bias")!.auto, undefined);
+    assert.equal(v13.planBy, undefined);
+    assert.equal(v13.flow.gates[0], "Daily bias decided?");
+  });
+  it("leaves no {{planBy}} behind, so the text still validates", () => {
+    assert.ok(!JSON.stringify(v13).includes("{{planBy}}"));
+    assert.deepEqual(rulebookErrors(v13), []);
+  });
+  it("keeps text you edited, writing out a leftover deadline as the time", () => {
+    const edited = defaultRulebook();
+    edited.sections = edited.sections.map((s) => (s.id === "prep" ? { ...s, body: `My own prep, done by {{planBy}}.` } : s));
+    const out = retirePlan(edited);
+    assert.equal(out.sections.find((s) => s.id === "prep")!.body, "My own prep, done by 04:00.");
   });
 });

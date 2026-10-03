@@ -5,9 +5,7 @@
  * ("2026-10-05T04:23"), never through a Date in this machine's timezone: Gustaw's Mac
  * runs on Amsterdam time, and a Date would quietly move a 04:23 entry to 10:23.
  */
-import { BIAS_OPTION } from "./rulebookText";
 import { WEEKDAY_KEYS, type Rulebook, type TimeWindow, type Weekday } from "./rulebook";
-import type { PlanBias } from "./plans";
 import type { Direction } from "./types";
 
 /** Minutes since midnight for "HH:mm", or null. */
@@ -86,14 +84,6 @@ export function compassFor(doc: Pick<Rulebook, "compass">, day: string, directio
 export function displacementMultiple(mssBeyond: number | null, atr: number | null): number | null {
   if (mssBeyond == null || atr == null || !(atr > 0) || mssBeyond < 0) return null;
   return Number((mssBeyond / atr).toFixed(4));
-}
-
-/** The daily-bias answer from the plan's bias and the trade's direction. */
-export function biasAnswer(bias: PlanBias | "" | undefined, direction: Direction): string | null {
-  if (!bias) return null;
-  if (bias === "unclear") return BIAS_OPTION.unclear;
-  const matches = (bias === "bullish" && direction === "long") || (bias === "bearish" && direction === "short");
-  return matches ? BIAS_OPTION.matches : BIAS_OPTION.against;
 }
 
 /* ── Prices ──────────────────────────────────────────────────────────── */

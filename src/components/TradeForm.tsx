@@ -15,12 +15,9 @@ import { fmtPct, fmtR, nowLocal, tone } from "@/lib/format";
 import { computeGrade } from "@/lib/grading";
 import { coveredDays, fromEvent, fromTradeNews, newsDay, releaseWindowAt, type NewsItem } from "@/lib/newsRules";
 import { newsForTrade, ruleCurrencies, type CalendarEvent } from "@/lib/news";
-import type { Plan } from "@/lib/plans";
-import { planStatus } from "@/lib/plans";
 import { dayBudget, gradeCard, gradeRisk, takenTrades, weekBudget, weekOfDay } from "@/lib/risk";
 import { autoFactor, fill as fillText, tokenValues, type Rulebook } from "@/lib/rulebook";
 import {
-  biasAnswer,
   compassFor,
   dayOf,
   displacementMultiple,
@@ -34,7 +31,7 @@ import {
   sweepDepthOf,
   timeOf,
 } from "@/lib/rules";
-import { DESK_LABEL, deskTime } from "@/lib/tz";
+import { DESK_LABEL, deskDay, deskTime } from "@/lib/tz";
 import {
   DESK_AGREED,
   EMOTIONS,
@@ -58,16 +55,12 @@ import {
   type TradeInput,
   type TradeFlag,
   type TradeNews,
-  type WeekNote,
 } from "@/lib/types";
 import { GradeBadge } from "./GradeBadge";
-import { WeekNoteEditor } from "./WeekNoteEditor";
 import { GlossaryContext, Glossed } from "./Glossed";
 import { GradePanel, SetupCheck, answerSummary, type AutoState } from "./SetupCheck";
 import { Button, Chips, Modal, Segmented, cx, stagger } from "./ui";
 
-const biasTone = (bias: string) =>
-  bias === "long" ? "text-up" : bias === "short" ? "text-down" : "text-soft";
 
 /** Everything typed into the form. Numbers stay text while you type them. */
 interface FormState {
@@ -205,9 +198,6 @@ const parseNum = (s: string) => {
 
 const round2 = (x: number) => Number(x.toFixed(2));
 
-/** The plan's desk check, as the trade's "desk agreed". */
-const DESK_FROM_PLAN: Record<string, DeskAgreed> = { agree: "yes", disagree: "no", none: "none" };
-
 /** Exits that came before the target: the ones where "would the target have been hit?" is worth asking. */
 const EARLY_EXITS: ExitReason[] = ["trail", "time", "release"];
 
@@ -218,9 +208,7 @@ export function TradeForm({
   trade,
   trades,
   checkins,
-  plans,
-  weeks = [],
-  onWeekSaved,
+  lean = null,
   nudge,
   doc,
   rulebookOf,
@@ -232,16 +220,14 @@ export function TradeForm({
   trade: Trade | null;
   trades: Trade[];
   checkins: CheckIn[];
-  plans: Plan[];
+  /** Which way today's Daily Bias briefing leans — pre-fills "desk agreed" on a trade from today. */
+  lean?: "bullish" | "bearish" | "unclear" | null;
   /** The rulebook in force — what a new trade is graded under. */
   doc: Rulebook;
   /** Any version, for trades graded under an older one. */
   rulebookOf: (version: string | null) => Rulebook;
   /** The whole news calendar, so the trade can record what was out on its day. */
   calendar: CalendarEvent[];
-  /** Every weekly note; the trade is checked against its own week's. */
-  weeks?: WeekNote[];
-  onWeekSaved?: (w: WeekNote) => void;
   nudge?: CoachCard | null;
   onClose: () => void;
   onSaved: () => void;
@@ -255,7 +241,6 @@ export function TradeForm({
    * before it is logged. Editing goes straight to the trade.
    */
   const [step, setStep] = useState<"setup" | "form">("form");
-  const [weekEditing, setWeekEditing] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -286,8 +271,6 @@ export function TradeForm({
   const day = dayOf(f.date);
   const time = timeOf(f.date);
   const others = useMemo(() => trades.filter((t) => t.id !== trade?.id), [trades, trade?.id]);
-  const plan = plans.find((p) => p.date === day) ?? null;
-  const week = weeks.find((w) => w.week === weekOfDay(day)) ?? null;
   const verdict = checkins.find((c) => c.date === day)?.verdict;
 
   /* ── The day's news: the live calendar when it covers the day, else the trade's own copy ── */
@@ -317,20 +300,24 @@ export function TradeForm({
     const s = sessionAt(time);
     if (s && s !== f.session) setF((p) => ({ ...p, session: s }));
   }, [time, f.sessionTouched, f.session]);
+  // Today's briefing against the trade's direction: leaning the same way is "yes", the other way "no".
+  const deskFromLean: DeskAgreed | null =
+    day !== deskDay() || !lean || lean === "unclear"
+      ? null
+      : (lean === "bullish") === (f.direction === "long")
+        ? "yes"
+        : "no";
   useEffect(() => {
-    if (f.deskTouched || !plan?.deskCheck) return;
-    const v = DESK_FROM_PLAN[plan.deskCheck];
-    if (v && v !== f.deskAgreed) setF((p) => ({ ...p, deskAgreed: v }));
-  }, [plan?.deskCheck, f.deskTouched, f.deskAgreed]);
+    if (f.deskTouched || trade || !deskFromLean) return;
+    if (deskFromLean !== f.deskAgreed) setF((p) => ({ ...p, deskAgreed: deskFromLean }));
+  }, [deskFromLean, f.deskTouched, f.deskAgreed, trade]);
 
   /* ── The desk's own answers ── */
 
   const compassF = definition ? autoFactor(definition, "compass") : null;
   const dispF = definition ? autoFactor(definition, "displacement") : null;
-  const biasF = definition ? autoFactor(definition, "bias") : null;
   const compassValue = ruled && compassF ? compassFor(rb, day, f.direction) : null;
   const dispValue = ruled && dispF ? displacementMultiple(f.mssBeyond, f.atr) : null;
-  const biasValue = ruled && biasF ? biasAnswer(plan?.bias, f.direction) : null;
 
   const answers: Record<string, string | number> = { ...f.answers };
   const autoAnswers: Record<string, { note: string; locked: boolean }> = {};
@@ -340,12 +327,6 @@ export function TradeForm({
   }
   if (dispF && dispValue != null) answers[dispF.id] = dispValue;
   if (dispF) autoAnswers[dispF.id] = { note: "close beyond the swing ÷ 5m ATR(14)", locked: true };
-  if (biasF && biasValue && f.answers[biasF.id] === undefined) {
-    answers[biasF.id] = biasValue;
-    autoAnswers[biasF.id] = { note: `from today's plan: ${plan?.bias}`, locked: false };
-  } else if (biasF && !plan?.bias && ruled) {
-    autoAnswers[biasF.id] = { note: "no bias in today's plan — pick it", locked: false };
-  }
 
   /* ── The base rules the desk answers ── */
 
@@ -355,7 +336,7 @@ export function TradeForm({
   const autoStates: Record<string, AutoState> = {};
   for (const r of definition?.baseRules ?? []) {
     if (!r.auto) continue;
-    const holds = autoRuleState(r.auto, { doc: rb, date: f.date, trades: others, plans, news: newsItems });
+    const holds = autoRuleState(r.auto, { doc: rb, date: f.date, trades: others, news: newsItems });
     autoStates[r.id] = { holds, note: autoNote(r.auto, holds) };
   }
   function autoNote(auto: string, holds: boolean | null): string {
@@ -363,14 +344,11 @@ export function TradeForm({
       case "daily-budget":
         if (budget.stopHit) return "checked automatically — daily stop hit";
         if (takenEarlier >= rb.maxTradesPerDay) return "checked automatically — today's trade is already taken";
-        return `checked automatically — ${budget.remaining}% of the day's budget left, no trade yet`;
+        return `checked automatically — ${+budget.remaining.toFixed(2)}% of the day's budget left, no trade yet`;
       case "entry-window":
         return `checked automatically — ${time} is ${holds ? "inside" : "outside"} ${values.windows}`;
-      case "plan": {
-        if (!plan) return "checked automatically — no plan written for this day";
-        const at = deskTime(plan.createdAt);
-        return holds ? `checked automatically — written at ${at}` : `checked automatically — written at ${at}, after ${rb.planBy}`;
-      }
+      case "plan":
+        return "retired in v1.3 — counts as held";
       case "news": {
         if (holds == null) return "no calendar data for this day — tick it by hand";
         const nd = newsDay(day, newsItems ?? [], rb.news);
@@ -397,8 +375,8 @@ export function TradeForm({
   const card = gradeCard(definition ?? rb, grade);
   const gRisk = gradeRisk(definition ?? rb, grade);
   const prior = useMemo(
-    () => evaluateHistory({ trades: others, plans, checkins, rulebookOf }).timeline,
-    [others, plans, checkins, rulebookOf],
+    () => evaluateHistory({ trades: others, checkins, rulebookOf }).timeline,
+    [others, checkins, rulebookOf],
   );
   const dayOff = prior.dayOff.get(day) ?? null;
   const halfRisk = prior.halfWeeks.has(weekOfDay(day));
@@ -523,7 +501,7 @@ export function TradeForm({
 
   /*
    * Every flag is judged the way the server will judge it on save — against the whole
-   * history, the plans and the check-ins — so what you see before saving is what is
+   * history and the check-ins — so what you see before saving is what is
    * recorded. A draft carries this trade's own id, so it never counts against itself.
    */
   const judgement =
@@ -536,7 +514,7 @@ export function TradeForm({
             createdAt: trade?.createdAt ?? "9999",
             updatedAt: "",
           },
-          { trades, plans, checkins, rulebookOf },
+          { trades, checkins, rulebookOf },
         );
   const flags = judgement.flags;
   const allowed = ruled ? judgement.allowed : Math.min(gRisk ?? L.maxRiskPct, budget.remaining, L.maxRiskPct);
@@ -913,7 +891,7 @@ export function TradeForm({
                         options={POI_TESTS}
                       />
                     </Field>
-                    <Field label={plan?.deskCheck ? "Desk agreed · from today's plan" : "Desk agreed"}>
+                    <Field label={deskFromLean && !trade ? "Desk agreed · from today's briefing" : "Desk agreed"}>
                       <Segmented
                         size="sm"
                         allowNone
@@ -1130,7 +1108,7 @@ export function TradeForm({
                       <div className="flex flex-wrap items-center gap-x-3 rounded-lg bg-subtle px-3.5 py-2 text-[12px] text-soft">
                         <span>
                           ✓ No rule broken · allowed {allowed}%{grade && gRisk != null && tradable ? ` — ${grade} ${gRisk}%` : ""} · day{" "}
-                          {budget.remaining}% · week {weekB.remaining}% left
+                          {+budget.remaining.toFixed(2)}% · week {+weekB.remaining.toFixed(2)}% left
                         </span>
                         {risk == null && allowed > 0 && (
                           <button type="button" className="underline underline-offset-2 hover:text-ink" onClick={() => set("riskPct", String(allowed))}>
@@ -1171,44 +1149,11 @@ export function TradeForm({
                   <p className="mt-2 text-[11px] text-faint">Saved with the trade automatically.</p>
                 </Side>
 
-                <Side index={3} title={`This week · ${weekOfDay(day).slice(6)}`}>
-                  {weekEditing ? (
-                    <WeekNoteEditor
-                      compact
-                      week={weekOfDay(day)}
-                      note={week ?? null}
-                      onSaved={(w) => {
-                        onWeekSaved?.(w);
-                        setWeekEditing(false);
-                      }}
-                      onCancel={() => setWeekEditing(false)}
-                    />
-                  ) : week && (week.bias || week.reasoning) ? (
-                    <>
-                      {week.bias && <p className={cx("text-[13px] font-medium capitalize", biasTone(week.bias))}>{week.bias} bias</p>}
-                      {week.reasoning && <p className="mt-1 text-[12px] leading-relaxed text-soft">{week.reasoning}</p>}
-                      {week.levels && <p className="num mt-1 text-[11px] text-faint">{week.levels}</p>}
-                      {week.bias && week.bias !== "neutral" && week.bias !== f.direction && (
-                        <p className="mt-2 text-[12px] font-medium text-warn">⚠ A {f.direction} trade against your {week.bias} bias.</p>
-                      )}
-                      {onWeekSaved && (
-                        <button type="button" onClick={() => setWeekEditing(true)} className="mt-2 text-[11px] text-faint underline underline-offset-2 hover:text-ink">
-                          Edit the week's note
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <button type="button" onClick={() => setWeekEditing(true)} className="text-[12px] text-faint underline underline-offset-2 hover:text-ink">
-                      No note for this week yet — write it
-                    </button>
-                  )}
+                <Side index={3} title={`Rulebook v${version ?? doc.version}`}>
+                  <RulebookHint rb={rb} values={values} day={day} />
                 </Side>
 
-                <Side index={4} title={`Rulebook v${version ?? doc.version}`}>
-                  <RulebookHint rb={rb} values={values} plan={plan} day={day} />
-                </Side>
-
-                <Side index={5} title="Notes" grow>
+                <Side index={4} title="Notes" grow>
                   <textarea
                     className="field min-h-[132px] flex-1 resize-none text-[13px]"
                     placeholder="Why did you take it? What did you see? What would you do differently?"
@@ -1294,19 +1239,16 @@ function YesNo({ value, onChange }: { value: boolean | null; onChange: (v: boole
   );
 }
 
-/** The day's frame from the rulebook: windows, time stop, today's plan and Compass. */
+/** The day's frame from the rulebook: windows, time stop, target and Compass. */
 function RulebookHint({
   rb,
   values,
-  plan,
   day,
 }: {
   rb: Rulebook;
   values: Record<string, string | null>;
-  plan: Plan | null;
   day: string;
 }) {
-  const status = planStatus(plan, rb.planBy);
   return (
     <div className="space-y-1.5 text-[12px]">
       <p className="text-soft">
@@ -1324,10 +1266,6 @@ function RulebookHint({
         <span className="num">
           long {compassFor(rb, day, "long") ?? "—"}% · short {compassFor(rb, day, "short") ?? "—"}%
         </span>
-      </p>
-      <p className={cx(status === "on-time" ? "text-soft" : "font-medium text-down")}>
-        <span className="text-faint">Plan </span>
-        {status === "on-time" ? `${plan?.bias || "written"}, on time` : status === "late" ? `written after ${rb.planBy}` : "not written — no plan, no trade"}
       </p>
       <p className="text-soft">
         <span className="text-faint">Invalidated when </span>

@@ -270,7 +270,6 @@ function recomputeResults() {
  */
 function recomputeFlags() {
   const trades = (db.prepare("SELECT * FROM trades").all() as Row[]).map(rowToTrade) as unknown as Trade[];
-  const plans = (db.prepare("SELECT * FROM plans").all() as Row[]).map(rowToPlan);
   const checkins = (db.prepare("SELECT date, verdict FROM checkins").all() as Row[]).map((r) => ({
     date: String(r.date),
     verdict: r.verdict as "ready" | "caution" | "sit-out",
@@ -282,7 +281,7 @@ function recomputeFlags() {
     if (!docs.has(v)) docs.set(v, getVersion(db, v)?.doc ?? current.doc);
     return docs.get(v)!;
   };
-  const { byId } = evaluateHistory({ trades, plans: plans as never, checkins, rulebookOf });
+  const { byId } = evaluateHistory({ trades, checkins, rulebookOf });
   const update = db.prepare("UPDATE trades SET flags = ?, planned_risk_pct = ? WHERE id = ?");
   db.transaction(() => {
     for (const t of trades) {
@@ -393,19 +392,6 @@ app.put("/api/checkins/:date", (req, res) => {
  * The strategies table stays in the database untouched — its rows were the GOLD Model
  * before the rulebook — but nothing reads or writes it any more.
  */
-
-/* ── Weekly reasoning ────────────────────────────────────────────────── */
-
-function rowToWeek(row: Row) {
-  return {
-    week: row.week,
-    bias: row.bias ?? "",
-    reasoning: row.reasoning ?? "",
-    levels: row.levels ?? "",
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
 
 /*
  * News is fetched by the server, never the browser: the calendar feed sends no CORS
@@ -525,52 +511,6 @@ app.put("/api/rulebook", (req, res) => {
   }
 });
 
-/* ── Daily plans ─────────────────────────────────────────────────────── */
-
-function rowToPlan(row: Row) {
-  return {
-    date: row.date,
-    bias: row.bias ?? "",
-    levels: parseJson(row.levels, {}),
-    pois: row.pois ?? "",
-    deskCheck: row.desk_check ?? "",
-    notes: row.notes ?? "",
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-app.get("/api/plans", (_req, res) => {
-  const rows = db.prepare("SELECT * FROM plans ORDER BY date DESC").all() as Row[];
-  res.json(rows.map(rowToPlan));
-});
-
-/** One plan per New York day. Editing keeps the time it was first written — that is what "on time" means. */
-app.put("/api/plans/:date", (req, res) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(req.params.date)) return void res.status(400).json({ error: "Bad date" });
-  const b = req.body ?? {};
-  const now = new Date().toISOString();
-  const existing = db.prepare("SELECT created_at FROM plans WHERE date = ?").get(req.params.date) as
-    | { created_at: string }
-    | undefined;
-  db.prepare(`
-    INSERT OR REPLACE INTO plans (date, bias, levels, pois, desk_check, notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    req.params.date,
-    oneOf(b.bias, ["bullish", "bearish", "unclear"]),
-    JSON.stringify(b.levels && typeof b.levels === "object" ? b.levels : {}),
-    String(b.pois ?? ""),
-    oneOf(b.deskCheck, ["agree", "disagree", "none"]),
-    String(b.notes ?? ""),
-    existing?.created_at ?? now,
-    now,
-  );
-  // A plan written (or not) decides the day's no_plan flag.
-  recomputeFlags();
-  res.json(rowToPlan(db.prepare("SELECT * FROM plans WHERE date = ?").get(req.params.date) as Row));
-});
-
 /* ── Open items ──────────────────────────────────────────────────────── */
 
 const rowToItem = (row: Row) => ({
@@ -593,33 +533,9 @@ app.put("/api/open-items/:id", (req, res) => {
   res.json(rowToItem(db.prepare("SELECT * FROM open_items WHERE id = ?").get(req.params.id) as Row));
 });
 
-app.get("/api/weeks", (_req, res) => {
-  const rows = db.prepare("SELECT * FROM weeks ORDER BY week DESC").all() as Row[];
-  res.json(rows.map(rowToWeek));
-});
-
-/** One note per ISO week — saving again replaces it. */
-app.put("/api/weeks/:week", (req, res) => {
-  if (!/^\d{4}-W\d{2}$/.test(req.params.week)) {
-    return void res.status(400).json({ error: "Bad week" });
-  }
-  const now = new Date().toISOString();
-  const existing = db.prepare("SELECT created_at FROM weeks WHERE week = ?").get(req.params.week) as
-    | { created_at: string }
-    | undefined;
-  db.prepare(`
-    INSERT OR REPLACE INTO weeks (week, bias, reasoning, levels, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(
-    req.params.week,
-    String(req.body?.bias ?? ""),
-    String(req.body?.reasoning ?? ""),
-    String(req.body?.levels ?? ""),
-    existing?.created_at ?? now,
-    now,
-  );
-  res.json(rowToWeek(db.prepare("SELECT * FROM weeks WHERE week = ?").get(req.params.week) as Row));
-});
+// The rules change between versions (v1.3 retired the daily plan), so every start
+// re-judges the flags once — the same walk every write runs.
+recompute();
 
 startCalendarRefresh();
 // Opening the desk starts the server — collect a waiting briefing straight away.
