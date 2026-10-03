@@ -923,3 +923,12 @@ export function journalV23(doc: Rulebook): Rulebook {
       ),
   };
 }
+
+/* ── 2.4: one day off ────────────────────────────────────────────────── */
+
+export const ONE_DAY_OFF_REASON = "Any rule break costs one trading day off, not two";
+
+/** The consequence of a break shrinks to the next trading day. */
+export function oneDayOff(doc: Rulebook): Rulebook {
+  return { ...doc, consequences: { ...doc.consequences, daysOff: 1 } };
+}

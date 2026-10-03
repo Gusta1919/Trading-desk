@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { DeskStatus } from "@/lib/discipline";
+import { daysOffText, type DeskStatus } from "@/lib/discipline";
 import type { Limits } from "@/lib/types";
 import { Button, cx } from "./ui";
 
@@ -54,7 +54,7 @@ export function RiskChip({
   const left = limits.dailyStopPct > 0 ? day.remaining / limits.dailyStopPct : 0;
   // The most serious thing about today wins the label.
   const state = status.dayOff
-    ? { label: status.dayOff.reason === "rule-break" ? "Day off" : "Days off", cls: "text-down" }
+    ? { label: "Day off", cls: "text-down" }
     : week.stopHit
       ? { label: "Weekly stop hit", cls: "text-down" }
       : day.stopHit
@@ -112,7 +112,7 @@ export function RiskChip({
             {status.halfRisk && <p className="text-warn">Half-risk week: every allowance × {status.multiplier}.</p>}
             {status.dayOff && (
               <p className="text-down">
-                {status.dayOff.reason === "rule-break" ? "Day off — a rule was broken today." : `Days off until ${status.dayOff.until}.`}
+                {status.dayOff.reason === "rule-break" ? "Day off — a rule was broken today." : `${daysOffText(status.dayOff, status.day)}.`}
               </p>
             )}
           </div>

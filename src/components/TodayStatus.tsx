@@ -1,6 +1,6 @@
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { checkinClosesDay, type DeskStatus } from "@/lib/discipline";
+import { checkinClosesDay, daysOffText, type DeskStatus } from "@/lib/discipline";
 import type { NewsDay, ReleaseWindow } from "@/lib/newsRules";
 import type { Rulebook } from "@/lib/rulebook";
 import { goldMarket, inLabel, type GoldMarket } from "@/lib/market";
@@ -116,7 +116,10 @@ export function TodayCard({
   if (status?.dayOff) {
     lines.push({
       tone: "down",
-      text: status.dayOff.reason === "rule-break" ? "Day off — a rule was broken today." : `Days off until ${status.dayOff.until} — a limit was broken on ${status.dayOff.from}.`,
+      text:
+        status.dayOff.reason === "rule-break"
+          ? "Day off — a rule was broken today."
+          : `${daysOffText(status.dayOff, status.day)} — after a rule break on ${status.dayOff.from}.`,
     });
   }
   if (status?.weekBudget.stopHit) lines.push({ tone: "down", text: "Weekly stop hit — no more trades this week." });

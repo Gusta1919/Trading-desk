@@ -40,7 +40,7 @@ open http://localhost:3847
   and skip days below.
 - **Rulebook** — the GOLD Model's rules on one page (2.0): the trading day drawn as a
   timeline, the decision flow, news, the trade, grading and limits, every number live. Any
-  rule broken costs two trading days. Each section edits in place with a live preview; every
+  rule broken costs the next trading day (2.4). Each section edits in place with a live preview; every
   save is a version in the changelog, which starts at 2.0. Hypotheses and the glossary sit
   in the Reference panel.
 - **Stats** — full stats, Compare, what drives your results, habits, well-being, and

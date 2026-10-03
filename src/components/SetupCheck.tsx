@@ -3,7 +3,7 @@ import { answerLabel, factorCap, rangeIndex, rangeLabel, rangeValue, withUnit } 
 import type { DayBudget } from "@/lib/risk";
 import { Check, X } from "lucide-react";
 import type { Verdict } from "@/lib/checkin";
-import type { DayOff } from "@/lib/discipline";
+import { daysOffText, type DayOff } from "@/lib/discipline";
 import type { BaseRule, Definition, Factor, Grade, GradeCard, Limits } from "@/lib/types";
 import { GRADE_COLOUR, GradeBadge } from "./GradeBadge";
 import { Glossed } from "./Glossed";
@@ -392,6 +392,7 @@ export function GradePanel({
   halfRisk,
   doneToday,
   cautionClosesDay = false,
+  day,
 }: {
   result: GradeResult;
   card: GradeCard | null;
@@ -407,6 +408,8 @@ export function GradePanel({
   doneToday?: boolean;
   /** A "Trade restricted" check-in leaves nothing tradable (since 2.2), not just A+. */
   cautionClosesDay?: boolean;
+  /** The trade's day, so a run of days off reads right on it. */
+  day?: string;
 }) {
   const grade: Grade = result.grade;
   const colour = GRADE_COLOUR[grade];
@@ -437,7 +440,10 @@ export function GradePanel({
   }
   if (dayOff) {
     reasons.push({
-      text: dayOff.reason === "rule-break" ? "Day off — a rule was broken today." : `Days off until ${dayOff.until} — after a limit was broken.`,
+      text:
+        dayOff.reason === "rule-break"
+          ? "Day off — a rule was broken today."
+          : `${daysOffText(dayOff, day ?? "")} — after a rule break on ${dayOff.from}.`,
       tone: "down",
     });
   }

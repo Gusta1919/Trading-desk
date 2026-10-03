@@ -71,7 +71,7 @@ export function BiasChart({
   style?: React.CSSProperties;
 }) {
   const [prefs, setPrefs] = useState(() => {
-    const p = remembered<{ tf: Timeframe } & Layers>("biasChart", { tf: "15m", levels: true, box: true, sessions: true });
+    const p = remembered<{ tf: Timeframe } & Layers>("biasChart", { tf: "15m", levels: true, box: true });
     // Anything stored by an older version that the feed doesn't serve falls back to 15m.
     return ["5m", "15m", "1h"].includes(p.tf) ? p : { ...p, tf: "15m" as const };
   });
@@ -119,8 +119,6 @@ export function BiasChart({
         [
           ["levels", "Key levels"],
           ["box", "CRT box"],
-          // On 1h the bottom axis already names the days; there's no strip to switch.
-          ...(prefs.tf === "1h" ? [] : [["sessions", "Sessions"]]),
         ] as [keyof Layers, string][]
       ).map(([key, label]) => (
         <button
@@ -251,14 +249,6 @@ function Legend() {
         <span className={item}>
           <span className="h-2.5 w-4 rounded-[2px] border border-accent bg-accent/10" />
           CRT 3–4AM box · sweep window to 16:00
-        </span>
-        <span className={item}>
-          <span className="flex gap-[2px]">
-            <span className="h-[3px] w-2 rounded-full bg-faint/40" />
-            <span className="h-[3px] w-2 rounded-full bg-soft/45" />
-            <span className="h-[3px] w-2 rounded-full bg-soft/80" />
-          </span>
-          Sessions strip: Asia · London · New York (5m and 15m)
         </span>
       </div>
     </div>

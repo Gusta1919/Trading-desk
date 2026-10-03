@@ -569,6 +569,7 @@ export function TradeForm({
       halfRisk={halfRisk}
       doneToday={doneToday}
       cautionClosesDay={checkinClosesDay("caution", rb)}
+      day={day}
     />
   );
 

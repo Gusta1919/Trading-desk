@@ -214,6 +214,16 @@ export interface CoachDesk {
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 /** `allTrades` may include setups logged as skipped in the past; they are never counted. */
+/** What the days off cost, in the rulebook's own number: "one trading day", "two trading days". */
+function daysOffBody(doc: Rulebook | null, from: string): string {
+  const n = doc?.consequences.daysOff ?? 2;
+  const word = doc ? tokenValues(doc)["consequence.daysOff.word"] : "two";
+  const what = doc?.consequences.anyBreak ? "Any rule break" : "Breaking the one-trade rule or a loss limit";
+  return n === 1
+    ? `${what} costs the next trading day. It follows the break on ${from}. Use it to review the journal, not to watch the chart.`
+    : `${what} costs ${word} trading days. They started after ${from}. Use them to review the journal, not to watch the chart.`;
+}
+
 export function buildBriefing(
   allTrades: Trade[],
   checkins: CheckIn[],
@@ -328,7 +338,7 @@ export function buildBriefing(
         body:
           status.dayOff.reason === "rule-break"
             ? "Any rule break ends the day. The trade is recorded; there is no next one today."
-            : `${doc?.consequences.anyBreak ? "Any rule break" : "Breaking the one-trade rule or a loss limit"} costs ${doc ? tokenValues(doc)["consequence.daysOff.word"] : "two"} trading days. They started after ${status.dayOff.from}. Use them to review the journal, not to watch the chart.`,
+            : daysOffBody(doc, status.dayOff.from),
         why: "A consequence decided in advance is not a punishment, it is a circuit breaker: it takes the decision away from the state that broke the rule.",
       });
     }

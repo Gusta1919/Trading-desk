@@ -59,6 +59,14 @@ export interface DayOff {
   until?: string;
 }
 
+/**
+ * A run of days off in words, as read on `day`: "Day off today" on its last day, "Days off
+ * until 2026-10-08" before that. With one day off, that day is always the last.
+ */
+export function daysOffText(off: DayOff, day: string): string {
+  return !off.until || off.until <= day ? "Day off today" : `Days off until ${off.until}`;
+}
+
 export interface Timeline {
   dayOff: Map<string, DayOff>;
   /** ISO weeks at reduced risk, with the week that caused it. */
@@ -276,7 +284,9 @@ export function deskStatus(input: DisciplineInput & { doc: Rulebook; news?: News
     : dayOff
       ? dayOff.reason === "rule-break"
         ? "day off after a rule break today"
-        : `days off until ${dayOff.until}`
+        : dayOff.until && dayOff.until > day
+          ? `days off until ${dayOff.until}`
+          : "a day off after a rule break"
       : weekB.stopHit
         ? "the weekly stop is hit"
         : dayB.stopHit

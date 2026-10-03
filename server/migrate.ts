@@ -16,6 +16,8 @@ import {
   WINDOW_BY_HAND_REASON,
   CHECKIN_CLOSES_REASON,
   JOURNAL_V23_REASON,
+  ONE_DAY_OFF_REASON,
+  oneDayOff,
   checkinCloses,
   journalV23,
   OPEN_ITEMS,
@@ -553,5 +555,22 @@ export function migrateJournalV23(db: Db, now = new Date()) {
     const version = nextVersion(current.version, "minor");
     insertVersion(db, version, JOURNAL_V23_REASON, journalV23(current.doc), now.toISOString());
     db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(JOURNAL_V23_KEY, `v${version} written from v${current.version}`);
+  })();
+}
+
+const ONE_DAY_OFF_KEY = "rulebook:one-day-off";
+
+/** Any break costs one trading day off (see `oneDayOff`); trades before keep their two. */
+export function migrateOneDayOff(db: Db, now = new Date()) {
+  if (db.prepare("SELECT 1 FROM meta WHERE key = ?").get(ONE_DAY_OFF_KEY)) return;
+  db.transaction(() => {
+    const current = currentRulebook(db);
+    let note = "already one day";
+    if (current.doc.consequences.daysOff !== 1) {
+      const version = nextVersion(current.version, "minor");
+      insertVersion(db, version, ONE_DAY_OFF_REASON, oneDayOff(current.doc), now.toISOString());
+      note = `v${version} written from v${current.version}`;
+    }
+    db.prepare("INSERT INTO meta (key, value) VALUES (?, ?)").run(ONE_DAY_OFF_KEY, note);
   })();
 }

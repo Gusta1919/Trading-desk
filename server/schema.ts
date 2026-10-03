@@ -11,6 +11,7 @@ import {
   migrateCondensed,
   migrateFreshStart,
   migrateJournalV23,
+  migrateOneDayOff,
   migratePlanRetired,
   migrateRulebook,
   migrateStrategyDefinitions,
@@ -248,4 +249,5 @@ export function setupSchema(db: Database.Database) {
   migrateWindowByHand(db);
   migrateCheckinCloses(db);
   migrateJournalV23(db);
+  migrateOneDayOff(db);
 }

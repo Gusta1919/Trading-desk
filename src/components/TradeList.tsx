@@ -217,13 +217,13 @@ export function TradeList({
             <tr className="border-b text-[11px] uppercase tracking-[0.06em] text-faint">
               <Th>Date</Th>
               <Th>Symbol</Th>
-              <Th>Why this grade</Th>
+              <Th grow>Why this grade</Th>
               {!compact && <Th>Session</Th>}
               {!compact && <Th>Exit</Th>}
+              <Th>Review</Th>
               <Th right>Risk</Th>
               <Th right>Result</Th>
               <Th right>Return</Th>
-              <Th>Review</Th>
             </tr>
           </thead>
           <tbody>
@@ -244,7 +244,8 @@ export function TradeList({
                     <span className="font-medium text-ink">{t.symbol}</span>{" "}
                     <span className="text-faint">{t.direction === "long" ? "Long" : "Short"}</span>
                   </Td>
-                  <Td className="max-w-[340px] truncate text-soft">
+                  {/* The one column that stretches: on a wide screen the reason gets the room, not a gap on the right. */}
+                  <Td className="w-full max-w-0 truncate text-soft">
                     <span title={t.setupSnapshot ? answerLine(t) : undefined}>{setupOf(t)}</span>
                   </Td>
                   {!compact && (
@@ -261,6 +262,9 @@ export function TradeList({
                       )}
                     </Td>
                   )}
+                  <Td>
+                    <Review t={t} />
+                  </Td>
                   {/* Risk is stored at full precision for accurate totals; show two places. */}
                   <Td right className="text-soft">
                     {t.skipped ? <span className="text-faint">skipped</span> : `${+t.riskPct.toFixed(2)}%`}
@@ -276,11 +280,9 @@ export function TradeList({
                       fmtR(t.resultR)
                     )}
                   </Td>
+                  {/* The numbers close the row, right-aligned against the table's edge. */}
                   <Td right className={cx("font-medium", tone(open || t.skipped ? null : tradePct(t)))}>
                     {open || t.skipped ? "—" : fmtPct(tradePct(t))}
-                  </Td>
-                  <Td>
-                    <Review t={t} />
                   </Td>
                 </tr>
               );
@@ -364,8 +366,9 @@ function Review({ t }: { t: Trade }) {
   );
 }
 
-const Th = ({ children, right }: { children: React.ReactNode; right?: boolean }) => (
-  <th className={cx("px-4 py-3 font-medium", right && "text-right")}>{children}</th>
+/** A header cell; every column but the one that grows is only as wide as what it holds. */
+const Th = ({ children, right, grow }: { children: React.ReactNode; right?: boolean; grow?: boolean }) => (
+  <th className={cx("whitespace-nowrap px-4 py-3 font-medium", right && "text-right", grow ? "w-full" : "w-px")}>{children}</th>
 );
 
 const Td = ({

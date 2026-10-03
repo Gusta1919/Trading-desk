@@ -4,7 +4,6 @@ import {
   levelEffect,
   levelRole,
   priceDomain,
-  sessionRuns,
   stackLabels,
   timeMarks,
   verdictEffect,
@@ -57,7 +56,6 @@ export interface MapLevel {
 export interface Layers {
   levels: boolean;
   box: boolean;
-  sessions: boolean;
 }
 
 const PAD = { top: 28, right: 132, bottom: 26 };
@@ -89,13 +87,6 @@ const WASH: Record<ChartTone, string> = {
   neutral: "fill-soft/10",
   accent: "fill-accent/10",
 };
-
-/* The session strip: three quiet steps of the same grey. */
-const STRIP = {
-  asia: "fill-faint/40",
-  london: "fill-soft/45",
-  ny: "fill-soft/80",
-} as const;
 
 /* Text over candles gets a halo in the surface colour instead of a box. */
 const HALO = { stroke: "var(--color-surface)", strokeWidth: 3.5, paintOrder: "stroke", strokeLinejoin: "round" } as const;
@@ -147,18 +138,12 @@ export function PriceChart({
 
   const n = candles.length;
   const box = useMemo(() => (layers.box ? crtBox(candles) : null), [candles, layers.box]);
-  // Sessions on intraday views only: on 1h a week of sessions is noise, and the
-  // bottom axis already names the days.
-  const runs = useMemo(() => {
-    if (!layers.sessions || tf === "1h") return [];
-    return sessionRuns(candles).map((r) => ({
-      key: `${r.session}-${r.from}`,
-      label: r.session,
-      tint: (r.session === "New York" ? "ny" : r.session === "London" ? "london" : "asia") as keyof typeof STRIP,
-      from: r.from,
-      to: r.to,
-    }));
-  }, [candles, layers.sessions, tf]);
+  // The box arrives with the candles: it starts when the sweep reaches its first candle and
+  // keeps pace to the end of its window, the same few milliseconds per candle.
+  const boxDelay = box ? Math.round((box.from / n) * INTRO_MS) : 0;
+  const boxSweep = box
+    ? { animation: `reveal ${Math.round(((Math.max(box.to, box.windowEnd) - box.from + 1) / n) * INTRO_MS)}ms linear ${boxDelay}ms both` }
+    : undefined;
   const [lo, hi] = useMemo(
     () =>
       priceDomain(
@@ -251,21 +236,6 @@ export function PriceChart({
 
       <div className="relative">
         <svg width={width} height={height} className="block select-none" role="img" aria-label="XAU/USD candles with the briefing's levels">
-          {/* Sessions: a thin strip along the top, out of the price action's way. Segments
-              are split by a 2px gap; New York, where the day's move usually happens, is
-              the brightest. */}
-          {runs.map((r) => (
-            <rect
-              key={r.key}
-              x={x(r.from) - slot / 2 + 1}
-              y={PAD.top - 7}
-              width={Math.max(1, (r.to - r.from + 1) * slot - 2)}
-              height={3}
-              rx={1.5}
-              className={STRIP[r.tint]}
-            />
-          ))}
-
           {/* The plan's zone: chop range or trigger area. */}
           {zone && (
             <rect
@@ -277,9 +247,10 @@ export function PriceChart({
             />
           )}
 
-          {/* CRT 3–4AM box and its 04:00–16:00 sweep window. */}
+          {/* CRT 3–4AM box and its 04:00–16:00 sweep window — on the first draw it is
+              uncovered left to right in step with the candles beneath it. */}
           {box && (
-            <g>
+            <g style={intro ? boxSweep : undefined}>
               <rect
                 x={x(box.from) - slot / 2}
                 y={y(box.high)}
@@ -402,22 +373,13 @@ export function PriceChart({
             onPointerLeave={() => setCursor(null)}
           />
 
-          {/* Session names along the top. */}
-          {runs.map((r) =>
-            r.label && (r.to - r.from + 1) * slot > 48 ? (
-              <text
-                key={`label-${r.key}`}
-                x={x(r.from) - slot / 2 + 4}
-                y={PAD.top - 12}
-                className="fill-faint text-[9px] font-semibold uppercase tracking-[0.08em]"
-              >
-                {r.label}
-              </text>
-            ) : null,
-          )}
-
           {box && (
-            <text x={x(box.from) - slot / 2} y={y(box.high) - 5} className="fill-accent-2 text-[9px] font-semibold" style={HALO}>
+            <text
+              x={x(box.from) - slot / 2}
+              y={y(box.high) - 5}
+              className={cx("fill-accent-2 text-[9px] font-semibold", intro && "anim-fade")}
+              style={{ ...HALO, ...(intro ? { animationDelay: `${boxDelay}ms` } : {}) }}
+            >
               CRT 3–4AM
             </text>
           )}

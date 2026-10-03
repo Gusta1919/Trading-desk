@@ -1,4 +1,4 @@
-import type { DeskStatus } from "@/lib/discipline";
+import { daysOffText, type DeskStatus } from "@/lib/discipline";
 import type { NewsDay } from "@/lib/newsRules";
 import { tokenValues, type Rulebook } from "@/lib/rulebook";
 import { cx } from "./ui";
@@ -19,7 +19,10 @@ export function StandAside({ doc, status, news }: { doc: Rulebook; status: DeskS
   if (status?.dayOff) {
     lines.push({
       tone: "down",
-      text: status.dayOff.reason === "rule-break" ? "Day off — a rule was broken today." : `Day off — days off until ${status.dayOff.until}.`,
+      text:
+        status.dayOff.reason === "rule-break"
+          ? "Day off — a rule was broken today."
+          : `${daysOffText(status.dayOff, status.day)} — after a rule break on ${status.dayOff.from}.`,
     });
   }
   if (status?.weekBudget.stopHit) lines.push({ tone: "down", text: "Weekly stop hit — stand aside for the rest of the week." });

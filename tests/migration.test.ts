@@ -178,8 +178,8 @@ describe("migration to the rulebook", () => {
     const rows = db.prepare("SELECT version, reason FROM rulebook_versions ORDER BY version").all() as Row[];
     // v1.2, v1.3 retiring the written plan, v1.4 condensing the text, 2.0 the fresh start,
     // 2.1 the entry window ticked by hand, 2.2 a restricted check-in closing the day,
-    // 2.3 the journal fields — each once.
-    assert.deepEqual(rows.map((r) => r.version), ["1.2", "1.3", "1.4", "2.0", "2.1", "2.2", "2.3"]);
+    // 2.3 the journal fields, 2.4 one day off — each once.
+    assert.deepEqual(rows.map((r) => r.version), ["1.2", "1.3", "1.4", "2.0", "2.1", "2.2", "2.3", "2.4"]);
     const doc = getVersion(db, "1.2")!.doc;
     assert.equal(doc.limits.maxRiskPct, 0.5); // was the old default of 1
     assert.equal(doc.limits.dailyStopPct, 0.75); // yours, kept
@@ -219,9 +219,9 @@ describe("rulebook versions", () => {
     const doc = currentRulebook(db).doc;
     doc.grades[1].riskPct = 0.25;
     const saved = saveRulebook(db, doc, "A down to a quarter while the edge is unproven");
-    assert.equal(saved.version, "2.4");
+    assert.equal(saved.version, "2.5");
     assert.equal(currentRulebook(db).doc.grades[1].riskPct, 0.25);
-    assert.equal(getVersion(db, "2.3")!.doc.grades[1].riskPct, 0.5); // the old one is untouched
+    assert.equal(getVersion(db, "2.4")!.doc.grades[1].riskPct, 0.5); // the old one is untouched
     assert.equal(saveRulebook(db, doc, "big change", "major").version, "3.0");
   });
 
@@ -231,7 +231,7 @@ describe("rulebook versions", () => {
     const doc = currentRulebook(db).doc;
     assert.throws(() => saveRulebook(db, doc, "  "), RulebookError);
     assert.throws(() => saveRulebook(db, { ...doc, sections: [{ id: "x", title: "X", body: "{{nope}}" }] }, "why"), RulebookError);
-    assert.equal(listVersions(db).length, 7);
+    assert.equal(listVersions(db).length, 8);
   });
 
   it("a trade keeps the version it was graded under after the rulebook is edited", () => {
@@ -257,16 +257,16 @@ describe("v1.3 — the written plan retired", () => {
     assert.equal(v13.doc.planBy, undefined);
     assert.ok(getVersion(db, "1.2")!.doc.baseRules.some((r) => r.id === "plan")); // history untouched
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM plans").get() as Row).n, 1);
-    assert.equal(listVersions(db).length, 7); // and v1.4, 2.0 to 2.3 on top
+    assert.equal(listVersions(db).length, 8); // and v1.4, 2.0 to 2.4 on top
   });
 
   it("carries your own edits from the version in force into v1.3", () => {
     const db = oldDatabase();
     // Stop after v1.2, edit it, then let the plan migration run.
     setupSchema(db);
-    db.prepare("DELETE FROM rulebook_versions WHERE version IN ('1.3', '1.4', '2.0', '2.1', '2.2', '2.3')").run();
+    db.prepare("DELETE FROM rulebook_versions WHERE version IN ('1.3', '1.4', '2.0', '2.1', '2.2', '2.3', '2.4')").run();
     db.prepare(
-      "DELETE FROM meta WHERE key IN ('rulebook:v1.3-plan-retired', 'rulebook:v1.4-condensed', 'rulebook:v2.0-fresh-start', 'rulebook:entry-window-by-hand', 'rulebook:checkin-closes', 'rulebook:journal-v23')",
+      "DELETE FROM meta WHERE key IN ('rulebook:v1.3-plan-retired', 'rulebook:v1.4-condensed', 'rulebook:v2.0-fresh-start', 'rulebook:entry-window-by-hand', 'rulebook:checkin-closes', 'rulebook:journal-v23', 'rulebook:one-day-off')",
     ).run();
     const doc = currentRulebook(db).doc;
     doc.limits.dailyStopPct = 0.8;
@@ -291,14 +291,14 @@ describe("v1.4 — the rulebook condensed", () => {
     const { sections: _a, flow: _b, version: _c, ...valuesNow } = v14.doc;
     const { sections: _d, flow: _e, version: _f, ...valuesBefore } = v13;
     assert.deepEqual(valuesNow, valuesBefore);
-    assert.equal(listVersions(db).length, 7);
+    assert.equal(listVersions(db).length, 8);
   });
 
   it("carries a change you saved on v1.3 into v1.4", () => {
     const db = oldDatabase();
     setupSchema(db);
-    db.prepare("DELETE FROM rulebook_versions WHERE version IN ('1.4', '2.0', '2.1', '2.2', '2.3')").run();
-    db.prepare("DELETE FROM meta WHERE key IN ('rulebook:v1.4-condensed', 'rulebook:v2.0-fresh-start', 'rulebook:entry-window-by-hand', 'rulebook:checkin-closes', 'rulebook:journal-v23')").run();
+    db.prepare("DELETE FROM rulebook_versions WHERE version IN ('1.4', '2.0', '2.1', '2.2', '2.3', '2.4')").run();
+    db.prepare("DELETE FROM meta WHERE key IN ('rulebook:v1.4-condensed', 'rulebook:v2.0-fresh-start', 'rulebook:entry-window-by-hand', 'rulebook:checkin-closes', 'rulebook:journal-v23', 'rulebook:one-day-off')").run();
     const doc = currentRulebook(db).doc;
     doc.limits.weeklyStopPct = 1.5;
     saveRulebook(db, doc, "tighter week"); // v1.4 by you
@@ -320,7 +320,7 @@ describe("2.0 — a fresh start", () => {
     assert.equal(fresh.doc.changelogFrom, "2.0");
     assert.equal(fresh.doc.consequences.anyBreak, true);
     assert.ok(getVersion(db, "1.4")!.doc.factors.some((f) => f.id === "fvg")); // history untouched
-    assert.equal(listVersions(db).length, 7);
+    assert.equal(listVersions(db).length, 8);
   });
 
   it("then has you tick the entry window yourself, keeping the automatic check on what came before", () => {
@@ -348,14 +348,24 @@ describe("2.0 — a fresh start", () => {
     const db = oldDatabase();
     setupSchema(db);
     setupSchema(db);
-    const current = currentRulebook(db);
-    assert.equal(current.version, "2.3");
+    const current = getVersion(db, "2.3")!;
     assert.ok(current.reason.includes("Breakeven"));
     assert.ok(current.doc.flow.exit.includes("target, stop, breakeven, trail"));
     assert.ok(current.doc.sections.find((s) => s.id === "trade")!.body.includes("target, stop, breakeven, trail"));
     assert.ok(!current.doc.hypotheses.some((h) => h.id === "limit-entry"));
     assert.equal(current.doc.hypotheses.find((h) => h.id === "desk")!.loggedAs, "Bias matches the briefing");
     assert.equal(current.doc.checkinCaution, "nothing"); // 2.2 carried over
+  });
+
+  it("then costs one trading day off for a break, keeping two on what came before", () => {
+    const db = oldDatabase();
+    setupSchema(db);
+    setupSchema(db);
+    const current = currentRulebook(db);
+    assert.equal(current.version, "2.4");
+    assert.ok(current.reason.includes("one trading day"));
+    assert.equal(current.doc.consequences.daysOff, 1);
+    assert.equal(getVersion(db, "2.3")!.doc.consequences.daysOff, 2);
   });
 
   it("stores several HTF reasons with their timeframes on a trade", () => {
