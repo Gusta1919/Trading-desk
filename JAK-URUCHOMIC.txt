@@ -69,7 +69,11 @@ DANE DEMO (do wypróbowania Coacha, Risk laba i Compare):
                         (kilka celowych naruszeń, żeby Coach miał co pokazać)
   npm run demo:more     tylko 2 transakcje do Exit laba (MFE)
   npm run demo:fill     300 transakcji zdyscyplinowanego tradera
+  npm run demo:bias     przykładowy briefing Daily Bias na dziś (oznaczony jako demo;
+                        prawdziwy z Gmaila i tak go zastąpi)
+  npm run demo:all      demo:add + demo:bias — cały dziennik wypełniony
   npm run demo:remove   usuwa wszystko oznaczone [demo] — nic innego
+                        (także briefing demo; prawdziwy wraca na miejsce)
   Demo kończy się 29.09.2026, więc nie dotyka żadnego prawdziwego dnia.
 
 DAILY BIAS (ZŁOTO) — SKĄD SIĘ BIERZE:

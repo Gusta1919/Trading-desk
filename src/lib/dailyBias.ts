@@ -124,6 +124,8 @@ export interface DailyBias {
   };
   /** The whole briefing as text — shown when the structured part is unusable. */
   markdown: string;
+  /** Written by `npm run demo:bias`, not by the morning routine. */
+  demo?: boolean;
 }
 
 /** Whether the desk can reach Gmail, and how the last check went. */
@@ -382,6 +384,7 @@ export function parseBias(raw: unknown): DailyBias | null {
       standAside: texts(risk.standAside),
     },
     markdown: str(r.markdown),
+    demo: r.demo === true,
   };
 }
 

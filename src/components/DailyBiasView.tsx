@@ -151,6 +151,12 @@ function Briefing({ b }: { b: DailyBias }) {
    */
   return (
     <div className="space-y-6">
+      {b.demo && (
+        <Notice tone="warn" title="Demo briefing">
+          Written by <code>npm run demo:bias</code> to show every part of this tab; the analysts are made up. Today's
+          real briefing replaces it as soon as it arrives, and <code>npm run demo:remove</code> takes it away.
+        </Notice>
+      )}
       <BiasChart
         b={b}
         pick={pick}

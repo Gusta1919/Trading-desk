@@ -54,6 +54,9 @@ open http://localhost:3847
   `news_rules` hold what the desk used before the rulebook. All are kept, untouched.
 - `npm run demo:add` / `demo:more` / `demo:fill` / `demo:remove` — demo history, tagged `[demo]`
   (`demo:more` adds just the two Exit-lab trades).
+- `npm run demo:bias` writes an example Daily Bias briefing for today, marked `"demo": true`.
+  A real briefing from Gmail still replaces it, and `demo:remove` takes it away again (putting
+  back any real one it covered). `npm run demo:all` = `demo:add` + `demo:bias`: every tab filled in.
 
 ## Code map
 

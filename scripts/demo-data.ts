@@ -7,7 +7,9 @@
  *   npm run demo:more     adds only the two Exit-lab stories, before the demo begins
  *   npm run demo:fill     adds 300 trades from a disciplined, profitable trader
  *                         (`npm run demo:fill -- 500 7` for another count and seed)
- *   npm run demo:remove   removes every one of them again
+ *   npm run demo:bias     writes an example Daily Bias briefing for today
+ *   npm run demo:all      demo:add and demo:bias together — the whole desk filled in
+ *   npm run demo:remove   removes every one of them again (and the demo briefing)
  *
  * Trades go through the running app's own API, so percentages, R and every flag are
  * worked out exactly as for real ones.
@@ -16,11 +18,17 @@
  * "[demo]" — that tag is how `remove` finds them, and nothing without it is ever
  * touched. Days that already have a real check-in are skipped for those. (Older demo
  * runs also wrote daily plans; `remove` still clears those.)
+ *
+ * The demo briefing carries `"demo": true`. The desk never counts it as today's, so a
+ * real briefing from Gmail still replaces it; any real briefing it covered is kept aside
+ * and put back by `remove`.
  */
 import Database from "better-sqlite3";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { QUESTIONS, evaluate } from "../src/lib/checkin";
+import { amsterdamClock } from "../src/lib/dailyBias";
 import { computeGrade } from "../src/lib/grading";
 import type { RulebookVersion } from "../src/lib/rulebook";
 import { BIAS_OPTION } from "../src/lib/rulebookText";
@@ -507,6 +515,196 @@ async function fill(count: number, seed?: number) {
   );
 }
 
+/* ── demo:bias ───────────────────────────────────────────────────────── */
+
+const BIAS_FILE = path.join(here, "..", "data", "daily-bias.json");
+const BIAS_KEPT = path.join(here, "..", "data", "daily-bias.before-demo.json");
+
+const isDemoBriefing = (file: string) => {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"))?.demo === true;
+  } catch {
+    return false;
+  }
+};
+
+/** Gold's last price from the desk's own feed, so the levels sit around the live chart. */
+async function liveSpot(): Promise<number | null> {
+  try {
+    const { candles } = await api<{ candles: { c: number }[] }>("/candles?tf=15m");
+    return candles.at(-1)?.c ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Used when the feed can't be reached; the chart then has no candles to line up with anyway. */
+const FALLBACK_SPOT = 4150;
+
+/**
+ * A complete briefing in the shape the morning routine writes, dated today, with every
+ * section filled so each card on the Daily Bias tab has something to show. Prices are
+ * offsets from spot; the analysts are made up and carry no links.
+ */
+function demoBriefing(day: string, spot: number) {
+  const at = (x: number) => Math.round(spot + x);
+  // The next round number above the PDH, so it is the furthest long target.
+  const round50 = Math.ceil((spot + 20) / 50) * 50;
+  const writtenAt = nyInstant(day, "03:50");
+  const markdown = [
+    `# Gold Daily Bias — ${day} (demo)`,
+    "",
+    `**TL;DR:** Bullish lean (55%). Buy a London sweep of the Asia low into the 4H FVG at ${at(-14)}–${at(-9)}; first target the PDH at ${at(18)}. Stand aside 15 minutes either side of US PCE at 08:30 NY.`,
+    "",
+    "This is a demo briefing written by `npm run demo:bias`. The analysts are invented; nothing here is a real view.",
+  ].join("\n");
+
+  return {
+    demo: true,
+    date: day,
+    generatedAt: writtenAt,
+    spot: Math.round(spot * 10) / 10,
+    spotAt: writtenAt,
+    tldr: `Bullish lean: buy a London sweep of the Asia low into the 4H FVG, target the PDH at ${at(18)}. Flat into PCE.`,
+    bias: {
+      bullish: 55,
+      range: 30,
+      bearish: 15,
+      why: "Daily structure still makes higher highs, the dollar is soft after Thursday's data, and price sits in the discount half of the weekly range.",
+    },
+    keyLevel: {
+      price: at(-9),
+      label: "Asia low",
+      why: "The obvious sell-side liquidity under the Asia range; a sweep and reclaim here is the A+ long of the day.",
+    },
+    mainEvent: {
+      title: "US Core PCE Price Index m/m",
+      at: nyInstant(day, "08:30"),
+      why: "The Fed's preferred inflation gauge. A hot print lifts yields and the dollar, the main risk to the long idea.",
+    },
+    structure: {
+      d1: "Higher highs and higher lows since the mid-September low; yesterday closed back inside the prior day's range.",
+      h4: "Pullback into a bullish FVG left by Wednesday's impulse; no bearish market-structure shift yet.",
+      d1Trend: "bullish",
+      h4Trend: "range",
+      rangeLow: at(-40),
+      rangeHigh: at(60),
+      zone: "discount",
+      why: `Measured on the weekly range ${at(-40)}–${at(60)}: spot sits below its midpoint at ${at(10)}.`,
+    },
+    levels: [
+      { price: at(30), label: "4H bearish order block", kind: "orderblock", sweepProb: 20, verdict: "hold", note: "Last up-close candle before Tuesday's drop." },
+      { price: round50, label: `${round50} round number`, kind: "round", sweepProb: 35, verdict: "unclear", note: "Options interest clusters here." },
+      { price: at(18), label: "Previous day high (PDH)", kind: "liquidity", sweepProb: 45, verdict: "break", note: "Buy-side liquidity; first target for longs." },
+      { price: at(8), label: "Asia high", kind: "resistance", sweepProb: 70, verdict: "break", note: "Likely taken in London if the long plays out." },
+      { price: at(-3), label: "Daily open", kind: "open", sweepProb: null, verdict: "unclear", note: "Above it = bullish day so far." },
+      { price: at(-9), label: "Asia low", kind: "liquidity", sweepProb: 65, verdict: "hold", note: "Sweep and reclaim = the long trigger." },
+      { price: at(-14), label: "4H bullish FVG", kind: "fvg", sweepProb: 40, verdict: "hold", note: `Gap ${at(-14)}–${at(-9)} left by Wednesday's impulse.` },
+      { price: at(-22), label: "Previous day low (PDL)", kind: "liquidity", sweepProb: 15, verdict: "hold", note: "Losing it cancels the bullish read." },
+    ],
+    analysts: [
+      { name: "Demo Analyst A", source: "Example Research", url: "", lean: "bullish", levels: `${at(-14)} / ${at(18)}`, why: "Dips into the 4H gap get bought while the dollar stays soft.", publishedAt: nyInstant(day, "02:10") },
+      { name: "Demo Analyst B", source: "Example Markets Desk", url: "", lean: "bullish", levels: `${at(-9)} / ${round50}`, why: "Targets the round number once the Asia high is cleared.", publishedAt: nyInstant(day, "01:40") },
+      { name: "Demo Analyst C", source: "Example FX Notes", url: "", lean: "neutral", levels: `${at(-22)}–${at(18)}`, why: "Expects a range until PCE; would only trade the breakout.", publishedAt: nyInstant(day, "00:55") },
+      { name: "Demo Analyst D", source: "Example Macro Weekly", url: "", lean: "bullish", levels: `${at(30)}`, why: "Real yields rolling over support the bigger uptrend.", publishedAt: nyInstant(day, "00:20") },
+      { name: "Demo Analyst E", source: "Example Charting Blog", url: "", lean: "bearish", levels: `${at(-22)} / ${at(-40)}`, why: "Sees a double top on the 4H and a run on the PDL.", publishedAt: nyInstant(day, "00:05") },
+    ],
+    consensus: { bullish: 60, neutral: 20, bearish: 20, take: "Three of five lean long; the bears need a hot PCE to get going." },
+    scenarios: [
+      {
+        kind: "primary",
+        title: "London sweep of the Asia low, then the PDH",
+        direction: "long",
+        prob: 55,
+        trigger: `Sweep below ${at(-9)}, 5m market-structure shift back above it.`,
+        targets: [{ price: at(8), prob: 70 }, { price: at(18), prob: 45 }, { price: round50, prob: 25 }],
+        invalidation: at(-22),
+        zoneLow: at(-14),
+        zoneHigh: at(-9),
+        why: "Liquidity below Asia, a fresh 4H gap underneath and a bullish daily trend.",
+      },
+      {
+        kind: "alternative",
+        title: "Hot PCE: lose the PDL",
+        direction: "short",
+        prob: 15,
+        trigger: `A 5m close below ${at(-22)} after the release.`,
+        targets: [{ price: at(-40), prob: 40 }, { price: at(-60), prob: 15 }],
+        invalidation: at(-3),
+        zoneLow: at(-25),
+        zoneHigh: at(-20),
+        why: "A hot print lifts yields and the dollar, and the 4H gap fails.",
+      },
+      {
+        kind: "chop",
+        title: "Range into the release",
+        direction: "flat",
+        prob: 30,
+        trigger: "Asia high and low both hold through London.",
+        targets: [],
+        invalidation: null,
+        zoneLow: at(-9),
+        zoneHigh: at(8),
+        why: "Traders wait for PCE; no clean setup before 08:30 NY.",
+      },
+    ],
+    sessions: [
+      { label: "Asia: range", prob: 75, why: "Quiet overnight, a 17-dollar range so far." },
+      { label: "London: sweeps the Asia low", prob: 60, why: "The usual London stop run before direction." },
+      { label: "New York: trends after PCE", prob: 50, why: "The release decides the afternoon." },
+    ],
+    macro: {
+      dxy: "DXY 97.8, down 0.2% — a soft dollar helps gold.",
+      yields: "US 10-year 4.05%, down 3 bp; real yields easing.",
+      flow: "ETF holdings up for a fifth day; futures positioning still long but not stretched.",
+      drivers: [
+        { name: "DXY", value: "97.8", change: "−0.2%", gold: "bullish" },
+        { name: "US 10Y yield", value: "4.05%", change: "−3 bp", gold: "bullish" },
+        { name: "S&P 500 futures", value: "6,710", change: "+0.1%", gold: "neutral" },
+        { name: "Oil (WTI)", value: "$64.20", change: "+1.1%", gold: "neutral" },
+        { name: "Silver", value: "$48.90", change: "−0.4%", gold: "bearish" },
+      ],
+      surprise: {
+        event: "US Core PCE m/m",
+        bullish: 45,
+        bearish: 55,
+        why: "Forecast 0.2%; a 0.3% print is a little more likely than 0.1%.",
+      },
+    },
+    risk: {
+      events: [
+        { title: "US Core PCE Price Index m/m", at: nyInstant(day, "08:30"), impact: "High" },
+        { title: "US Personal Spending m/m", at: nyInstant(day, "08:30"), impact: "Medium" },
+        { title: "University of Michigan Sentiment", at: nyInstant(day, "10:00"), impact: "Medium" },
+        { title: "FOMC member speaks", at: nyInstant(day, "13:00"), impact: "Low" },
+      ],
+      atr: 38,
+      dayLow: at(-6),
+      dayHigh: at(11),
+      expectedRange: `${at(-25)}–${at(25)} (about 1.3× the daily ATR)`,
+      standAside: [
+        "15 minutes either side of PCE at 08:30 NY",
+        "If the PDL breaks before London opens",
+        "After two losing trades",
+      ],
+    },
+    markdown,
+  };
+}
+
+async function bias() {
+  const day = amsterdamClock(new Date()).date;
+  const live = await liveSpot();
+  const spot = live ?? FALLBACK_SPOT;
+  fs.mkdirSync(path.dirname(BIAS_FILE), { recursive: true });
+  // A real briefing on disk is kept aside, never overwritten.
+  if (fs.existsSync(BIAS_FILE) && !isDemoBriefing(BIAS_FILE)) fs.copyFileSync(BIAS_FILE, BIAS_KEPT);
+  fs.writeFileSync(BIAS_FILE, JSON.stringify(demoBriefing(day, spot), null, 2));
+  console.log(
+    `Wrote a demo Daily Bias briefing for ${day} around ${live != null ? `live spot ${spot}` : `$${spot} (price feed unreachable)`}.`,
+  );
+}
+
 /* ── demo:remove ─────────────────────────────────────────────────────── */
 
 async function remove() {
@@ -520,6 +718,16 @@ async function remove() {
   // Through the API, so the balance and every later trade's % and flags are recalculated.
   for (const t of demo) await api(`/trades/${t.id}`, { method: "DELETE" });
   console.log(`Removed ${demo.length} demo trades, ${checkins} demo check-ins and ${plans} demo plans.`);
+
+  // The demo briefing goes; a real one it covered comes back. A real briefing that has
+  // since replaced the demo stays where it is.
+  if (isDemoBriefing(BIAS_FILE)) {
+    if (fs.existsSync(BIAS_KEPT)) fs.renameSync(BIAS_KEPT, BIAS_FILE);
+    else fs.rmSync(BIAS_FILE);
+    console.log("Removed the demo briefing.");
+  } else if (fs.existsSync(BIAS_KEPT)) {
+    fs.rmSync(BIAS_KEPT);
+  }
 }
 
 const mode = process.argv[2];
@@ -532,7 +740,11 @@ const run =
         ? more()
       : mode === "fill"
         ? fill(Number(process.argv[3]) || 300, Number(process.argv[4]) || undefined)
-        : Promise.reject(new Error("Use: add | more | fill [count] [seed] | remove"));
+      : mode === "bias"
+        ? bias()
+      : mode === "all"
+        ? add().then(bias)
+        : Promise.reject(new Error("Use: add | more | fill [count] [seed] | bias | all | remove"));
 run.catch((e) => {
   console.error(e.message);
   process.exit(1);
