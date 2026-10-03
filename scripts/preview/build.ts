@@ -47,6 +47,34 @@ async function snapshot() {
   };
 }
 
+/*
+ * The host's shell styles <body> outside any cascade layer (an off-white ground, the system
+ * font, a light colour scheme), and unlayered rules beat the app's own, which Tailwind keeps
+ * in `@layer base`. Restated here, unlayered too, from the app's own tokens.
+ */
+const HOST_SHELL_FIX = [
+  ":root{color-scheme:light}",
+  '@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark}}',
+  ':root[data-theme="dark"]{color-scheme:dark}',
+  "body{margin:0;background:var(--color-bg);color:var(--color-ink);font:14px/1.625 var(--font-sans)}",
+].join("");
+
+/*
+ * The desk follows the system's light or dark setting. The host can also set the theme
+ * itself (data-theme on the root), so the dark tokens answer to that too: an explicit
+ * "light" keeps the light desk on a dark system, an explicit "dark" turns it dark.
+ */
+function themeFollowsHost(file: string) {
+  const css = fs.readFileSync(file, "utf8");
+  const dark = css.match(/@media ?\(prefers-color-scheme: ?dark\) ?\{:root\{([^}]*)\}\}/);
+  if (!dark) throw new Error("The dark theme block wasn't found in the built CSS");
+  const next = css.replace(
+    dark[0],
+    `@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${dark[1]}}}:root[data-theme="dark"]{${dark[1]}}`,
+  );
+  fs.writeFileSync(file, next);
+}
+
 async function main() {
   let data: Awaited<ReturnType<typeof snapshot>>;
   try {
@@ -63,11 +91,14 @@ async function main() {
   const js = [...built.matchAll(/<script type="module"[^>]*src="([^"]+)"/g)].map((m) => m[1]);
   if (!js.length) throw new Error("The build has no entry script");
 
+  for (const href of css) themeFollowsHost(path.join(OUT, href));
+
   // `<` is escaped so no text in the data can close the script tag.
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
   const page = [
     "<title>Gucci Trade Journal</title>",
     ...css.map((href) => `<link rel="stylesheet" href="${href}">`),
+    `<style>${HOST_SHELL_FIX}</style>`,
     '<div id="root"></div>',
     `<script>window.__PREVIEW__ = ${json};</script>`,
     `<script>\n${fs.readFileSync(path.join(root, "scripts", "preview", "shim.js"), "utf8")}</script>`,
